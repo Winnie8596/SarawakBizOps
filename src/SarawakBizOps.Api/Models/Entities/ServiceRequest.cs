@@ -27,6 +27,12 @@ public class ServiceRequest
     public ApplicationUser? ApprovedByUser { get; set; }
     public DateTime? ApprovedAt { get; set; }
 
+    // Set together when a Manager rejects the request; the reason is mandatory (PRD §6.3).
+    public string? RejectionReason { get; set; }
+    public string? RejectedByUserId { get; set; }
+    public ApplicationUser? RejectedByUser { get; set; }
+    public DateTime? RejectedAt { get; set; }
+
     // 1:1 for MVP — BR-12: a ServiceRequest can produce at most one WorkOrder.
     public WorkOrder? WorkOrder { get; set; }
 }

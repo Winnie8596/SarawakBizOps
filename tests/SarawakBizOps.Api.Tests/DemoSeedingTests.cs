@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Auth;
+using SarawakBizOps.Api.DTOs.Equipment;
+using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Tests.Infrastructure;
@@ -64,15 +66,44 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var before = (await db.Users.CountAsync(), await db.Customers.CountAsync(), await db.Equipment.CountAsync());
+        var before = await CountsAsync(db);
 
         await DemoSeeder.SeedAsync(scope.ServiceProvider);
         await DbSeeder.SeedAsync(scope.ServiceProvider);
 
-        var after = (await db.Users.CountAsync(), await db.Customers.CountAsync(), await db.Equipment.CountAsync());
+        var after = await CountsAsync(db);
         Assert.Equal(before, after);
-        Assert.Equal(5, after.Item2);
-        Assert.Equal(10, after.Item3);
+        Assert.Equal(5, after.Customers);
+        Assert.Equal(10, after.Equipment);
+        Assert.Equal(6, after.Requests);
+    }
+
+    private static async Task<(int Users, int Customers, int Equipment, int Requests)> CountsAsync(ApplicationDbContext db)
+        => (await db.Users.CountAsync(), await db.Customers.CountAsync(),
+            await db.Equipment.CountAsync(), await db.ServiceRequests.CountAsync());
+
+    [Fact]
+    public async Task Demo_requests_cover_the_new_approved_and_rejected_states_for_the_manager()
+    {
+        var manager = await _factory.CreateAuthenticatedClientAsync(
+            "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
+
+        var requests = await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests");
+
+        Assert.Equal(6, requests!.Count);
+        Assert.Equal(3, requests.Count(r => r.Status == "New"));
+        Assert.Equal(2, requests.Count(r => r.Status == "Approved"));
+        var rejected = Assert.Single(requests, r => r.Status == "Rejected");
+        Assert.False(string.IsNullOrWhiteSpace(rejected.RejectionReason));
+        Assert.NotNull(rejected.RejectedByName);
+        Assert.Contains(requests, r => r.Status == "New" && r.Priority == "Urgent");
+        Assert.All(requests, r => Assert.Equal("Aina Abdullah", r.CreatedByName));
+        // Every seeded request satisfies BR-10: its equipment belongs to its customer.
+        foreach (var request in requests)
+        {
+            var equipment = await manager.GetFromJsonAsync<EquipmentDto>($"/api/equipment/{request.EquipmentId}");
+            Assert.Equal(request.CustomerId, equipment!.CustomerId);
+        }
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)

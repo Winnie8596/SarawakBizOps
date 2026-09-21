@@ -23,6 +23,16 @@ public class ServiceRequestConfiguration : IEntityTypeConfiguration<ServiceReque
             .HasForeignKey(sr => sr.ApprovedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.Property(sr => sr.RejectionReason).HasMaxLength(500);
+
+        builder.HasOne(sr => sr.RejectedByUser)
+            .WithMany()
+            .HasForeignKey(sr => sr.RejectedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // The Manager queue and every list filter start from the status.
+        builder.HasIndex(sr => sr.Status);
+
         // 1:1 with WorkOrder — BR-12 (at most one WorkOrder per ServiceRequest).
         builder.HasOne(sr => sr.WorkOrder)
             .WithOne(wo => wo.ServiceRequest)

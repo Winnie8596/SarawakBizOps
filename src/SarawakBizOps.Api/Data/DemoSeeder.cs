@@ -6,9 +6,10 @@ using SarawakBizOps.Api.Models.Enums;
 namespace SarawakBizOps.Api.Data;
 
 /// <summary>
-/// Opt-in sample data for demos (Seed:Demo=true): one account per role plus fictional customers
-/// and equipment. Every row is inserted only if its natural key is missing (email, company name,
-/// serial number), so it is safe to run on every start and a half-finished earlier run heals itself.
+/// Opt-in sample data for demos (Seed:Demo=true): one account per role plus fictional customers,
+/// equipment and service requests. Every row is inserted only if its natural key is missing (email,
+/// company name, serial number, equipment + problem text), so it is safe to run on every start and a
+/// half-finished earlier run heals itself.
 /// Later phases extend this class with their lifecycle states.
 /// All names, numbers and addresses are fictional.
 /// </summary>
@@ -82,7 +83,93 @@ public static class DemoSeeder
         }
 
         await SeedUsersAsync(services, password);
-        await SeedCustomersAndEquipmentAsync(services.GetRequiredService<ApplicationDbContext>(), ct);
+
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        await SeedCustomersAndEquipmentAsync(db, ct);
+        await SeedServiceRequestsAsync(services.GetRequiredService<UserManager<ApplicationUser>>(), db, ct);
+    }
+
+    // Phase 3 states only: New, Approved and Rejected. Assigned and Cancelled rows arrive with the
+    // phases that can produce them, so the demo never shows a state the app cannot reach yet.
+    private record DemoRequest(
+        string EquipmentSerial, string Problem, RequestPriority Priority, ServiceRequestStatus Status,
+        int CreatedDaysAgo, int? ReviewedDaysAgo = null, string? RejectionReason = null);
+
+    private static readonly DemoRequest[] Requests =
+    {
+        new("KCC-CHL-001",
+            "Chiller in cold room 1 is not holding temperature; the compressor cycles every few minutes.",
+            RequestPriority.High, ServiceRequestStatus.New, CreatedDaysAgo: 1),
+        new("SBW-FIL-001",
+            "Filling line A is rejecting about 1 in 10 bottles; fill levels are inconsistent.",
+            RequestPriority.Medium, ServiceRequestStatus.New, CreatedDaysAgo: 2),
+        new("SPO-BLR-001",
+            "Steam boiler pressure gauge reads erratically and the safety valve vented twice overnight.",
+            RequestPriority.Urgent, ServiceRequestStatus.New, CreatedDaysAgo: 3),
+        new("RTM-BSW-001",
+            "Band saw blade tracking drifts after warm-up, with unusual vibration on the sawmill floor.",
+            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 9, ReviewedDaysAgo: 8),
+        new("SPO-PMP-002",
+            "Centrifugal pump seal is leaking at the clarification station.",
+            RequestPriority.High, ServiceRequestStatus.Approved, CreatedDaysAgo: 14, ReviewedDaysAgo: 13),
+        new("RTM-CNV-003",
+            "Log conveyor motor trips out under load.",
+            RequestPriority.Low, ServiceRequestStatus.Rejected, CreatedDaysAgo: 20, ReviewedDaysAgo: 19,
+            RejectionReason: "The conveyor is inactive pending replacement, so a repair is not worthwhile. " +
+                             "Raise a new request if the unit is reinstated.")
+    };
+
+    // Natural key: equipment serial number + problem text. Created by the demo ServiceStaff account and
+    // reviewed by the demo Manager, with dates spread over three weeks so lists and history look lived-in.
+    private static async Task SeedServiceRequestsAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, CancellationToken ct)
+    {
+        var staff = await userManager.FindByEmailAsync("staff@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo ServiceStaff account is missing.");
+        var manager = await userManager.FindByEmailAsync("manager@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Manager account is missing.");
+
+        var equipmentBySerial = await db.Equipment.ToDictionaryAsync(e => e.SerialNumber, StringComparer.OrdinalIgnoreCase, ct);
+        var existing = (await db.ServiceRequests.Select(r => new { r.EquipmentId, r.ProblemDescription }).ToListAsync(ct))
+            .Select(r => (r.EquipmentId, r.ProblemDescription))
+            .ToHashSet();
+
+        var now = DateTime.UtcNow;
+        foreach (var demo in Requests)
+        {
+            var equipment = equipmentBySerial[demo.EquipmentSerial];
+            if (!existing.Add((equipment.Id, demo.Problem)))
+            {
+                continue;
+            }
+
+            var request = new ServiceRequest
+            {
+                CustomerId = equipment.CustomerId,
+                EquipmentId = equipment.Id,
+                ProblemDescription = demo.Problem,
+                Priority = demo.Priority,
+                Status = demo.Status,
+                CreatedByUserId = staff.Id,
+                CreatedAt = now.AddDays(-demo.CreatedDaysAgo)
+            };
+
+            if (demo.Status == ServiceRequestStatus.Approved)
+            {
+                request.ApprovedByUserId = manager.Id;
+                request.ApprovedAt = now.AddDays(-demo.ReviewedDaysAgo!.Value);
+            }
+            else if (demo.Status == ServiceRequestStatus.Rejected)
+            {
+                request.RejectedByUserId = manager.Id;
+                request.RejectedAt = now.AddDays(-demo.ReviewedDaysAgo!.Value);
+                request.RejectionReason = demo.RejectionReason;
+            }
+
+            db.ServiceRequests.Add(request);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     private static async Task SeedUsersAsync(IServiceProvider services, string password)
