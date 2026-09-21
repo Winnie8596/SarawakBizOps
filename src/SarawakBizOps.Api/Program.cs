@@ -43,6 +43,15 @@ var jwtSection = builder.Configuration.GetSection("Jwt");
 var jwtKey = jwtSection["Key"]
     ?? throw new InvalidOperationException("Jwt:Key is not configured. Set it via 'dotnet user-secrets'.");
 
+// The committed appsettings.json holds a placeholder. Refuse to run with it (or any
+// short key) so a fresh clone can never issue tokens signed with a publicly-known secret.
+if (jwtKey.StartsWith("REPLACE_ME", StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
+{
+    throw new InvalidOperationException(
+        "Jwt:Key is a placeholder or shorter than 32 bytes. Set a real key: " +
+        "dotnet user-secrets set \"Jwt:Key\" \"<random 32+ character string>\" --project src/SarawakBizOps.Api");
+}
+
 builder.Services
     .AddAuthentication(options =>
     {

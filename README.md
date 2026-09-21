@@ -1,178 +1,150 @@
-# SarawakBizOps — Full-Stack Starter (Phases 1–4)
+# SarawakBizOps
 
-This is the working foundation of the SarawakBizOps portfolio project, generated directly from
-**System Design Document v1.1**: a backend API plus a matching React web app, covering one
-complete vertical slice (Auth → Customers → Equipment) end-to-end. It is not the whole system —
-see "What's deliberately not included yet" below for what's next, on purpose.
+A **fictional, Sarawak-based field-service management platform** for a small/medium
+industrial-equipment servicing company. It takes a job from a customer's problem report to an
+approved, documented, inventory-accounted service report:
 
-Two projects, meant to run side by side:
+```
+Customer report → Service Request → Manager approval → Technician assignment → Work Order
+→ Field execution (diagnosis, parts, photos, signature) → Completion → Service Report (PDF)
+→ Manager approval → Analytics / AI
+```
+
+**Stack:** ASP.NET Core 8 · EF Core · SQL Server · ASP.NET Identity + JWT · React 18 + TypeScript (Vite)
+
+> **Work in progress.** This is a portfolio project being built one vertical slice at a time.
+> The backend is the system of record and enforces every business rule; the web clients are thin.
+
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+
+## Documents
+
+| Document | Purpose |
+|---|---|
+| [`prd.md`](./prd.md) | Product requirements: scope, priorities, design decisions (D-01…D-08), Definition of Done |
+| [`plan.md`](./plan.md) | Phase-by-phase implementation plan with exit criteria and AC traceability |
+| System Design Document v1.1 | Source of truth for data model, lifecycles, business rules (BR-01…14) and acceptance criteria (AC-01…11). Where the PRD and the SDD disagree, the PRD wins. |
+
+## Status
+
+| Plan phase | Scope | State |
+|---|---|---|
+| 0 | Foundation & hygiene (git, tests, CI, error shape) | In progress |
+| 1 | Users admin, change-password, Customers/Equipment completion | Next |
+| 2–10 | Service requests → work orders → inventory → UI → files/PDF → dashboard → AI → hardening → Docker/docs | Planned |
+
+**Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login and `GET /api/auth/me`,
+all 10 entities with Fluent API config and the `InitialCreate` migration, Customers (list/get/create/update),
+Equipment (list/get/create), RFC 7807 error responses, Swagger with bearer auth, and a React office
+console (login, role-aware routes, dashboard counts, Customers and Equipment pages).
 
 ```
 src/
-├── SarawakBizOps.Api/   ASP.NET Core Web API + EF Core + Identity
-└── SarawakBizOps.Web/   React + TypeScript office console (Admin/Manager/ServiceStaff/Warehouse)
+├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity
+└── SarawakBizOps.Web/          React + TypeScript office console
+tests/
+└── SarawakBizOps.Api.Tests/    xUnit; integration tests run against real SQL Server (Testcontainers)
 ```
-
-## What's included
-
-| Design doc reference | What's built |
-|---|---|
-| Section 5 — Identity | `ApplicationUser : IdentityUser`, JWT issuance, role seeding |
-| Section 6 — Core Data Model | All 10 entities (Customer, Equipment, ServiceRequest, WorkOrder, Part, WorkOrderPart, InventoryTransaction, WorkOrderPhoto, ServiceReport, ApplicationUser) |
-| Section 7 — Relationships | Full `ApplicationDbContext` with Fluent API configuration for every FK, unique index and cascade rule |
-| Section 12/13 — API Design | `/api/auth/*`, `/api/customers/*`, `/api/equipment/*` — DTOs, role-based `[Authorize]`, consistent error responses |
-| Section 16 — Mobile vs Web | The office-facing web app: login, dashboard shell, Customers CRUD, Equipment CRUD |
-| Section 21/22 — Stack & Structure | React + TypeScript (Vite), matching the `Controllers/Data/Models/DTOs/Services/Middleware` backend layout |
-| Roadmap Phases 1–4 | Solution setup, Identity, entities, JWT auth, and a first web UI slice |
-
-## What's deliberately NOT included yet
-
-Following your own design doc's build strategy (Section 24 — *"implement one vertical slice
-at a time"*), these are next, not missing by accident:
-
-- **ServiceRequest / WorkOrder engine** (Phase 5) — the state-machine logic in Sections 8–9, and
-  its corresponding web pages
-- **Inventory issuing + concurrency handling** (Phase 6) — Section 10's atomic issue-on-add rule
-- **Equipment history, ServiceRequest CRUD, Update/history endpoints**
-- **React Native mobile app** for technicians (Phase 8)
-- **AI features, PDF report generation, Docker/CI-CD** (Phases 9–12)
-- **Manager dashboard analytics** — the current dashboard shows real customer/equipment counts
-  as a placeholder; `/api/dashboard/summary` (Section 12) doesn't exist yet
 
 ---
 
-## Part 1 — Backend (`src/SarawakBizOps.Api`)
+## Running it locally
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download) (targets `net8.0` — bump `TargetFramework`
-  in the `.csproj` if you're on a newer SDK, the code itself doesn't need to change)
+- [.NET 8 SDK](https://dotnet.microsoft.com/download) (a newer SDK also works; the projects target `net8.0`)
 - SQL Server LocalDB (ships with Visual Studio) or any SQL Server instance
+- [Node.js](https://nodejs.org/) 18+ and npm
+- Docker Desktop — **only** needed to run the integration tests
 
-### Setup
+### Backend
 
 ```bash
 cd src/SarawakBizOps.Api
 
-# 1. Restore packages
-dotnet restore
-
-# 2. Set the JWT signing key OUTSIDE the repo (never commit a real secret
-#    in appsettings.json — the placeholder there is intentionally unusable)
-dotnet user-secrets init
+# Set the JWT signing key OUTSIDE the repo. The placeholder in appsettings.json is
+# deliberately rejected at startup, so the API will not run until you do this.
 dotnet user-secrets set "Jwt:Key" "a-long-random-string-at-least-32-characters"
 
-# Optional: override the seeded admin credentials the same way
+# Optional: choose the seeded admin password instead of the demo default
 dotnet user-secrets set "Seed:AdminPassword" "something-only-you-know"
 
-# 3. Point ConnectionStrings:DefaultConnection at your SQL Server if you're
-#    not using the default LocalDB instance
+# Create the database (the migration already exists in the repo)
+dotnet ef database update      # if missing: dotnet tool install --global dotnet-ef
 
-# 4. Create and apply the first migration
-dotnet ef migrations add InitialCreate
-dotnet ef database update
-
-# 5. Run it (fixed port via Properties/launchSettings.json — see note below)
 dotnet run
 ```
 
-This opens `http://localhost:5080/swagger` (the `http` launch profile is the default — see
-"Known harmless warning" below for why HTTP is the easy path locally). Click **Authorize**,
-log in via `POST /api/auth/login` with the seeded admin (`admin@sarawakbizops.local` / the
-password you set above, default `ChangeMe123!`), paste the returned token as `Bearer {token}`,
-and you can now call the Customer/Equipment endpoints as an authenticated Admin.
+Swagger opens at `http://localhost:5080/swagger`. Log in via `POST /api/auth/login`, click
+**Authorize** and paste `Bearer {token}`. Point `ConnectionStrings:DefaultConnection` at your own
+SQL Server if you are not using the default LocalDB instance.
 
-If `dotnet ef` isn't found: `dotnet tool install --global dotnet-ef`.
+> **Demo credentials.** The seeded admin is `admin@sarawakbizops.local` with the default password
+> `ChangeMe123!` unless you override `Seed:AdminPassword`. This default is **for local demos only** and
+> must never be used on a real deployment.
 
-**Known harmless warning:** running the `http` profile prints a one-line warning about not
-being able to determine an HTTPS redirect port — safe to ignore for local dev. To avoid it
-entirely, run `dotnet run --launch-profile https` instead, after trusting the dev cert once
-with `dotnet dev-certs https --trust`.
-
-### Design decisions carried over from v1.1
-
-- **No custom password/role fields** — Identity owns all of that (Section 5).
-- **`RowVersion` concurrency tokens** on `WorkOrder` and `Part` — not in the original v1.1
-  table listing, added here because Section 10 and Section 18 both call for transactional,
-  concurrency-safe writes on exactly those two tables (two technicians issuing the last unit
-  of stock, or racing on the same work order's status). `[Timestamp]` gives EF Core's optimistic
-  concurrency check for free — a conflicting save throws `DbUpdateConcurrencyException` instead
-  of silently overwriting someone else's change.
-- **Repository layer omitted** — Section 1 of your review explicitly made this optional;
-  services talk to `ApplicationDbContext` directly, which is clearer for an app this size.
-- **Manual DTO mapping**, no AutoMapper — one less dependency, and the mapping is visible and
-  easy to extend when you add ServiceRequest/WorkOrder DTOs next.
-- **`Properties/launchSettings.json` added** (not in the original file list) — fixes the dev
-  port at `5080`/`5443` so the web app's `.env.example` can point somewhere real instead of
-  guessing at a random Kestrel port.
-
----
-
-## Part 2 — Web app (`src/SarawakBizOps.Web`)
-
-A React + TypeScript (Vite) single-page app for Admin / Manager / Service Staff / Warehouse
-Staff. No UI library or CSS framework — plain CSS with design tokens, styled to match the
-navy/steel identity from the System Design Document PDF rather than a generic template look.
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 18+ and npm
-
-### Setup
+### Web app
 
 ```bash
 cd src/SarawakBizOps.Web
-
 npm install
-cp .env.example .env.local   # adjust VITE_API_BASE_URL if your API runs elsewhere
+cp .env.example .env.local     # adjust VITE_API_BASE_URL if the API runs elsewhere
 npm run dev
 ```
 
-Open `http://localhost:5173`. Log in with the same seeded admin account as above. The backend's
-CORS policy already allows `http://localhost:5173`, so this works with zero extra config as
-long as the API is running.
+Open `http://localhost:5173` and sign in with the admin account above.
 
-### What's on screen
+### Tests
 
-- **Login** — calls `POST /api/auth/login`, stores the JWT + role list in `localStorage`
-- **Dashboard** — a real (if minimal) view: live counts of customers and equipment
-- **Customers** — list, create, and edit, gated to Admin/ServiceStaff (matches the backend's
-  `[Authorize(Roles = "Admin,ServiceStaff")]`); everyone else gets read-only
-- **Equipment** — list (filterable by customer), create with a customer picker, status shown
-  as a colored badge
+```bash
+dotnet test                    # requires Docker running; starts a throwaway SQL Server container
+```
 
-### Design decisions
-
-- **No axios, no state-management library** — a ~40-line `fetch` wrapper (`src/api/client.ts`)
-  and React Context (`src/auth/AuthContext.tsx`) cover everything this slice needs. Add a real
-  data-fetching library (TanStack Query is a good fit) once ServiceRequest/WorkOrder bring more
-  cross-page cache invalidation than `useEffect` can comfortably handle.
-- **UI hides what the API would reject** (e.g., the "New customer" button, for a Technician role)
-  as a courtesy, not as security — the real authorization check is server-side, matching Section
-  13's API rule that a client can't be trusted to enforce its own permissions.
-- **System font stack**, not a webfont — this console lives in a browser tab all day; instant
-  load beats brand personality for an internal tool.
-
-### A note on verification
-
-I don't have network access in the environment I built this in, so I couldn't run `npm install`
-or a real `tsc`/`vite build` against the actual `react`/`react-router-dom` packages. I did
-type-check every file against hand-written minimal stubs for those packages to catch internal
-bugs (typos, mismatched prop names, inconsistent types between files) — that came back clean —
-but a stub can't catch everything a real `@types/react` would. Treat your first `npm run dev` as
-the real test; if something doesn't compile, it's most likely a version-specific typing detail,
-not a logic error, and should be quick to fix.
+The first run downloads the SQL Server image (about 1.5 GB) and takes a couple of minutes; later runs
+take well under a minute. CI (GitHub Actions) builds the solution, runs the tests and builds the web app on every push and PR.
 
 ---
 
-## Suggested next step
+## Architecture and conventions
 
-Pick up Phase 5 using this code as the template on both sides:
-- **API:** a `ServiceRequestsController` + `ServiceRequestService` (create → approve/reject →
-  assign, per Section 8), then the `WorkOrder` state machine (Section 9) with the transition
-  guards from Section 9's table.
-- **Web:** a `ServiceRequestsPage` following the exact shape of `CustomersPage.tsx` — list,
-  create form, and role-gated actions for the approve/reject/assign buttons.
+- **Layering:** `Controller (thin) → Service (rules, transactions) → ApplicationDbContext`. DTOs only,
+  manual mapping, no repository layer.
+- **Authorization is server-side.** `[Authorize(Roles=…)]` plus ownership checks in services. The UI hides
+  what the API would reject, as a courtesy and not as security.
+- **Errors** are RFC 7807 `application/problem+json` for every 4xx/5xx (validation failures add an
+  `errors` map; 500s carry a `traceId`, never a stack trace). The web `apiFetch` wrapper turns these into a
+  single `ApiError`, and a 401 on an authenticated call ends the session and redirects to `/login`.
+- **Time and money:** UTC in storage, MYT (UTC+8) on display; currency shown as RM.
 
-The Customer/Equipment slice on both sides shows the pattern to repeat: same layering, same
-role-restriction approach, same error-handling style.
+### Dependencies and why
+
+Minimal by design (PRD D-06): a library is added only when a requirement demands it.
+
+| Where | Package | Why |
+|---|---|---|
+| API | ASP.NET Core Identity, EF Core SQL Server, JwtBearer, Swashbuckle | Auth, persistence, API docs |
+| Web | React, react-router-dom | UI and routing; plain CSS, `fetch` wrapper, Context (no UI or state library) |
+| Tests | xUnit, Microsoft.AspNetCore.Mvc.Testing, Testcontainers.MsSql | Integration tests against the real API and real SQL Server, so transactions and `RowVersion` concurrency behave as in production |
+
+### Design decisions carried from the SDD
+
+- **No custom password/role fields.** Identity owns all of that.
+- **`RowVersion` concurrency tokens** on `WorkOrder` and `Part`, for transactional, concurrency-safe
+  status changes and stock issuing (a conflicting save throws `DbUpdateConcurrencyException` instead
+  of silently overwriting someone else's change).
+- **Repository layer omitted** and **manual DTO mapping**: less indirection for an app this size.
+- **`launchSettings.json` pins the dev ports** (`5080`/`5443`) so the web app's `.env.example` points at a real port.
+
+---
+
+## Known limitations
+
+- Seeded admin uses a demo default password unless overridden (see above).
+- Only Customers and Equipment are implemented so far; the workflow engine, inventory, files/PDF,
+  dashboard analytics and AI features are planned in [`plan.md`](./plan.md).
+- A JWT stays valid until it expires even if the user is deactivated afterwards; only new logins are
+  blocked today. Rejecting tokens of deactivated users is planned for Phase 1.
+
+## License
+
+[MIT](./LICENSE)
