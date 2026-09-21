@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Equipment;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Common;
 
 namespace SarawakBizOps.Api.Services.Equipment;
 
@@ -65,6 +66,43 @@ public class EquipmentService : IEquipmentService
         await _db.SaveChangesAsync(ct);
 
         return (true, null, ToDto(equipment));
+    }
+
+    public async Task<ServiceResult<EquipmentDto>> UpdateAsync(
+        int id, EquipmentUpdateRequest request, CancellationToken ct)
+    {
+        var equipment = await _db.Equipment.FindAsync(new object[] { id }, ct);
+        if (equipment is null)
+        {
+            return ServiceResult<EquipmentDto>.Fail(ServiceErrorKind.NotFound, "Equipment not found.");
+        }
+
+        if (!Enum.TryParse<EquipmentStatus>(request.Status, ignoreCase: false, out var status)
+            || !Enum.IsDefined(status))
+        {
+            return ServiceResult<EquipmentDto>.Fail(ServiceErrorKind.Validation,
+                $"Status must be one of: {string.Join(", ", Enum.GetNames<EquipmentStatus>())}.");
+        }
+
+        var serialTaken = await _db.Equipment.AnyAsync(
+            e => e.SerialNumber == request.SerialNumber && e.Id != id, ct);
+        if (serialTaken)
+        {
+            return ServiceResult<EquipmentDto>.Fail(ServiceErrorKind.Validation,
+                "An equipment record with this serial number already exists.");
+        }
+
+        // CustomerId is intentionally not updatable (see EquipmentUpdateRequest).
+        equipment.SerialNumber = request.SerialNumber;
+        equipment.EquipmentType = request.EquipmentType;
+        equipment.Brand = request.Brand;
+        equipment.Model = request.Model;
+        equipment.InstallationDate = request.InstallationDate;
+        equipment.Location = request.Location;
+        equipment.Status = status;
+
+        await _db.SaveChangesAsync(ct);
+        return ServiceResult<EquipmentDto>.Ok(ToDto(equipment));
     }
 
     private static EquipmentDto ToDto(Models.Entities.Equipment e) => new()

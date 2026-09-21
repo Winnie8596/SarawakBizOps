@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Customers;
 using SarawakBizOps.Api.Services.Customers;
+using SarawakBizOps.Api.Services.History;
 
 namespace SarawakBizOps.Api.Controllers;
 
@@ -12,9 +13,21 @@ public class CustomersController : ControllerBase
 {
     private readonly ICustomerService _customerService;
 
-    public CustomersController(ICustomerService customerService)
+    private readonly IServiceHistoryService _historyService;
+
+    public CustomersController(ICustomerService customerService, IServiceHistoryService historyService)
     {
         _customerService = customerService;
+        _historyService = historyService;
+    }
+
+    // Office roles only: a Technician's view of history is limited to their own jobs (BR-02).
+    [HttpGet("{id:int}/history")]
+    [Authorize(Roles = "Admin,Manager,ServiceStaff")]
+    public async Task<IActionResult> GetHistory(int id, CancellationToken ct)
+    {
+        var history = await _historyService.ForCustomerAsync(id, ct);
+        return history is null ? NotFound() : Ok(history);
     }
 
     [HttpGet]
