@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { createCustomer, getCustomers, updateCustomer } from '../api/customers'
 import { ApiError } from '../api/client'
@@ -190,7 +191,7 @@ export function CustomersPage() {
           <tbody>
             {customers.map(customer => (
               <tr key={customer.id}>
-                <td>{customer.companyName}</td>
+                <td><Link to={`/customers/${customer.id}`}>{customer.companyName}</Link></td>
                 <td>{customer.contactPerson || '—'}</td>
                 <td className="mono">{customer.phone || '—'}</td>
                 <td>{customer.email || '—'}</td>

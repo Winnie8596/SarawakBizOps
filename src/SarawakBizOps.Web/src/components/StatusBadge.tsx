@@ -3,10 +3,17 @@ interface StatusBadgeProps {
 }
 
 const STATUS_TONE: Record<string, string> = {
+  // Equipment
   Active: 'tone-green',
   Inactive: 'tone-grey',
   UnderMaintenance: 'tone-amber',
-  Retired: 'tone-grey'
+  Retired: 'tone-grey',
+  // Service requests
+  New: 'tone-amber',
+  Approved: 'tone-green',
+  Assigned: 'tone-green',
+  Rejected: 'tone-grey',
+  Cancelled: 'tone-grey'
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {

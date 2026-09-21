@@ -29,14 +29,15 @@ Customer report → Service Request → Manager approval → Technician assignme
 
 | Plan phase | Scope | State |
 |---|---|---|
-| 0 | Foundation & hygiene (git, tests, CI, error shape) | In progress |
-| 1 | Users admin, change-password, Customers/Equipment completion | Next |
+| 0 | Foundation & hygiene (git, tests, CI, error shape) | Done |
+| 1 | Users admin, change-password, Customers/Equipment completion | Built; awaiting manual UI check |
 | 2–10 | Service requests → work orders → inventory → UI → files/PDF → dashboard → AI → hardening → Docker/docs | Planned |
 
-**Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login and `GET /api/auth/me`,
-all 10 entities with Fluent API config and the `InitialCreate` migration, Customers (list/get/create/update),
-Equipment (list/get/create), RFC 7807 error responses, Swagger with bearer auth, and a React office
-console (login, role-aware routes, dashboard counts, Customers and Equipment pages).
+**Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
+management (create with one role, edit, deactivate, reset password) with immediate token revocation, all 10
+entities with the `InitialCreate` migration, Customers and Equipment (create/update, service history for office
+roles), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar
+and routes, Users, Customers, Equipment, detail pages with history, change password).
 
 ```
 src/
@@ -114,6 +115,9 @@ take well under a minute. CI (GitHub Actions) builds the solution, runs the test
 - **Errors** are RFC 7807 `application/problem+json` for every 4xx/5xx (validation failures add an
   `errors` map; 500s carry a `traceId`, never a stack trace). The web `apiFetch` wrapper turns these into a
   single `ApiError`, and a 401 on an authenticated call ends the session and redirects to `/login`.
+- **Sessions end immediately when they should.** Every JWT carries the Identity security stamp and is checked
+  on each request, so deactivating a user, changing their role or changing their password revokes their
+  existing tokens at once (one primary-key lookup per request).
 - **Time and money:** UTC in storage, MYT (UTC+8) on display; currency shown as RM.
 
 ### Dependencies and why
@@ -142,8 +146,8 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 - Seeded admin uses a demo default password unless overridden (see above).
 - Only Customers and Equipment are implemented so far; the workflow engine, inventory, files/PDF,
   dashboard analytics and AI features are planned in [`plan.md`](./plan.md).
-- A JWT stays valid until it expires even if the user is deactivated afterwards; only new logins are
-  blocked today. Rejecting tokens of deactivated users is planned for Phase 1.
+- There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
+  no forced change-on-first-login. Admin-set passwords are shared out of band.
 
 ## License
 

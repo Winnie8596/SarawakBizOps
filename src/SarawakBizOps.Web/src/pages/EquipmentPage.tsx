@@ -1,19 +1,26 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { getCustomers } from '../api/customers'
-import { createEquipment, getEquipment } from '../api/equipment'
+import { Link } from 'react-router-dom'
+import { createEquipment, getEquipment, updateEquipment } from '../api/equipment'
 import { ApiError } from '../api/client'
-import type { Customer, Equipment, EquipmentInput } from '../types'
+import type { Customer, Equipment, EquipmentInput, EquipmentStatus } from '../types'
 import { EmptyState } from '../components/EmptyState'
 import { StatusBadge } from '../components/StatusBadge'
 
-const emptyForm: EquipmentInput = {
+const STATUSES: EquipmentStatus[] = ['Active', 'Inactive', 'UnderMaintenance', 'Retired']
+
+// Create and edit share one form. `status` is only sent on edit (new equipment starts Active).
+type FormState = EquipmentInput & { status: EquipmentStatus }
+
+const emptyForm: FormState = {
   customerId: 0,
   serialNumber: '',
   equipmentType: '',
   brand: '',
   model: '',
-  location: ''
+  location: '',
+  status: 'Active'
 }
 
 export function EquipmentPage() {
@@ -26,8 +33,8 @@ export function EquipmentPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState<EquipmentInput>(emptyForm)
+  const [editingId, setEditingId] = useState<number | 'new' | null>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -59,19 +66,41 @@ export function EquipmentPage() {
   function startCreate() {
     setForm({ ...emptyForm, customerId: customers[0]?.id ?? 0 })
     setFormError(null)
-    setCreating(true)
+    setEditingId('new')
+  }
+
+  function startEdit(item: Equipment) {
+    setForm({
+      customerId: item.customerId,
+      serialNumber: item.serialNumber,
+      equipmentType: item.equipmentType,
+      brand: item.brand ?? '',
+      model: item.model ?? '',
+      installationDate: item.installationDate ?? undefined,
+      location: item.location ?? '',
+      status: item.status
+    })
+    setFormError(null)
+    setEditingId(item.id)
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!auth) return
+    if (!auth || editingId === null) return
 
     setSaving(true)
     setFormError(null)
 
     try {
-      await createEquipment(auth.token, form)
-      setCreating(false)
+      if (editingId === 'new') {
+        const { status: _status, ...input } = form
+        await createEquipment(auth.token, input)
+      } else {
+        // Customer is deliberately not editable: the API keeps equipment with its owner.
+        const { customerId: _customerId, ...input } = form
+        await updateEquipment(auth.token, editingId, input)
+      }
+      setEditingId(null)
       await loadEquipment()
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Could not save this equipment record.')
@@ -115,9 +144,9 @@ export function EquipmentPage() {
 
       {error && <p className="form-error">{error}</p>}
 
-      {creating && (
+      {editingId !== null && (
         <form className="panel form-panel" onSubmit={handleSubmit}>
-          <h2 className="panel-title">New equipment</h2>
+          <h2 className="panel-title">{editingId === 'new' ? 'New equipment' : 'Edit equipment'}</h2>
 
           <div className="field-grid">
             <label className="field">
@@ -125,6 +154,7 @@ export function EquipmentPage() {
               <select
                 value={form.customerId}
                 onChange={e => setForm({ ...form, customerId: Number(e.target.value) })}
+                disabled={editingId !== 'new'}
                 required
               >
                 {customers.map(c => (
@@ -177,12 +207,26 @@ export function EquipmentPage() {
                 placeholder="Site or building"
               />
             </label>
+
+            {editingId !== 'new' && (
+              <label className="field">
+                <span className="field-label">Status</span>
+                <select
+                  value={form.status}
+                  onChange={e => setForm({ ...form, status: e.target.value as EquipmentStatus })}
+                >
+                  {STATUSES.map(s => (
+                    <option key={s} value={s}>{s.replace(/([a-z])([A-Z])/g, '$1 $2')}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           {formError && <p className="form-error">{formError}</p>}
 
           <div className="panel-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setCreating(false)}>
+            <button type="button" className="btn btn-ghost" onClick={() => setEditingId(null)}>
               Cancel
             </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
@@ -210,16 +254,22 @@ export function EquipmentPage() {
               <th>Customer</th>
               <th>Status</th>
               <th>Location</th>
+              {canEdit && <th aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
             {equipment.map(item => (
               <tr key={item.id}>
-                <td className="mono">{item.serialNumber}</td>
+                <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
                 <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
                 <td>{customerName(item.customerId)}</td>
                 <td><StatusBadge status={item.status} /></td>
                 <td>{item.location || '—'}</td>
+                {canEdit && (
+                  <td>
+                    <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

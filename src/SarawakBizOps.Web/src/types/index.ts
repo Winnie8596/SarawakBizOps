@@ -55,3 +55,52 @@ export interface EquipmentInput {
   installationDate?: string
   location?: string
 }
+
+export interface EquipmentUpdateInput {
+  serialNumber: string
+  equipmentType: string
+  brand?: string
+  model?: string
+  installationDate?: string
+  location?: string
+  status: EquipmentStatus
+}
+
+export const ROLES = ['Admin', 'Manager', 'ServiceStaff', 'Technician', 'WarehouseStaff'] as const
+export type RoleName = (typeof ROLES)[number]
+
+export interface UserSummary {
+  id: string
+  fullName: string
+  email: string
+  role: string
+  isActive: boolean
+  createdAt: string
+}
+
+export interface CreateUserInput {
+  fullName: string
+  email: string
+  password: string
+  role: string
+}
+
+export interface UpdateUserInput {
+  fullName?: string
+  role?: string
+  isActive?: boolean
+}
+
+export interface ServiceHistoryItem {
+  type: string
+  id: number
+  status: string
+  priority: string
+  summary: string
+  equipmentId: number
+  occurredAtUtc: string
+}
+
+export interface ServiceHistory {
+  items: ServiceHistoryItem[]
+}

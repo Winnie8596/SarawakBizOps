@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { Customer, CustomerInput } from '../types'
+import type { Customer, CustomerInput, ServiceHistory } from '../types'
 
 export function getCustomers(token: string): Promise<Customer[]> {
   return apiFetch<Customer[]>('/customers', { token })
@@ -23,4 +23,8 @@ export function updateCustomer(token: string, id: number, input: CustomerInput):
     token,
     body: JSON.stringify(input)
   })
+}
+
+export function getCustomerHistory(token: string, id: number): Promise<ServiceHistory> {
+  return apiFetch<ServiceHistory>(`/customers/${id}/history`, { token })
 }

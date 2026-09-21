@@ -460,3 +460,79 @@ select {
     padding: 20px;
   }
 }
+
+/* ---------- Phase 1 additions ---------- */
+.form-notice {
+  color: var(--green-600);
+  background: var(--green-100);
+  border: 1px solid var(--green-600);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 8px 0 16px 0;
+}
+
+.form-hint {
+  color: var(--ink-500);
+  font-size: 12px;
+  margin: 0 0 12px 0;
+}
+
+.narrow {
+  max-width: 420px;
+}
+
+.section-title {
+  font-size: 15px;
+  color: var(--navy-800);
+  margin: 28px 0 12px 0;
+}
+
+.breadcrumb {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+
+a {
+  color: var(--steel-600);
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+  margin: 0 0 8px 0;
+}
+
+.detail-list dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-500);
+}
+
+.detail-list dd {
+  margin: 2px 0 0 0;
+}
+
+.row-actions {
+  display: flex;
+  gap: 14px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.you-tag {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+
+a.btn {
+  text-decoration: none;
+  display: inline-block;
+}
+
+@media (max-width: 720px) {
+  .detail-list {
+    grid-template-columns: 1fr;
+  }
+}

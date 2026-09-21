@@ -14,3 +14,11 @@ export function login(email: string, password: string): Promise<LoginResult> {
 export function fetchCurrentUser(token: string): Promise<CurrentUser> {
   return apiFetch<CurrentUser>('/auth/me', { token })
 }
+
+export function changePassword(token: string, currentPassword: string, newPassword: string): Promise<void> {
+  return apiFetch<void>('/auth/change-password', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ currentPassword, newPassword })
+  })
+}

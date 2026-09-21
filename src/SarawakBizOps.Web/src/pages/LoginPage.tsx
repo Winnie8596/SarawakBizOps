@@ -13,6 +13,9 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // Set by pages that end the session on purpose, e.g. after a password change.
+  const notice = (location.state as { message?: string } | null)?.message
+
   if (isAuthenticated) {
     const redirectTo = (location.state as { from?: string } | null)?.from ?? '/'
     return <Navigate to={redirectTo} replace />
@@ -60,6 +63,7 @@ export function LoginPage() {
           />
         </label>
 
+        {notice && !error && <p className="form-notice">{notice}</p>}
         {error && <p className="form-error">{error}</p>}
 
         <button className="btn btn-primary" type="submit" disabled={submitting}>
