@@ -195,13 +195,15 @@ export function CustomersPage() {
                 <td>{customer.contactPerson || '—'}</td>
                 <td className="mono">{customer.phone || '—'}</td>
                 <td>{customer.email || '—'}</td>
-                <td className="row-actions">
-                  <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
-                  {canEdit && (
-                    <button className="btn btn-link" onClick={() => startEdit(customer)}>
-                      Edit
-                    </button>
-                  )}
+                <td>
+                  <div className="row-actions">
+                    <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
+                    {canEdit && (
+                      <button className="btn btn-link" onClick={() => startEdit(customer)}>
+                        Edit
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

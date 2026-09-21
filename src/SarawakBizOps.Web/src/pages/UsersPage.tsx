@@ -272,7 +272,8 @@ export function UsersPage() {
                   <td>{user.email}</td>
                   <td>{user.role}</td>
                   <td><StatusBadge status={user.isActive ? 'Active' : 'Inactive'} /></td>
-                  <td className="row-actions">
+                  <td>
+                    <div className="row-actions">
                     {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
                     {isSelf ? (
                       <span className="you-tag">Your account: can't edit or deactivate yourself</span>
@@ -285,6 +286,7 @@ export function UsersPage() {
                       </>
                     )}
                     <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>Reset password</button>
+                    </div>
                   </td>
                 </tr>
               )

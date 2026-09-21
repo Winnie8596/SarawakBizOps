@@ -265,11 +265,13 @@ export function EquipmentPage() {
                 <td>{customerName(item.customerId)}</td>
                 <td><StatusBadge status={item.status} /></td>
                 <td>{item.location || '—'}</td>
-                <td className="row-actions">
-                  <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
-                  {canEdit && (
-                    <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
-                  )}
+                <td>
+                  <div className="row-actions">
+                    <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
+                    {canEdit && (
+                      <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
