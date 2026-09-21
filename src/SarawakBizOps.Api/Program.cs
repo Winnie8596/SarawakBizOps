@@ -160,3 +160,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Exposes the entry point to WebApplicationFactory<Program> in the test project.
+public partial class Program { }
