@@ -28,7 +28,7 @@ public class AuthController : ControllerBase
         var result = await _authService.LoginAsync(request);
         if (result is null)
         {
-            return Unauthorized(new { message = "Invalid email or password." });
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Unauthorized", detail: "Invalid email or password.");
         }
 
         return Ok(result);

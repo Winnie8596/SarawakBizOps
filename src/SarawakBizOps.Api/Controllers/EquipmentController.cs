@@ -37,7 +37,7 @@ public class EquipmentController : ControllerBase
         var (success, error, equipment) = await _equipmentService.CreateAsync(request, ct);
         if (!success)
         {
-            return BadRequest(new { message = error });
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Bad request", detail: error);
         }
 
         return CreatedAtAction(nameof(GetById), new { id = equipment!.Id }, equipment);

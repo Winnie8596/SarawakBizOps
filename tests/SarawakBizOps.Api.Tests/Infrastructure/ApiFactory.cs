@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using SarawakBizOps.Api.DTOs.Auth;
 using Testcontainers.MsSql;
 
 namespace SarawakBizOps.Api.Tests.Infrastructure;
@@ -50,4 +53,21 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 public class ApiCollection : ICollectionFixture<ApiFactory>
 {
     public const string Name = "Api";
+}
+
+public static class ApiFactoryExtensions
+{
+    /// <summary>Logs in through the real endpoint and returns a client carrying the bearer token.</summary>
+    public static async Task<HttpClient> CreateAuthenticatedClientAsync(
+        this ApiFactory factory, string email, string password)
+    {
+        var client = factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Email = email, Password = password });
+        login.EnsureSuccessStatusCode();
+
+        var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
+        return client;
+    }
 }

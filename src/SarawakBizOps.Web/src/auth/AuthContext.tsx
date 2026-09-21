@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { login as loginRequest } from '../api/auth'
+import { setUnauthorizedHandler } from '../api/client'
 import type { LoginResult } from '../types'
 
 interface AuthState {
@@ -49,6 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(STORAGE_KEY)
     }
   }, [auth])
+
+  // Any API call that comes back 401 while we hold a token ends the session.
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuth(null))
+    return () => setUnauthorizedHandler(null)
+  }, [])
 
   const value = useMemo<AuthContextValue>(() => ({
     auth,

@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Mvc;
 
 namespace SarawakBizOps.Api.Middleware;
 
@@ -28,13 +29,17 @@ public class ExceptionHandlingMiddleware
         {
             _logger.LogError(ex, "Unhandled exception while processing {Path}", context.Request.Path);
 
-            context.Response.ContentType = "application/json";
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
 
-            await context.Response.WriteAsJsonAsync(new
+            var problem = new ProblemDetails
             {
-                message = "An unexpected error occurred. Please try again."
-            });
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Server error",
+                Detail = "An unexpected error occurred. Please try again."
+            };
+            problem.Extensions["traceId"] = context.TraceIdentifier;
+
+            await context.Response.WriteAsJsonAsync(problem, options: null, contentType: "application/problem+json");
         }
     }
 }

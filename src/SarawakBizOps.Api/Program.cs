@@ -105,6 +105,8 @@ builder.Services.AddCors(options =>
 // Controllers + Swagger (with a JWT "Authorize" button for manual testing)
 // ---------------------------------------------------------------------
 builder.Services.AddControllers();
+// RFC 7807 ProblemDetails is the single error shape for every 4xx/5xx response.
+builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -146,6 +148,8 @@ using (var scope = app.Services.CreateScope())
 // Middleware pipeline
 // ---------------------------------------------------------------------
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+// Turns body-less 401/403/404 responses (e.g. the JWT challenge) into ProblemDetails.
+app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
