@@ -273,16 +273,18 @@ export function UsersPage() {
                   <td>{user.role}</td>
                   <td><StatusBadge status={user.isActive ? 'Active' : 'Inactive'} /></td>
                   <td className="row-actions">
-                    {/* The API refuses self-demotion/deactivation, so the buttons are hidden for your own row. */}
-                    {!isSelf && (
-                      <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>Edit</button>
+                    {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
+                    {isSelf ? (
+                      <span className="you-tag">Your account: can't edit or deactivate yourself</span>
+                    ) : (
+                      <>
+                        <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>Edit</button>
+                        <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
+                          {user.isActive ? 'Deactivate' : 'Reactivate'}
+                        </button>
+                      </>
                     )}
                     <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>Reset password</button>
-                    {!isSelf && (
-                      <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
-                        {user.isActive ? 'Deactivate' : 'Reactivate'}
-                      </button>
-                    )}
                   </td>
                 </tr>
               )

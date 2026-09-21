@@ -185,7 +185,7 @@ export function CustomersPage() {
               <th>Contact</th>
               <th>Phone</th>
               <th>Email</th>
-              {canEdit && <th aria-label="Actions" />}
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -195,13 +195,14 @@ export function CustomersPage() {
                 <td>{customer.contactPerson || '—'}</td>
                 <td className="mono">{customer.phone || '—'}</td>
                 <td>{customer.email || '—'}</td>
-                {canEdit && (
-                  <td>
+                <td className="row-actions">
+                  <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
+                  {canEdit && (
                     <button className="btn btn-link" onClick={() => startEdit(customer)}>
                       Edit
                     </button>
-                  </td>
-                )}
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

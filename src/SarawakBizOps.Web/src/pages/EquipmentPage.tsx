@@ -254,7 +254,7 @@ export function EquipmentPage() {
               <th>Customer</th>
               <th>Status</th>
               <th>Location</th>
-              {canEdit && <th aria-label="Actions" />}
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -265,11 +265,12 @@ export function EquipmentPage() {
                 <td>{customerName(item.customerId)}</td>
                 <td><StatusBadge status={item.status} /></td>
                 <td>{item.location || '—'}</td>
-                {canEdit && (
-                  <td>
+                <td className="row-actions">
+                  <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
+                  {canEdit && (
                     <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
-                  </td>
-                )}
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
