@@ -56,8 +56,8 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 0 | **Walking skeleton:** sign in, see customers and equipment; CI and integration tests exist | done | ✅ Done (`phase-0-done`) |
 | 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
 | 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | done | ✅ Done (`phase-2-done`) |
-| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | Next |
-| 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | |
+| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | 🟡 Built and green locally; tag `phase-3-done` once CI is green on `main` |
+| 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | Next |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | |
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | |
@@ -158,10 +158,27 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | State-machine unit tests (every valid and invalid transition). Integration: happy path create → approve; BR-10 rejection (other customer's equipment); reject requires a reason; invalid transition → 409. `EndpointAccessTests` created with these rows (ServiceStaff cannot approve, Technician/Warehouse cannot create). **Frontend test setup introduced here** (Vitest + React Testing Library, PRD D-06 test tooling): login, protected/role routes, Users-page and Service-Requests role gating. |
 | Ops & docs | Seed and README updated; `docs/test-plan.md` created with the AC map (AC rows fill in as phases land); CI runs frontend tests. |
 
+**Decisions taken (grilled before building)**
+
+| Topic | Decision |
+|---|---|
+| Who reads requests | Admin, Manager and ServiceStaff can list and open **every** request. Technician and Warehouse get 403 (a Technician sees only their own work orders from Phase 4, BR-02). |
+| Reviewer audit | The migration adds `RejectionReason`, `RejectedByUserId` and `RejectedAt` (not just the reason), so a rejection records who and when, like an approval does. `Approved*` columns are not reused. |
+| Equipment rule | BR-10 ownership is enforced; **Retired** equipment is also refused (400). Active, Inactive and UnderMaintenance are allowed. |
+| Concurrency | No `RowVersion` on requests yet. Approve/reject is one conditional `UPDATE … WHERE Status = 'New'`; the loser of a race updates 0 rows and gets a 409. Phase 5's conflict mechanism (Open Question 9) still decides how work orders do it. |
+| UI shape | `/service-requests` list + `/service-requests/:id` detail (same shape as Customers/Equipment). A Manager opens the list pre-filtered to **New**, which is their queue. |
+| Frontend tests | Vitest + React Testing Library + jsdom; `fetch` stubbed by hand (no MSW). Vitest 2 is kept despite a dev-only `npm audit` advisory (needs Vite 6+); recorded in the README and left for the Phase 15 sweep. |
+| Demo seed | 6 requests over ~3 weeks: 3 New (one Urgent), 2 Approved, 1 Rejected with a reason. No Assigned/Cancelled rows until those states are reachable. |
+| Git | Commits per task group on `main`; nothing pushed by the assistant. |
+
+**Also done in this phase:** history rows link to the request detail page; the form hints sit outside their `<label>` (linked with `aria-describedby`) so the field names stay clean. *Smoke-script note:* a body-less `curl -X POST` sends no `Content-Length` and Kestrel answers a bare 400, whereas a browser `fetch` POST always sends `Content-Length: 0`; the script therefore sends an empty body on POSTs, and the product needed no change.
+
 **Exit criteria**
-- [ ] The demo script works in the Docker setup.
-- [ ] Invalid transitions return 409/400 with a clear message that the UI shows.
-- [ ] Backend and frontend tests are green in CI.
+- [x] The demo script works in the Docker setup. *(Fresh volume, all three containers healthy; `compose-smoke.sh` passes, run twice against the same volume, including the request-intake walk. The UI half of the script is covered by the Vitest flow tests; a by-hand click-through in a browser is still worth doing once.)*
+- [x] Invalid transitions return 409/400 with a clear message that the UI shows. *(API tests assert the messages; the UI test shows the 409 text and refreshes.)*
+- [ ] Backend and frontend tests are green in CI. *(Both suites are green locally, 165 backend and 28 frontend tests, and the concurrency test passed 4 repeat runs. CI itself has not run because nothing has been pushed; tag `phase-3-done` after the first green run.)*
+
+**Carried forward:** the MYT display of history timestamps is now asserted by a test (02:30 UTC shows as 10:30) and the seeded requests give history something to show; eyeball it once in the browser.
 
 ---
 
