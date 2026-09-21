@@ -160,7 +160,7 @@ Priority: **P0** = required for "Done"; **P1** = required for "Done" but sequenc
 | Q-05 | Handle loading, empty and error states on every page. |
 | Q-06 | Conflicts (409), validation (400/422), auth (401/403), not found (404) surfaced with human-readable UI messages. |
 
-### Testing (Phase 11)
+### Testing (built up in every phase; see `plan.md`)
 - **Unit (xUnit):** work-order and service-request state transitions and guards; completion rules; inventory rules; role/ownership policies.
 - **Integration:** API + EF Core + **real SQL Server** (e.g., Testcontainers), covering the full workflow *request → approve → assign → work → complete → approve* and the reports flow.
 - **Authorization tests:** Technician cannot approve; ServiceStaff cannot change inventory; Warehouse cannot assign; API rejects regardless of UI (AC-11).
@@ -192,24 +192,31 @@ Priority: **P0** = required for "Done"; **P1** = required for "Done" but sequenc
 
 ## 10. Roadmap and milestones
 
-Capacity: **20+ hrs/week**, 3+ months available. The SDD estimates 6–8 focused weeks; this plan keeps ~12 weeks with buffer for debugging, polish and documentation. Weeks are relative to the start of remaining work.
+Capacity: **20+ hrs/week**, 3+ months available. The SDD estimates 6–8 focused weeks; the remaining plan is about 245–310 hours (roughly 12–16 weeks at 20 hrs/week), with buffer for debugging, polish and documentation.
 
-| Milestone | Deliverable | Target |
+Delivery follows the **tracer-bullet method**: every phase is a thin, production-quality vertical slice through data, service, route, UI and tests, with a demo script and exit criteria. [`plan.md`](./plan.md) owns the detailed sequencing, estimates and status; this table is the summary and the two must agree.
+
+| Phase | Deliverable (what a user can newly do) | Status |
 |---|---|---|
-| M0 | `git init`, first commit, push to public GitHub (MIT), CI skeleton, README cleanup | Wk 1 |
-| M1 | Users admin + change-password; finish Customers/Equipment (PUT, history) | Wk 1–2 |
-| M2 | Service Requests API + web (create, approve/reject/assign, cancel) | Wk 2–3 |
-| M3 | Work Order engine: state machine, guards, concurrency (API) | Wk 3–5 |
-| M4 | Inventory: parts, transactions, atomic issue, concurrency test, low stock (API + web) | Wk 5–6 |
-| M5 | Work Orders + Inventory + Technicians web pages; **responsive technician view** | Wk 6–8 |
-| M6 | File storage, photos, signature, PDF service report, Reports page | Wk 8–9 |
-| M7 | Dashboard summary API + real Manager dashboard | Wk 9–10 |
-| M8 | AI Technician Assistant + Manager Insights (mock + chosen provider) | Wk 10–11 |
-| M9 | Testing hardening, security pass, error handling, seed data polish | Wk 11–12 |
-| M10 | Docker compose, CI complete, README/diagrams/screenshots/demo video; optional deploy | Wk 12+ |
-| M11 (P2) | React Native + Expo technician app | Only after M10 |
+| 0 | Walking skeleton: git, MIT, CI, integration tests, RFC 7807 errors; sign in, list customers and equipment | Done |
+| 1 | Users and master data: Admin manages users and roles, change-password, equipment edit, customer/equipment history | Done |
+| 2 | Deployable skeleton: `docker compose up` gives a seeded, working system; CI proves it | Next |
+| 3 | Request intake: staff raise a service request, Manager approves or rejects it | |
+| 4 | First job end to end: assign, technician starts and completes, Manager approves (**responsive technician view** starts here) | |
+| 5 | Workflow rules for real: cancel, locks, ownership, conflicts, status timeline | |
+| 6 | Parts and stock in: warehouse manages the catalogue, receives stock, sees low stock | |
+| 7 | Parts used on a job: atomic issue, pending parts, concurrency proof | |
+| 8 | Customer signature: drawn on the phone, stored via `IFileStorage` and the emulator, required to complete | |
+| 9 | Job photos: capture, upload, gallery | |
+| 10 | Service report PDF: generate, lock, download, Reports page | |
+| 11 | Manager dashboard (core metrics) | |
+| 12 | Analytics depth: remaining metrics, role-specific dashboards | |
+| 13 | AI Technician Assistant (mock-first) | |
+| 14 | AI Manager Insights, grounded in backend-computed analytics | |
+| 15 | Release polish: final sweeps, docs, demo video, **public flip** on the owner's go-ahead | |
+| 16 (P2) | Stretch: React Native technician app, live deployment | Only after 15 |
 
-Working loop per SDD §24: **one vertical slice at a time**, each mapped to a requirement, business rule and acceptance criterion; review migrations before applying; run app and tests after each slice.
+Working loop per SDD §24, applied to every phase: **one vertical slice at a time**, each mapped to a requirement, business rule and acceptance criterion; review migrations before applying; run app and tests after each slice.
 
 ## 11. Definition of Done
 
@@ -233,18 +240,18 @@ The project is "done" when **all** of the following are true (SDD §25, adjusted
 | Risk | Mitigation |
 |---|---|
 | Scope creep from the big SDD | Priorities in §6; RN is P2; AI behind mock; no reopen/audit flows. |
-| Inventory concurrency bugs | Transaction + `RowVersion` design up front; dedicated concurrent-issue test in M4. |
-| Blob/file handling complexity in Docker | `IFileStorage` abstraction; emulator from day one of M6. |
+| Inventory concurrency bugs | Transaction + `RowVersion` design up front; dedicated concurrent-issue test in Phase 7. |
+| Blob/file handling complexity in Docker | `IFileStorage` abstraction; emulator from day one of Phase 8. |
 | AI provider cost/keys leaking | Mock provider default; keys via env only; no key in the demo. |
-| Starter never compiled against real packages (README note) | Run `npm install`, `npm run build`, `dotnet build` in M0 before new work. |
+| Starter never compiled against real packages (README note) | Run `npm install`, `npm run build`, `dotnet build` in Phase 0 before new work (done). |
 | Secrets exposure on a public repo | Verify `.gitignore`, scan history before first push; demo-only seed passwords. |
 
 ## 13. Open questions
 
-1. **AI provider:** Anthropic Claude, OpenAI/Azure OpenAI, or mock only for the public demo? (Decision due before M8.)
+1. **AI provider:** Anthropic Claude, OpenAI/Azure OpenAI, or mock only for the public demo? (Decision due before Phase 13.)
 2. **Storage emulator:** Azurite (Azure Blob SDK) or MinIO (S3 SDK)? Both fit behind `IFileStorage`.
-3. **PDF library:** needs one new dependency (D-06). Candidate: QuestPDF (check its license terms for a public MIT repo) — decide in M6.
-4. **Live deployment:** try a free tier at M10, or skip?
-5. **React Native:** confirm at M10 whether time remains, or move to V2.
+3. **PDF library:** needs one new dependency (D-06). Candidate: QuestPDF (check its license terms for a public MIT repo) — decide in Phase 10.
+4. **Live deployment:** try a free tier in Phase 16, or skip?
+5. **React Native:** confirm at Phase 15 whether time remains, or move to V2.
 6. **Charts on the dashboard:** hand-rolled SVG/CSS vs. adding a chart library (D-06).
 7. **SDD updates:** issue a v1.2 of the SDD to reflect D-01…D-08, or keep this PRD as the amendment record?

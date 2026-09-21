@@ -30,7 +30,7 @@ Customer report → Service Request → Manager approval → Technician assignme
 | Plan phase | Scope | State |
 |---|---|---|
 | 0 | Foundation & hygiene (git, tests, CI, error shape) | Done |
-| 1 | Users admin, change-password, Customers/Equipment completion | Built; awaiting manual UI check |
+| 1 | Users admin, change-password, Customers/Equipment completion | Done |
 | 2 | Deployable skeleton: `docker compose up` with seed data | Next |
 | 3–4 | Request intake, then the first job end to end (tracer bullet through every layer) | Planned |
 | 5–10 | Workflow rules, parts and stock, signature, photos, PDF report | Planned |

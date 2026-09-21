@@ -54,7 +54,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | # | Vertical slice (what a user can newly do) | Est. hrs | Status |
 |---|---|---|---|
 | 0 | **Walking skeleton:** sign in, see customers and equipment; CI and integration tests exist | done | ✅ Done (`phase-0-done`) |
-| 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ⏸ Built, CI green — awaiting manual UI check, then tag |
+| 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
 | 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | 12–16 | Next |
 | 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | |
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | |
@@ -91,7 +91,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 **Delivered:** git history, MIT license, solution + xUnit project with a Testcontainers SQL Server `ApiFactory`, CI (backend build + tests, web build), RFC 7807 errors end to end (API + `apiFetch` + 401 → login), JWT-key guard, README.
 **Repo:** private until the owner says otherwise (PRD D-07 flip is Phase 15).
 
-## ⏸ Phase 1 — Users & master data (built; awaiting manual UI check)
+## ✅ Phase 1 — Users & master data (done)
 
 **Demo:** Admin creates a user per role and each signs in; a deactivated user is kicked out at once; ServiceStaff edits equipment status; a customer page shows its equipment and history.
 **Covers:** PRD §6.1, §6.2 · BR-07, BR-08, BR-11 (groundwork) · AC-11 (start).
@@ -104,9 +104,8 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | UI | Users page, change-password page, equipment edit + status, customer/equipment detail pages with history, role-aware sidebar and route guards |
 | Tests | 48 integration tests (role matrix, revocation, lockout, validation, history over real rows) |
 
-**Remaining to close:**
-- [ ] Manual UI check: create one user per role and sign in as each; verify the sidebar differs by role; deactivate a signed-in user and confirm they are signed out; change your own password.
-- [ ] Tag `phase-1-done`.
+**Closed:** manual UI check passed (users per role, role-aware sidebar, deactivation signs the user out, reset and change password). The check found two UX gaps, both fixed: the Users page now explains why you can't edit or deactivate your own account, and list pages have a visible **View & history** link.
+**Carried forward:** MYT display of history timestamps could not be seen with an empty history; verify it in Phase 3 when service requests appear.
 
 ---
 
