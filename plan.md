@@ -55,8 +55,8 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 |---|---|---|---|
 | 0 | **Walking skeleton:** sign in, see customers and equipment; CI and integration tests exist | done | ✅ Done (`phase-0-done`) |
 | 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
-| 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | 12–16 | Built; verified locally, awaiting first green CI run |
-| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | |
+| 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | done | ✅ Done (`phase-2-done`) |
+| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | Next |
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | |
@@ -109,7 +109,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 2 — Deployable skeleton
+## ✅ Phase 2 — Deployable skeleton (done)
 
 **Goal:** the architecture is proven *deployable* before more features pile on. `docker compose up` on a clean machine gives a working, seeded system, and CI proves it on every push. This is the tracer for the infrastructure layer.
 **Demo:** clone into an empty folder, run `docker compose up`, open the web app, sign in as each demo role, see sample customers and equipment.
@@ -138,7 +138,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 **Exit criteria**
 - [x] A fresh clone → `docker compose up` → sign in works, with no LocalDB and no manual steps. *(Verified locally from an empty volume: all three containers healthy in about 47 s once images were built; smoke script passes for all five roles.)*
-- [ ] CI compose smoke job is green. *(Job written; needs its first run on GitHub. Tag `phase-2-done` after that.)*
+- [x] CI compose smoke job is green. *(First run on `main` passed: backend, web and compose smoke jobs.)*
 - [x] Every later phase's demo script is written to be run against this Docker setup. *(Rule recorded; the README documents the demo accounts and reset command.)*
 
 ---
