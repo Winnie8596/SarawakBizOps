@@ -1,0 +1,18 @@
+# Build context for the API image is the repo root; keep it small and free of local state.
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.user
+.git/
+.github/
+.vs/
+.vscode/
+.claude/
+.agents/
+tests/
+docs/
+*.md

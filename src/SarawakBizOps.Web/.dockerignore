@@ -1,0 +1,11 @@
+# A local .env.local would otherwise override the image's /api base URL at build time.
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+Dockerfile
+.dockerignore

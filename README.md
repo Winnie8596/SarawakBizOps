@@ -31,7 +31,7 @@ Customer report → Service Request → Manager approval → Technician assignme
 |---|---|---|
 | 0 | Foundation & hygiene (git, tests, CI, error shape) | Done |
 | 1 | Users admin, change-password, Customers/Equipment completion | Done |
-| 2 | Deployable skeleton: `docker compose up` with seed data | Next |
+| 2 | Deployable skeleton: `docker compose up` with seed data | Built; awaiting first green CI run |
 | 3–4 | Request intake, then the first job end to end (tracer bullet through every layer) | Planned |
 | 5–10 | Workflow rules, parts and stock, signature, photos, PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
@@ -45,22 +45,73 @@ and routes, Users, Customers, Equipment, detail pages with history, change passw
 
 ```
 src/
-├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity
-└── SarawakBizOps.Web/          React + TypeScript office console
+├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity (+ Dockerfile)
+└── SarawakBizOps.Web/          React + TypeScript office console (+ Dockerfile, nginx.conf)
 tests/
 └── SarawakBizOps.Api.Tests/    xUnit; integration tests run against real SQL Server (Testcontainers)
+scripts/
+└── compose-smoke.sh            Signs in through the web container and reads data (used by CI)
+docker-compose.yml              sqlserver + api + web, one command
 ```
 
 ---
 
-## Running it locally
+## Run with Docker (recommended)
+
+The only prerequisite is [Docker](https://www.docker.com/products/docker-desktop/). No .NET SDK, Node or SQL Server install.
+
+```bash
+docker compose up --build
+```
+
+The first run pulls the SQL Server image (about 1.5 GB) and builds the API and web images, which takes a few minutes; after that it starts in under a minute. When it settles, open **<http://localhost:8080>**.
+
+The API creates the schema and the sample data on first start. Sign in with any of these **demo-only** accounts; they all share the password `Demo!2026`:
+
+| Role | Email |
+|---|---|
+| Admin | `admin@sarawakbizops.local` |
+| Manager | `manager@sarawakbizops.local` |
+| ServiceStaff | `staff@sarawakbizops.local` |
+| Technician | `technician@sarawakbizops.local` |
+| WarehouseStaff | `warehouse@sarawakbizops.local` |
+
+> **These credentials are public and exist only for the Docker demo.** They are created only when `Seed__Demo=true`
+> (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
+> `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
+
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri and 10 pieces of equipment.
+
+| Command | What it does |
+|---|---|
+| `docker compose down` | Stop, keeping the database |
+| `docker compose down -v` | Stop **and wipe the database**; the next `up` re-seeds from scratch |
+| `docker compose logs -f api` | Follow the API log |
+
+**How it fits together**
+
+- Only the web container (nginx, port 8080) is published. It serves the built React app and proxies `/api` to the API container, so the browser sees one origin: no CORS and no base-URL setup. The API base URL (`/api`) is fixed when the web image is built.
+- `Database__MigrateOnStartup=true` makes the API apply EF migrations at startup, retrying while SQL Server warms up. The flag is **off by default** everywhere else, so a normal run never changes a schema on its own.
+- The API is healthy (`/health/ready`) only once migrations and seeding are done, because it does its startup work before it starts listening. `/health` is a plain liveness check. Both are unauthenticated and return no data.
+- The seeding is idempotent: every row is inserted only if its key (email, company name, serial number) is missing, so restarting is safe.
+- SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
+
+**Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
+
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container and checks the seeded data. It needs `curl` and `jq`, and CI runs it on every push.
+
+---
+
+## Manual development setup
+
+Use this when you are changing code and want hot reload; otherwise prefer Docker above.
 
 ### Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download) (a newer SDK also works; the projects target `net8.0`)
 - SQL Server LocalDB (ships with Visual Studio) or any SQL Server instance
 - [Node.js](https://nodejs.org/) 18+ and npm
-- Docker Desktop — **only** needed to run the integration tests
+- Docker Desktop, needed to run the integration tests (and for the Docker setup above)
 
 ### Backend
 
@@ -71,7 +122,7 @@ cd src/SarawakBizOps.Api
 # deliberately rejected at startup, so the API will not run until you do this.
 dotnet user-secrets set "Jwt:Key" "a-long-random-string-at-least-32-characters"
 
-# Optional: choose the seeded admin password instead of the demo default
+# Optional: choose the seeded admin password instead of the Development default
 dotnet user-secrets set "Seed:AdminPassword" "something-only-you-know"
 
 # Create the database (the migration already exists in the repo)
@@ -84,9 +135,9 @@ Swagger opens at `http://localhost:5080/swagger`. Log in via `POST /api/auth/log
 **Authorize** and paste `Bearer {token}`. Point `ConnectionStrings:DefaultConnection` at your own
 SQL Server if you are not using the default LocalDB instance.
 
-> **Demo credentials.** The seeded admin is `admin@sarawakbizops.local` with the default password
-> `ChangeMe123!` unless you override `Seed:AdminPassword`. This default is **for local demos only** and
-> must never be used on a real deployment.
+> **Development credentials.** In the `Development` environment (the `dotnet run` launch profiles) the seeded admin
+> is `admin@sarawakbizops.local` with the password `ChangeMe123!`, taken from `appsettings.Development.json`, unless
+> you override `Seed:AdminPassword`. In any other environment the API will not start without `Seed:AdminPassword`.
 
 ### Web app
 
@@ -97,7 +148,7 @@ cp .env.example .env.local     # adjust VITE_API_BASE_URL if the API runs elsewh
 npm run dev
 ```
 
-Open `http://localhost:5173` and sign in with the admin account above.
+Open `http://localhost:5173` and sign in with the development admin account above.
 
 ### Tests
 
@@ -147,7 +198,8 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 
 ## Known limitations
 
-- Seeded admin uses a demo default password unless overridden (see above).
+- The Docker demo accounts share one public, documented password and there is no forced change on first login (V2). They exist only in demo mode.
+- The Docker setup serves plain HTTP; TLS is out of scope for the demo.
 - Only Customers and Equipment are implemented so far; the workflow engine, inventory, files/PDF,
   dashboard analytics and AI features are planned in [`plan.md`](./plan.md).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is

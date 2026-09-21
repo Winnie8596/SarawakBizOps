@@ -1,0 +1,78 @@
+# Run the whole system:   docker compose up --build
+# Open http://localhost:8080 and sign in with a demo account (see README).
+# Reset all data:         docker compose down -v
+#
+# Every ${VAR:-default} below is a DEMO-ONLY value so a fresh clone runs with no setup. Override any of
+# them through a .env file next to this one (see .env.example). Never reuse these on a real deployment.
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-Demo_Passw0rd!}
+    ports:
+      # Optional, for SSMS / Azure Data Studio. Bound to this machine only.
+      - "127.0.0.1:${SQL_HOST_PORT:-14330}:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b -o /dev/null
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  api:
+    image: sarawakbizops-api
+    build:
+      context: .
+      dockerfile: src/SarawakBizOps.Api/Dockerfile
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Server=sqlserver;Database=SarawakBizOpsDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Demo_Passw0rd!};TrustServerCertificate=True;MultipleActiveResultSets=true
+      Jwt__Key: ${JWT_KEY:-demo-only-signing-key-do-not-use-in-production-0123456789}
+      # Demo mode: create the schema, the demo accounts and the sample data at startup.
+      Database__MigrateOnStartup: "true"
+      Seed__Demo: "true"
+      Seed__DemoPassword: ${DEMO_PASSWORD:-Demo!2026}
+      # nginx talks plain HTTP to the API; there is no TLS in the demo setup.
+      Hosting__UseHttpsRedirection: "false"
+      # Keep `docker compose logs` readable: EF Core logs every SQL command at Information otherwise.
+      Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
+    healthcheck:
+      # The aspnet image has no curl or wget, so probe with bash's built-in /dev/tcp
+      # (it must be bash explicitly: the default /bin/sh is dash, which has no /dev/tcp).
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200 '
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  web:
+    image: sarawakbizops-web
+    build:
+      context: src/SarawakBizOps.Web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sqldata:

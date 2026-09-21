@@ -55,7 +55,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 |---|---|---|---|
 | 0 | **Walking skeleton:** sign in, see customers and equipment; CI and integration tests exist | done | ✅ Done (`phase-0-done`) |
 | 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
-| 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | 12–16 | Next |
+| 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | 12–16 | Built; verified locally, awaiting first green CI run |
 | 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | |
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
@@ -120,14 +120,26 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Data | Migrations applied **on startup in demo mode** (configuration flag); idempotent `DemoSeeder`: one account per role (demo-only passwords, documented), ~5 customers across Kuching/Sibu/Miri, ~10 equipment items |
 | Service | Split `DbSeeder` into always-on (roles + admin) and opt-in demo seeding; config-driven, no secrets in images |
 | Route | A `/health` endpoint for compose health checks (unauthenticated, no data) |
-| UI | Web container serves the built app (nginx) and proxies `/api` to the API, so there is no CORS or base-URL setup for reviewers; API base URL configurable at build/runtime |
+| UI | Web container serves the built app (nginx) and proxies `/api` to the API, so there is no CORS or base-URL setup for reviewers; the browser calls a relative `/api`, fixed at image build time |
 | Tests | Integration test: demo seeding is idempotent and creates one user per role; **CI job** starts `docker compose up`, waits for health, logs in through the web container and calls `/api/customers` |
 | Ops & docs | Multi-stage Dockerfiles (API, Web), `docker-compose.yml` (sqlserver, api, web) with health checks and a volume, `.env.example` (no real secrets), README "Run with Docker" first, "manual dev" second, demo-accounts table marked demo-only |
 
+**Decisions taken (grilled before building)**
+
+| Topic | Decision |
+|---|---|
+| Web → API | Relative `/api` baked in at build time; nginx proxies to `api:8080`; same origin, so no CORS. HTTPS redirect is switched off by `Hosting:UseHttpsRedirection=false` in compose only. |
+| Migrations | `Database:MigrateOnStartup` (default **off**, on only in compose): `Migrate()` with a bounded retry while SQL Server warms up, then the seeders, all before Kestrel listens. |
+| Demo passwords | One shared demo password (`Seed:DemoPassword`, default `Demo!2026` in compose). Demo accounts exist only when `Seed:Demo=true`. The hardcoded `ChangeMe123!` fallback is gone: outside Development and demo mode the API fails to start without `Seed:AdminPassword`. |
+| Secrets | Labelled demo defaults for `JWT_KEY` and `MSSQL_SA_PASSWORD` in compose, overridable via `.env`. |
+| Health | `/health` (liveness) and `/health/ready` (database). Compose and CI wait on `/health/ready`. |
+| Seeding | Per-row natural keys (email, company name, serial number), insert-if-missing. Reset with `docker compose down -v`. |
+| CI | Separate `compose-smoke` job on push and PR, with buildx layer caching; dumps container logs on failure. |
+
 **Exit criteria**
-- [ ] A fresh clone → `docker compose up` → sign in works, with no LocalDB and no manual steps.
-- [ ] CI compose smoke job is green.
-- [ ] Every later phase's demo script is written to be run against this Docker setup.
+- [x] A fresh clone → `docker compose up` → sign in works, with no LocalDB and no manual steps. *(Verified locally from an empty volume: all three containers healthy in about 47 s once images were built; smoke script passes for all five roles.)*
+- [ ] CI compose smoke job is green. *(Job written; needs its first run on GitHub. Tag `phase-2-done` after that.)*
+- [x] Every later phase's demo script is written to be run against this Docker setup. *(Rule recorded; the README documents the demo accounts and reset command.)*
 
 ---
 
