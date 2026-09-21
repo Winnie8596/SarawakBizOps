@@ -56,7 +56,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 0 | **Walking skeleton:** sign in, see customers and equipment; CI and integration tests exist | done | ✅ Done (`phase-0-done`) |
 | 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
 | 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | done | ✅ Done (`phase-2-done`) |
-| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | 🟡 Built and green locally; tag `phase-3-done` once CI is green on `main` |
+| 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | ✅ Done (`phase-3-done`) |
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | Next |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | |
@@ -176,7 +176,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 **Exit criteria**
 - [x] The demo script works in the Docker setup. *(Fresh volume, all three containers healthy; `compose-smoke.sh` passes, run twice against the same volume, including the request-intake walk. The UI half of the script is covered by the Vitest flow tests; a by-hand click-through in a browser is still worth doing once.)*
 - [x] Invalid transitions return 409/400 with a clear message that the UI shows. *(API tests assert the messages; the UI test shows the 409 text and refreshes.)*
-- [ ] Backend and frontend tests are green in CI. *(Both suites are green locally, 165 backend and 28 frontend tests, and the concurrency test passed 4 repeat runs. CI itself has not run because nothing has been pushed; tag `phase-3-done` after the first green run.)*
+- [x] Backend and frontend tests are green in CI. *(165 backend and 28 frontend tests; the concurrency test also passed 4 repeat runs locally. First CI run on `main` passed: backend, web and compose smoke jobs.)*
 
 **Carried forward:** the MYT display of history timestamps is now asserted by a test (02:30 UTC shows as 10:30) and the seeded requests give history something to show; eyeball it once in the browser.
 

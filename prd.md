@@ -201,7 +201,7 @@ Delivery follows the **tracer-bullet method**: every phase is a thin, production
 | 0 | Walking skeleton: git, MIT, CI, integration tests, RFC 7807 errors; sign in, list customers and equipment | Done |
 | 1 | Users and master data: Admin manages users and roles, change-password, equipment edit, customer/equipment history | Done |
 | 2 | Deployable skeleton: `docker compose up` gives a seeded, working system; CI proves it | Done |
-| 3 | Request intake: staff raise a service request, Manager approves or rejects it | Built; tag pending a green CI run |
+| 3 | Request intake: staff raise a service request, Manager approves or rejects it | Done |
 | 4 | First job end to end: assign, technician starts and completes, Manager approves (**responsive technician view** starts here) | |
 | 5 | Workflow rules for real: cancel, locks, ownership, conflicts, status timeline | |
 | 6 | Parts and stock in: warehouse manages the catalogue, receives stock, sees low stock | |
