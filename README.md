@@ -22,7 +22,7 @@ Customer report → Service Request → Manager approval → Technician assignme
 | Document | Purpose |
 |---|---|
 | [`prd.md`](./prd.md) | Product requirements: scope, priorities, design decisions (D-01…D-08), Definition of Done |
-| [`plan.md`](./plan.md) | Phase-by-phase implementation plan with exit criteria and AC traceability |
+| [`plan.md`](./plan.md) | Tracer-bullet plan: each phase is a vertical slice (data, service, route, UI, tests) with a demo script and exit criteria, plus AC traceability |
 | System Design Document v1.1 | Source of truth for data model, lifecycles, business rules (BR-01…14) and acceptance criteria (AC-01…11). Where the PRD and the SDD disagree, the PRD wins. |
 
 ## Status
@@ -31,7 +31,11 @@ Customer report → Service Request → Manager approval → Technician assignme
 |---|---|---|
 | 0 | Foundation & hygiene (git, tests, CI, error shape) | Done |
 | 1 | Users admin, change-password, Customers/Equipment completion | Built; awaiting manual UI check |
-| 2–10 | Service requests → work orders → inventory → UI → files/PDF → dashboard → AI → hardening → Docker/docs | Planned |
+| 2 | Deployable skeleton: `docker compose up` with seed data | Next |
+| 3–4 | Request intake, then the first job end to end (tracer bullet through every layer) | Planned |
+| 5–10 | Workflow rules, parts and stock, signature, photos, PDF report | Planned |
+| 11–14 | Dashboard and analytics, AI assistants | Planned |
+| 15 | Release polish and docs | Planned |
 
 **Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
 management (create with one role, edit, deactivate, reset password) with immediate token revocation, all 10

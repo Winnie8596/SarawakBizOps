@@ -201,7 +201,7 @@ public class EquipmentAndHistoryTests
         var generator = await CreateEquipmentAsync(admin, customer.Id);
         var adminId = (await admin.GetFromJsonAsync<CurrentUserResponse>("/api/auth/me"))!.UserId;
 
-        // Service-request endpoints arrive in Phase 2, so insert rows directly.
+        // Service-request endpoints arrive in Phase 3, so insert rows directly.
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

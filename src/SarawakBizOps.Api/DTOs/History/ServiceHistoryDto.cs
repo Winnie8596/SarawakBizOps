@@ -2,7 +2,7 @@ namespace SarawakBizOps.Api.DTOs.History;
 
 /// <summary>
 /// Service history for a customer or a piece of equipment, newest first.
-/// Service requests are included now; work orders join the same list in Phase 3.
+/// Service requests are included now; work orders join the same list in Phase 4.
 /// </summary>
 public class ServiceHistoryDto
 {
