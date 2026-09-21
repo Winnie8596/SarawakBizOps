@@ -1,0 +1,29 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+
+## Node (Web, and the future Mobile project)
+node_modules/
+dist/
+.expo/
+.env
+.env.local
+.env.*.local
+
+## OS / editor
+.DS_Store
+*.log
+
+## Generated / build output
+*.tsbuildinfo
+src/SarawakBizOps.Web/vite.config.js
+src/SarawakBizOps.Web/vite.config.d.ts
+TestResults/
+coverage/
+
+## AI tooling (third-party skills, not project code)
+.claude/
+.agents/
+skills-lock.json

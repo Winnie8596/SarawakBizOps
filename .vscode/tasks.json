@@ -1,0 +1,48 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "api: build",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/SarawakBizOps.Api/SarawakBizOps.Api.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "api: run",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "${workspaceFolder}/src/SarawakBizOps.Api"],
+      "problemMatcher": "$msCompile",
+      "isBackground": true,
+      "presentation": { "panel": "dedicated", "group": "sarawakbizops" }
+    },
+    {
+      "label": "web: install",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}/src/SarawakBizOps.Web" },
+      "presentation": { "panel": "dedicated", "group": "sarawakbizops" }
+    },
+    {
+      "label": "web: dev",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/src/SarawakBizOps.Web" },
+      "isBackground": true,
+      "presentation": { "panel": "dedicated", "group": "sarawakbizops" }
+    },
+    {
+      "label": "run: api + web",
+      "dependsOn": ["api: run", "web: dev"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}
