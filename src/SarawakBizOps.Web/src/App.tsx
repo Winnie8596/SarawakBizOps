@@ -9,6 +9,8 @@ import { CustomersPage } from './pages/CustomersPage'
 import { CustomerDetailPage } from './pages/CustomerDetailPage'
 import { EquipmentPage } from './pages/EquipmentPage'
 import { EquipmentDetailPage } from './pages/EquipmentDetailPage'
+import { ServiceRequestsPage } from './pages/ServiceRequestsPage'
+import { ServiceRequestDetailPage } from './pages/ServiceRequestDetailPage'
 import { UsersPage } from './pages/UsersPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -29,6 +31,8 @@ export default function App() {
               <Route path="/customers/:id" element={<CustomerDetailPage />} />
               <Route path="/equipment" element={<EquipmentPage />} />
               <Route path="/equipment/:id" element={<EquipmentDetailPage />} />
+              <Route path="/service-requests" element={<ServiceRequestsPage />} />
+              <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={['Admin']} />}>

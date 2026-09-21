@@ -104,3 +104,42 @@ export interface ServiceHistoryItem {
 export interface ServiceHistory {
   items: ServiceHistoryItem[]
 }
+
+export const REQUEST_STATUSES = ['New', 'Approved', 'Assigned', 'Rejected', 'Cancelled'] as const
+export type ServiceRequestStatus = (typeof REQUEST_STATUSES)[number]
+
+export const REQUEST_PRIORITIES = ['Low', 'Medium', 'High', 'Urgent'] as const
+export type RequestPriority = (typeof REQUEST_PRIORITIES)[number]
+
+export interface ServiceRequest {
+  id: number
+  customerId: number
+  customerName: string
+  equipmentId: number
+  equipmentSerialNumber: string
+  equipmentType: string
+  problemDescription: string
+  priority: RequestPriority
+  status: ServiceRequestStatus
+  createdByUserId: string
+  createdByName: string
+  createdAt: string
+  approvedByName?: string | null
+  approvedAt?: string | null
+  rejectedByName?: string | null
+  rejectedAt?: string | null
+  rejectionReason?: string | null
+}
+
+export interface ServiceRequestInput {
+  customerId: number
+  equipmentId: number
+  problemDescription: string
+  priority: RequestPriority
+}
+
+export interface ServiceRequestFilters {
+  status?: ServiceRequestStatus | ''
+  priority?: RequestPriority | ''
+  customerId?: number | ''
+}

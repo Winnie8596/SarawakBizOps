@@ -225,16 +225,24 @@ select {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 8px 10px;
   background: var(--paper);
   color: var(--ink-900);
+  font: inherit;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 84px;
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   outline: 2px solid var(--steel-600);
   outline-offset: 1px;
 }
@@ -288,7 +296,20 @@ select {
 }
 
 .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
   margin-bottom: 16px;
+}
+
+.toolbar .field {
+  margin-bottom: 0;
+}
+
+/* Free text from users (problem descriptions, reasons) keeps its line breaks. */
+.prose {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Tables ---------- */
@@ -351,6 +372,16 @@ select {
 
 .tone-grey {
   color: var(--ink-500);
+  background: var(--steel-100);
+}
+
+.tone-red {
+  color: var(--red-600);
+  background: var(--red-100);
+}
+
+.tone-steel {
+  color: var(--steel-600);
   background: var(--steel-100);
 }
 

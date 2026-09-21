@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { ServiceHistory } from '../types'
 import { formatDateTime } from '../utils/format'
 import { EmptyState } from './EmptyState'
@@ -37,7 +38,11 @@ export function ServiceHistoryTable({ history, loading, error }: ServiceHistoryT
         {history.items.map(item => (
           <tr key={`${item.type}-${item.id}`}>
             <td className="mono">{formatDateTime(item.occurredAtUtc)}</td>
-            <td>{item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}</td>
+            <td>
+              {item.type === 'ServiceRequest'
+                ? <Link to={`/service-requests/${item.id}`}>Service Request #{item.id}</Link>
+                : <>{item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}</>}
+            </td>
             <td><StatusBadge status={item.status} /></td>
             <td>{item.priority}</td>
             <td>{item.summary}</td>

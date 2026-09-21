@@ -12,7 +12,7 @@ const STATUS_TONE: Record<string, string> = {
   New: 'tone-amber',
   Approved: 'tone-green',
   Assigned: 'tone-green',
-  Rejected: 'tone-grey',
+  Rejected: 'tone-red',
   Cancelled: 'tone-grey'
 }
 
