@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend build + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore SarawakBizOps.sln
+      - name: Build
+        run: dotnet build SarawakBizOps.sln --configuration Release --no-restore
+      # Integration tests start a real SQL Server container via Testcontainers;
+      # the ubuntu runner already provides Docker.
+      - name: Test
+        run: dotnet test SarawakBizOps.sln --configuration Release --no-build
+
+  web:
+    name: Web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/SarawakBizOps.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/SarawakBizOps.Web/package-lock.json
+      - run: npm ci
+      - run: npm run build
