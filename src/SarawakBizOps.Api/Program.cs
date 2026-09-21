@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -83,6 +84,9 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
+
 // ---------------------------------------------------------------------
 // Application services — Controller -> Service -> EF Core (NFR-06).
 // ---------------------------------------------------------------------
@@ -156,11 +160,11 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 // ---------------------------------------------------------------------
-// Seed roles + default Admin account on startup.
+// Startup: optional migrations (Database:MigrateOnStartup), roles + Admin, optional demo data.
 // ---------------------------------------------------------------------
 using (var scope = app.Services.CreateScope())
 {
-    await DbSeeder.SeedAsync(scope.ServiceProvider);
+    await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
 }
 
 // ---------------------------------------------------------------------
@@ -176,11 +180,20 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// The Docker setup terminates nothing but plain HTTP between nginx and the API, so compose turns this off.
+if (builder.Configuration.GetValue("Hosting:UseHttpsRedirection", true))
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Unauthenticated and data-free: /health = process is up, /health/ready = the database answers.
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 
 app.Run();
 

@@ -23,6 +23,19 @@ public class SmokeTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/health")]
+    [InlineData("/health/ready")]
+    public async Task Health_endpoints_are_public_and_return_no_data(string path)
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task Seeded_admin_can_log_in_and_call_me()
     {

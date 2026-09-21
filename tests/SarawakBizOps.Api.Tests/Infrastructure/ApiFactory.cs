@@ -19,16 +19,26 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string AdminEmail = "admin@sarawakbizops.local";
     public const string AdminPassword = "TestAdmin123!";
 
-    private readonly MsSqlContainer _sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+    protected readonly MsSqlContainer Sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+
+    /// <summary>
+    /// The default factory migrates the database itself before the host is built (Program does not
+    /// migrate unless Database:MigrateOnStartup is on). <see cref="DemoApiFactory"/> turns this off
+    /// to prove the migrate-on-startup path against an empty database.
+    /// </summary>
+    protected virtual bool MigrateBeforeStartup => true;
 
     public async Task InitializeAsync()
     {
-        await _sql.StartAsync();
+        await Sql.StartAsync();
 
-        // Program seeds roles/admin on startup and never migrates, so the
-        // schema must exist before the host is built.
+        if (!MigrateBeforeStartup)
+        {
+            return;
+        }
+
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(_sql.GetConnectionString())
+            .UseSqlServer(Sql.GetConnectionString())
             .Options;
         await using var db = new ApplicationDbContext(options);
         await db.Database.MigrateAsync();
@@ -37,7 +47,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("ConnectionStrings:DefaultConnection", _sql.GetConnectionString());
+        builder.UseSetting("ConnectionStrings:DefaultConnection", Sql.GetConnectionString());
         builder.UseSetting("Jwt:Key", "test-only-signing-key-that-is-long-enough-for-hmac-sha256");
         builder.UseSetting("Seed:AdminEmail", AdminEmail);
         builder.UseSetting("Seed:AdminPassword", AdminPassword);
@@ -45,7 +55,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     async Task IAsyncLifetime.DisposeAsync()
     {
-        await _sql.DisposeAsync();
+        await Sql.DisposeAsync();
     }
 }
 
