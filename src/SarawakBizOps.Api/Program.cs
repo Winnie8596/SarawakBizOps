@@ -10,6 +10,7 @@ using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Services.Auth;
 using SarawakBizOps.Api.Services.Customers;
 using SarawakBizOps.Api.Services.Equipment;
+using SarawakBizOps.Api.Services.Users;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -71,6 +72,12 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+
+        // Reject tokens of deactivated users / changed roles or passwords immediately.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = JwtUserValidator.ValidateAsync
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -81,6 +88,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
+builder.Services.AddScoped<IUserService, UserService>();
 
 // ---------------------------------------------------------------------
 // CORS — allow the future React web app and Expo dev server to call this API.

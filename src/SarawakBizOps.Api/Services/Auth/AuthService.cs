@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
 using SarawakBizOps.Api.DTOs.Auth;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.Services.Common;
 
 namespace SarawakBizOps.Api.Services.Auth;
 
@@ -54,6 +55,24 @@ public class AuthService : IAuthService
         };
     }
 
+    public async Task<ServiceResult> ChangePasswordAsync(string userId, ChangePasswordRequest request)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null || !user.IsActive)
+        {
+            return ServiceResult.Fail(ServiceErrorKind.NotFound, "User not found.");
+        }
+
+        var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
+        if (!result.Succeeded)
+        {
+            return ServiceResult.Fail(ServiceErrorKind.Validation,
+                string.Join(" ", result.Errors.Select(e => e.Description)));
+        }
+
+        return ServiceResult.Ok();
+    }
+
     private (string token, DateTime expiresAtUtc) GenerateJwtToken(ApplicationUser user, IList<string> roles)
     {
         var jwtSection = _configuration.GetSection("Jwt");
@@ -68,7 +87,10 @@ public class AuthService : IAuthService
             new(JwtRegisteredClaimNames.Sub, user.Id),
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new(ClaimTypes.NameIdentifier, user.Id),
-            new("fullName", user.FullName)
+            new("fullName", user.FullName),
+            // Checked on every request (see JwtUserValidator) so that deactivating a user,
+            // changing their role or changing their password revokes existing tokens.
+            new(JwtUserValidator.SecurityStampClaim, user.SecurityStamp ?? string.Empty)
         };
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 

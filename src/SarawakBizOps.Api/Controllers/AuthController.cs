@@ -34,6 +34,17 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
+    // Any signed-in user may change their own password. The security stamp rotates, so the
+    // caller's current token stops working and they must sign in again with the new password.
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+        var result = await _authService.ChangePasswordAsync(userId, request);
+        return result.Succeeded ? NoContent() : this.ToProblem(result);
+    }
+
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> Me()
