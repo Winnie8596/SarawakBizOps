@@ -129,6 +129,11 @@ export interface ServiceRequest {
   rejectedByName?: string | null
   rejectedAt?: string | null
   rejectionReason?: string | null
+  cancelledByName?: string | null
+  cancelledAt?: string | null
+  cancellationReason?: string | null
+  workOrderId?: number | null
+  rowVersion: string
 }
 
 export interface ServiceRequestInput {
@@ -169,6 +174,9 @@ export interface WorkOrder {
   diagnosis?: string | null
   workPerformed?: string | null
   notes?: string | null
+  cancelledByName?: string | null
+  cancelledAt?: string | null
+  cancellationReason?: string | null
   rowVersion: string
 }
 
@@ -176,6 +184,7 @@ export interface DiagnosisInput {
   diagnosis: string
   workPerformed: string
   notes?: string
+  rowVersion: string
 }
 
 export interface WorkOrderFilters {

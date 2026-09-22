@@ -6,6 +6,8 @@ import { ApiError } from '../../api/client'
 import type { WorkOrder } from '../../types'
 import { PriorityBadge } from '../../components/PriorityBadge'
 import { StatusBadge } from '../../components/StatusBadge'
+import { ConflictBanner } from '../../components/ConflictBanner'
+import { useGuardedAction } from '../../hooks/useGuardedAction'
 import { formatDateTime } from '../../utils/format'
 
 // One screen, few taps (NFR-04): Start; type the diagnosis and work performed; Complete. The sticky
@@ -22,8 +24,9 @@ export function TechnicianJobDetailPage() {
   const [diagnosis, setDiagnosis] = useState('')
   const [workPerformed, setWorkPerformed] = useState('')
   const [notes, setNotes] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
+
+  const reload = () => getWorkOrder(auth!.token, jobId)
+  const { busy, error: actionError, run } = useGuardedAction(reload)
 
   useEffect(() => {
     if (!auth) return
@@ -51,38 +54,33 @@ export function TechnicianJobDetailPage() {
     }
   }, [auth, jobId])
 
-  async function handleStart() {
-    if (!auth) return
-    setBusy(true)
-    setActionError(null)
-    try {
-      setJob(await startWorkOrder(auth.token, jobId))
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Could not start this job.')
-    } finally {
-      setBusy(false)
-    }
+  function handleStart() {
+    if (!auth || !job) return
+    void run(
+      () => startWorkOrder(auth.token, jobId, job.rowVersion),
+      updated => setJob(updated),
+      'Could not start this job.'
+    )
   }
 
   // Saves the diagnosis and work performed, then completes in the same tap — the technician only
   // ever presses one button, even though the API models them as two steps.
   async function handleComplete(event: FormEvent) {
     event.preventDefault()
-    if (!auth) return
-    setBusy(true)
-    setActionError(null)
-    try {
-      await saveDiagnosis(auth.token, jobId, {
-        diagnosis: diagnosis.trim(),
-        workPerformed: workPerformed.trim(),
-        notes: notes.trim() || undefined
-      })
-      setJob(await completeWorkOrder(auth.token, jobId))
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Could not complete this job.')
-    } finally {
-      setBusy(false)
-    }
+    if (!auth || !job) return
+    await run(
+      async () => {
+        const saved = await saveDiagnosis(auth.token, jobId, {
+          diagnosis: diagnosis.trim(),
+          workPerformed: workPerformed.trim(),
+          notes: notes.trim() || undefined,
+          rowVersion: job.rowVersion
+        })
+        return completeWorkOrder(auth.token, jobId, saved.rowVersion)
+      },
+      updated => setJob(updated),
+      'Could not complete this job.'
+    )
   }
 
   if (loading) return <p className="page-subtitle">Loading job…</p>
@@ -112,7 +110,7 @@ export function TechnicianJobDetailPage() {
         {job.approvedAt && <div><dt>Approved</dt><dd>{formatDateTime(job.approvedAt)}</dd></div>}
       </dl>
 
-      {actionError && <p className="form-error" role="alert">{actionError}</p>}
+      <ConflictBanner message={actionError} />
 
       {job.status === 'Assigned' && (
         <div className="tech-action-bar">
@@ -181,6 +179,18 @@ export function TechnicianJobDetailPage() {
             <div><dt>Diagnosis</dt><dd className="prose">{job.diagnosis}</dd></div>
             <div><dt>Work performed</dt><dd className="prose">{job.workPerformed}</dd></div>
             {job.notes && <div><dt>Notes</dt><dd className="prose">{job.notes}</dd></div>}
+          </dl>
+        </div>
+      )}
+
+      {job.status === 'Cancelled' && (
+        <div className="panel">
+          <h2 className="panel-title">Cancelled — read only</h2>
+          <dl className="detail-list">
+            {job.cancelledAt && <div><dt>Cancelled</dt><dd>{formatDateTime(job.cancelledAt)}</dd></div>}
+            {job.cancellationReason && (
+              <div><dt>Reason</dt><dd className="prose">{job.cancellationReason}</dd></div>
+            )}
           </dl>
         </div>
       )}

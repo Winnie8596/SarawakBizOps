@@ -1,13 +1,21 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { approveServiceRequest, assignServiceRequest, getServiceRequest, rejectServiceRequest } from '../api/serviceRequests'
+import {
+  approveServiceRequest,
+  assignServiceRequest,
+  cancelServiceRequest,
+  getServiceRequest,
+  rejectServiceRequest
+} from '../api/serviceRequests'
 import { getTechnicians } from '../api/technicians'
 import { ApiError } from '../api/client'
 import type { ServiceRequest, Technician } from '../types'
 import { PriorityBadge } from '../components/PriorityBadge'
 import { StatusBadge } from '../components/StatusBadge'
-import { formatDateTime } from '../utils/format'
+import { ConflictBanner } from '../components/ConflictBanner'
+import { StatusTimeline } from '../components/StatusTimeline'
+import { useGuardedAction } from '../hooks/useGuardedAction'
 
 export function ServiceRequestDetailPage() {
   const { auth, hasRole } = useAuth()
@@ -22,13 +30,16 @@ export function ServiceRequestDetailPage() {
 
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
+
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
 
   const [assigning, setAssigning] = useState(false)
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [technicianId, setTechnicianId] = useState('')
-  const [assignedWorkOrderId, setAssignedWorkOrderId] = useState<number | null>(null)
+
+  const reload = () => getServiceRequest(auth!.token, requestId)
+  const { busy, error: actionError, run } = useGuardedAction(reload)
 
   useEffect(() => {
     if (!auth) return
@@ -62,7 +73,8 @@ export function ServiceRequestDetailPage() {
         if (!cancelled) setTechnicians(data)
       })
       .catch(() => {
-        if (!cancelled) setActionError('Could not load the technician list.')
+        // Falls back to whatever the select already shows; the assign action itself will still fail
+        // loudly through the guarded action if a technician is somehow submitted regardless.
       })
 
     return () => {
@@ -70,65 +82,57 @@ export function ServiceRequestDetailPage() {
     }
   }, [auth, canAssign, request?.status])
 
-  // Runs one review action. A 409 means someone else already decided (or the state moved on), so the
-  // record is reloaded and the buttons then match what is really stored.
-  async function review(action: () => Promise<ServiceRequest>) {
-    if (!auth) return
-    setBusy(true)
-    setActionError(null)
-    try {
-      setRequest(await action())
-      setRejecting(false)
-      setReason('')
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Could not save your decision.')
-      if (err instanceof ApiError && err.status === 409) {
-        setRejecting(false)
-        try {
-          setRequest(await getServiceRequest(auth.token, requestId))
-        } catch {
-          // The message above already explains the conflict; the page keeps its previous data.
-        }
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
   function handleApprove() {
-    if (!auth) return
-    void review(() => approveServiceRequest(auth.token, requestId))
+    if (!auth || !request) return
+    void run(
+      () => approveServiceRequest(auth.token, requestId, request.rowVersion),
+      updated => setRequest(updated),
+      'Could not save your decision.'
+    )
   }
 
   function handleReject(event: FormEvent) {
     event.preventDefault()
-    if (!auth) return
-    void review(() => rejectServiceRequest(auth.token, requestId, reason.trim()))
+    if (!auth || !request) return
+    void run(
+      () => rejectServiceRequest(auth.token, requestId, reason.trim(), request.rowVersion),
+      updated => {
+        setRequest(updated)
+        setRejecting(false)
+        setReason('')
+      },
+      'Could not save your decision.'
+    )
   }
 
-  async function handleAssign(event: FormEvent) {
+  function handleCancel(event: FormEvent) {
     event.preventDefault()
-    if (!auth || technicianId === '') return
+    if (!auth || !request) return
+    void run(
+      () => cancelServiceRequest(auth.token, requestId, cancelReason.trim(), request.rowVersion),
+      updated => {
+        setRequest(updated)
+        setCancelling(false)
+        setCancelReason('')
+      },
+      'Could not cancel this request.'
+    )
+  }
 
-    setBusy(true)
-    setActionError(null)
-    try {
-      const workOrder = await assignServiceRequest(auth.token, requestId, technicianId)
-      setAssignedWorkOrderId(workOrder.id)
-      setAssigning(false)
-      setRequest(await getServiceRequest(auth.token, requestId))
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Could not assign this job.')
-      if (err instanceof ApiError && err.status === 409) {
-        try {
-          setRequest(await getServiceRequest(auth.token, requestId))
-        } catch {
-          // The message above already explains the conflict; the page keeps its previous data.
-        }
-      }
-    } finally {
-      setBusy(false)
-    }
+  function handleAssign(event: FormEvent) {
+    event.preventDefault()
+    if (!auth || !request || technicianId === '') return
+    void run(
+      async () => {
+        await assignServiceRequest(auth.token, requestId, technicianId, request.rowVersion)
+        return reload()
+      },
+      updated => {
+        setAssigning(false)
+        setRequest(updated)
+      },
+      'Could not assign this job.'
+    )
   }
 
   if (loading) return <p className="page-subtitle">Loading service request…</p>
@@ -140,6 +144,12 @@ export function ServiceRequestDetailPage() {
       </div>
     )
   }
+
+  // A New request may be cancelled by the creator-side roles or a Manager; once Approved, only a
+  // Manager can still cancel it (decision: cancelling is not just "my own mistake" any more).
+  const canCancel =
+    (request.status === 'New' && hasRole('Admin', 'Manager', 'ServiceStaff')) ||
+    (request.status === 'Approved' && hasRole('Manager'))
 
   return (
     <div>
@@ -164,30 +174,20 @@ export function ServiceRequestDetailPage() {
         </div>
         <div><dt>Priority</dt><dd><PriorityBadge priority={request.priority} /></dd></div>
         <div><dt>Problem</dt><dd className="prose">{request.problemDescription}</dd></div>
-        <div>
-          <dt>Raised</dt>
-          <dd>{formatDateTime(request.createdAt)} by {request.createdByName}</dd>
-        </div>
-        {request.approvedAt && (
-          <div>
-            <dt>Approved</dt>
-            <dd>{formatDateTime(request.approvedAt)} by {request.approvedByName}</dd>
-          </div>
-        )}
-        {request.rejectedAt && (
-          <>
-            <div>
-              <dt>Rejected</dt>
-              <dd>{formatDateTime(request.rejectedAt)} by {request.rejectedByName}</dd>
-            </div>
-            <div><dt>Reason</dt><dd className="prose">{request.rejectionReason}</dd></div>
-          </>
-        )}
       </dl>
 
-      {actionError && <p className="form-error" role="alert">{actionError}</p>}
+      <StatusTimeline
+        entries={[
+          { label: 'Raised', at: request.createdAt, by: request.createdByName },
+          { label: 'Approved', at: request.approvedAt, by: request.approvedByName },
+          { label: 'Rejected', at: request.rejectedAt, by: request.rejectedByName, detail: request.rejectionReason },
+          { label: 'Cancelled', at: request.cancelledAt, by: request.cancelledByName, detail: request.cancellationReason }
+        ]}
+      />
 
-      {request.status === 'New' && canReview && (
+      <ConflictBanner message={actionError} />
+
+      {request.status === 'New' && canReview && !cancelling && (
         <div className="panel">
           <h2 className="panel-title">Review this request</h2>
 
@@ -235,15 +235,11 @@ export function ServiceRequestDetailPage() {
         <p className="form-hint">Waiting for a Manager to review this request.</p>
       )}
 
-      {request.status === 'Approved' && canAssign && (
+      {request.status === 'Approved' && canAssign && !cancelling && (
         <div className="panel">
           <h2 className="panel-title">Assign a technician</h2>
 
-          {assignedWorkOrderId ? (
-            <p className="form-notice" role="status">
-              Assigned. <Link to={`/work-orders/${assignedWorkOrderId}`}>View the work order</Link>
-            </p>
-          ) : assigning ? (
+          {assigning ? (
             <form onSubmit={handleAssign}>
               <label className="field">
                 <span className="field-label">Technician</span>
@@ -284,10 +280,53 @@ export function ServiceRequestDetailPage() {
         <p className="form-hint">Waiting for a Manager to assign this job to a technician.</p>
       )}
 
-      {request.status === 'Assigned' && !assignedWorkOrderId && (
-        <p className="form-hint">
-          This request has been assigned to a technician. See it on the <Link to="/work-orders">Work Orders</Link> page.
-        </p>
+      {request.status === 'Assigned' && (
+        request.workOrderId ? (
+          <p className="form-notice" role="status">
+            Assigned. <Link to={`/work-orders/${request.workOrderId}`}>View the work order</Link>
+          </p>
+        ) : (
+          <p className="form-hint">
+            This request has been assigned to a technician. See it on the <Link to="/work-orders">Work Orders</Link> page.
+          </p>
+        )
+      )}
+
+      {canCancel && !rejecting && !assigning && (
+        <div className="panel">
+          <h2 className="panel-title">Cancel this request</h2>
+
+          {cancelling ? (
+            <form onSubmit={handleCancel}>
+              <div className="field">
+                <label className="field-label" htmlFor="cancel-reason">Reason for cancelling</label>
+                <textarea
+                  id="cancel-reason"
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="panel-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setCancelling(false)} disabled={busy}>
+                  Back
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={busy || cancelReason.trim() === ''}>
+                  {busy ? 'Cancelling…' : 'Confirm cancellation'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="panel-actions">
+              <button className="btn btn-ghost" onClick={() => setCancelling(true)} disabled={busy}>
+                Cancel request…
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

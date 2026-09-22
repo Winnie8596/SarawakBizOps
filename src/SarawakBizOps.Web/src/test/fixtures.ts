@@ -30,6 +30,11 @@ export function serviceRequest(overrides: Partial<ServiceRequest> = {}): Service
     rejectedByName: null,
     rejectedAt: null,
     rejectionReason: null,
+    cancelledByName: null,
+    cancelledAt: null,
+    cancellationReason: null,
+    workOrderId: null,
+    rowVersion: 'AAAAAAAAB9E=',
     ...overrides
   }
 }
@@ -60,6 +65,9 @@ export function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     diagnosis: null,
     workPerformed: null,
     notes: null,
+    cancelledByName: null,
+    cancelledAt: null,
+    cancellationReason: null,
     rowVersion: 'AAAAAAAAB9E=',
     ...overrides
   }

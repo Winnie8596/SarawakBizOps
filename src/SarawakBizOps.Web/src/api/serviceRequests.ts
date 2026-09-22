@@ -23,22 +23,36 @@ export function createServiceRequest(token: string, input: ServiceRequestInput):
   })
 }
 
-export function approveServiceRequest(token: string, id: number): Promise<ServiceRequest> {
-  return apiFetch<ServiceRequest>(`/service-requests/${id}/approve`, { method: 'POST', token })
-}
-
-export function rejectServiceRequest(token: string, id: number, reason: string): Promise<ServiceRequest> {
-  return apiFetch<ServiceRequest>(`/service-requests/${id}/reject`, {
+export function approveServiceRequest(token: string, id: number, rowVersion: string): Promise<ServiceRequest> {
+  return apiFetch<ServiceRequest>(`/service-requests/${id}/approve`, {
     method: 'POST',
     token,
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ rowVersion })
   })
 }
 
-export function assignServiceRequest(token: string, id: number, technicianId: string): Promise<WorkOrder> {
+export function rejectServiceRequest(token: string, id: number, reason: string, rowVersion: string): Promise<ServiceRequest> {
+  return apiFetch<ServiceRequest>(`/service-requests/${id}/reject`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ reason, rowVersion })
+  })
+}
+
+// Decision: ServiceStaff/Admin may cancel their own New request; a Manager may cancel New or Approved.
+// The service layer enforces which, since it depends on both the actor's role and the current status.
+export function cancelServiceRequest(token: string, id: number, reason: string, rowVersion: string): Promise<ServiceRequest> {
+  return apiFetch<ServiceRequest>(`/service-requests/${id}/cancel`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ reason, rowVersion })
+  })
+}
+
+export function assignServiceRequest(token: string, id: number, technicianId: string, rowVersion: string): Promise<WorkOrder> {
   return apiFetch<WorkOrder>(`/service-requests/${id}/assign`, {
     method: 'POST',
     token,
-    body: JSON.stringify({ technicianId })
+    body: JSON.stringify({ technicianId, rowVersion })
   })
 }

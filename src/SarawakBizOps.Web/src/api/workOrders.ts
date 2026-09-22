@@ -17,8 +17,12 @@ export function getWorkOrder(token: string, id: number): Promise<WorkOrder> {
   return apiFetch<WorkOrder>(`/work-orders/${id}`, { token })
 }
 
-export function startWorkOrder(token: string, id: number): Promise<WorkOrder> {
-  return apiFetch<WorkOrder>(`/work-orders/${id}/start`, { method: 'POST', token })
+export function startWorkOrder(token: string, id: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/start`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
 }
 
 export function saveDiagnosis(token: string, id: number, input: DiagnosisInput): Promise<WorkOrder> {
@@ -29,10 +33,28 @@ export function saveDiagnosis(token: string, id: number, input: DiagnosisInput):
   })
 }
 
-export function completeWorkOrder(token: string, id: number): Promise<WorkOrder> {
-  return apiFetch<WorkOrder>(`/work-orders/${id}/complete`, { method: 'POST', token })
+export function completeWorkOrder(token: string, id: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/complete`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
 }
 
-export function approveWorkOrder(token: string, id: number): Promise<WorkOrder> {
-  return apiFetch<WorkOrder>(`/work-orders/${id}/approve`, { method: 'POST', token })
+export function approveWorkOrder(token: string, id: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/approve`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
+}
+
+// Manager only, mirroring approve (plan's demo script: "a Manager cancels an assigned job").
+// Reverts the linked ServiceRequest to Approved so it can be reassigned.
+export function cancelWorkOrder(token: string, id: number, reason: string, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/cancel`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ reason, rowVersion })
+  })
 }

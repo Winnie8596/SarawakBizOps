@@ -172,7 +172,7 @@ describe('Reviewing a request', () => {
 
     expect(await screen.findByText('Out of warranty')).toBeInTheDocument()
     const [, init] = callsTo(fetchMock, 'POST', '/service-requests/7/reject')[0]
-    expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Out of warranty' })
+    expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Out of warranty', rowVersion: 'AAAAAAAAB9E=' })
   })
 
   it('shows the conflict message and refreshes when someone else already decided', async () => {
@@ -234,5 +234,66 @@ describe('Reviewing a request', () => {
     renderApp('/service-requests/7')
 
     expect(await screen.findByText(/20 Sep\w* 2026.*10:30 by Aina Abdullah/)).toBeInTheDocument()
+  })
+})
+
+describe('Cancelling a request', () => {
+  it('lets ServiceStaff cancel their own New request with a reason', async () => {
+    signInAs('ServiceStaff')
+    const fetchMock = stubApi({
+      'GET /service-requests/7': { body: serviceRequest() },
+      'POST /service-requests/7/cancel': ({ body }) => ({
+        body: serviceRequest({
+          status: 'Cancelled', cancelledByName: 'Test User', cancelledAt: '2026-09-22T03:00:00',
+          cancellationReason: (body as { reason: string }).reason
+        })
+      })
+    })
+    renderApp('/service-requests/7')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel request…' }))
+    const confirm = screen.getByRole('button', { name: 'Confirm cancellation' })
+    expect(confirm).toBeDisabled()
+
+    await userEvent.type(screen.getByLabelText('Reason for cancelling'), 'Raised in error')
+    await userEvent.click(confirm)
+
+    const heading = await screen.findByRole('heading', { name: /Service request #7/ })
+    expect(within(heading).getByText('Cancelled')).toBeInTheDocument()
+    const [, init] = callsTo(fetchMock, 'POST', '/service-requests/7/cancel')[0]
+    expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Raised in error', rowVersion: 'AAAAAAAAB9E=' })
+  })
+
+  it('does not offer ServiceStaff a cancel button once the request is Approved', async () => {
+    signInAs('ServiceStaff')
+    stubApi({
+      'GET /service-requests/7': { body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' }) }
+    })
+    renderApp('/service-requests/7')
+
+    await screen.findByText(/Jenny Lau/)
+    expect(screen.queryByRole('button', { name: 'Cancel request…' })).not.toBeInTheDocument()
+  })
+
+  it('lets a Manager cancel an Approved request', async () => {
+    signInAs('Manager')
+    const fetchMock = stubApi({
+      'GET /service-requests/7': { body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' }) },
+      'POST /service-requests/7/cancel': ({ body }) => ({
+        body: serviceRequest({
+          status: 'Cancelled', cancelledByName: 'Test User', cancelledAt: '2026-09-22T03:00:00',
+          cancellationReason: (body as { reason: string }).reason
+        })
+      })
+    })
+    renderApp('/service-requests/7')
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel request…' }))
+    await userEvent.type(screen.getByLabelText('Reason for cancelling'), 'Customer no longer needs the job')
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm cancellation' }))
+
+    const heading = await screen.findByRole('heading', { name: /Service request #7/ })
+    expect(within(heading).getByText('Cancelled')).toBeInTheDocument()
+    expect(callsTo(fetchMock, 'POST', '/service-requests/7/cancel')).toHaveLength(1)
   })
 })

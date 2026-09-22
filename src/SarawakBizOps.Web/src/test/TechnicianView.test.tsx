@@ -68,7 +68,11 @@ describe('Job detail (technician)', () => {
 
     expect(await screen.findByText('Completed — waiting for Manager approval')).toBeInTheDocument()
     const [, patchInit] = callsTo(fetchMock, 'PATCH', '/work-orders/41/diagnosis')[0]
-    expect(JSON.parse(String(patchInit?.body))).toEqual({ diagnosis: 'Loose belt', workPerformed: 'Retensioned it' })
+    expect(JSON.parse(String(patchInit?.body))).toEqual({
+      diagnosis: 'Loose belt',
+      workPerformed: 'Retensioned it',
+      rowVersion: 'AAAAAAAAB9E='
+    })
     expect(callsTo(fetchMock, 'POST', '/work-orders/41/complete')).toHaveLength(1)
   })
 

@@ -1,24 +1,33 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { approveWorkOrder, getWorkOrder } from '../api/workOrders'
+import { approveWorkOrder, cancelWorkOrder, getWorkOrder } from '../api/workOrders'
 import { ApiError } from '../api/client'
 import type { WorkOrder } from '../types'
 import { PriorityBadge } from '../components/PriorityBadge'
 import { StatusBadge } from '../components/StatusBadge'
-import { formatDateTime } from '../utils/format'
+import { ConflictBanner } from '../components/ConflictBanner'
+import { StatusTimeline } from '../components/StatusTimeline'
+import { useGuardedAction } from '../hooks/useGuardedAction'
+
+const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress']
 
 export function WorkOrderDetailPage() {
   const { auth, hasRole } = useAuth()
   const { id } = useParams()
   const workOrderId = Number(id)
   const canApprove = hasRole('Manager')
+  const canCancelJob = hasRole('Manager')
 
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
+
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+
+  const reload = () => getWorkOrder(auth!.token, workOrderId)
+  const { busy, error: actionError, run } = useGuardedAction(reload)
 
   useEffect(() => {
     if (!auth) return
@@ -42,25 +51,27 @@ export function WorkOrderDetailPage() {
     }
   }, [auth, workOrderId])
 
-  // A 409 means someone else already approved it (or it moved on); reload so the page matches reality.
-  async function handleApprove() {
-    if (!auth) return
-    setBusy(true)
-    setActionError(null)
-    try {
-      setWorkOrder(await approveWorkOrder(auth.token, workOrderId))
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : 'Could not approve this work order.')
-      if (err instanceof ApiError && err.status === 409) {
-        try {
-          setWorkOrder(await getWorkOrder(auth.token, workOrderId))
-        } catch {
-          // The message above already explains the conflict; the page keeps its previous data.
-        }
-      }
-    } finally {
-      setBusy(false)
-    }
+  function handleApprove() {
+    if (!auth || !workOrder) return
+    void run(
+      () => approveWorkOrder(auth.token, workOrderId, workOrder.rowVersion),
+      updated => setWorkOrder(updated),
+      'Could not approve this work order.'
+    )
+  }
+
+  function handleCancel(event: FormEvent) {
+    event.preventDefault()
+    if (!auth || !workOrder) return
+    void run(
+      () => cancelWorkOrder(auth.token, workOrderId, cancelReason.trim(), workOrder.rowVersion),
+      updated => {
+        setWorkOrder(updated)
+        setCancelling(false)
+        setCancelReason('')
+      },
+      'Could not cancel this work order.'
+    )
   }
 
   if (loading) return <p className="page-subtitle">Loading work order…</p>
@@ -72,6 +83,9 @@ export function WorkOrderDetailPage() {
       </div>
     )
   }
+
+  const locked = workOrder.status === 'Approved' || workOrder.status === 'Cancelled'
+  const canCancel = canCancelJob && CANCELLABLE_STATUSES.includes(workOrder.status)
 
   return (
     <div>
@@ -101,11 +115,11 @@ export function WorkOrderDetailPage() {
           <dt>Service request</dt>
           <dd><Link to={`/service-requests/${workOrder.serviceRequestId}`}>#{workOrder.serviceRequestId}</Link></dd>
         </div>
-        {workOrder.assignedAt && <div><dt>Assigned</dt><dd>{formatDateTime(workOrder.assignedAt)}</dd></div>}
-        {workOrder.startedAt && <div><dt>Started</dt><dd>{formatDateTime(workOrder.startedAt)}</dd></div>}
-        {workOrder.completedAt && <div><dt>Completed</dt><dd>{formatDateTime(workOrder.completedAt)}</dd></div>}
-        {workOrder.approvedAt && <div><dt>Approved</dt><dd>{formatDateTime(workOrder.approvedAt)}</dd></div>}
       </dl>
+
+      {locked && workOrder.status === 'Approved' && (
+        <p className="form-hint">This job is Approved and locked — it can no longer be edited.</p>
+      )}
 
       {(workOrder.diagnosis || workOrder.workPerformed) && (
         <dl className="detail-list panel">
@@ -115,7 +129,22 @@ export function WorkOrderDetailPage() {
         </dl>
       )}
 
-      {actionError && <p className="form-error" role="alert">{actionError}</p>}
+      <StatusTimeline
+        entries={[
+          { label: 'Assigned', at: workOrder.assignedAt },
+          { label: 'Started', at: workOrder.startedAt },
+          { label: 'Completed', at: workOrder.completedAt },
+          { label: 'Approved', at: workOrder.approvedAt },
+          {
+            label: 'Cancelled',
+            at: workOrder.cancelledAt,
+            by: workOrder.cancelledByName,
+            detail: workOrder.cancellationReason
+          }
+        ]}
+      />
+
+      <ConflictBanner message={actionError} />
 
       {workOrder.status === 'Completed' && canApprove && (
         <div className="panel-actions">
@@ -127,6 +156,46 @@ export function WorkOrderDetailPage() {
 
       {workOrder.status === 'Completed' && !canApprove && (
         <p className="form-hint">Waiting for a Manager to approve this job.</p>
+      )}
+
+      {canCancel && (
+        <div className="panel">
+          <h2 className="panel-title">Cancel this job</h2>
+
+          {cancelling ? (
+            <form onSubmit={handleCancel}>
+              <div className="field">
+                <label className="field-label" htmlFor="wo-cancel-reason">Reason for cancelling</label>
+                <textarea
+                  id="wo-cancel-reason"
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  required
+                  autoFocus
+                />
+                <span className="form-hint">
+                  The service request returns to Approved so it can be reassigned.
+                </span>
+              </div>
+              <div className="panel-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setCancelling(false)} disabled={busy}>
+                  Back
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={busy || cancelReason.trim() === ''}>
+                  {busy ? 'Cancelling…' : 'Confirm cancellation'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="panel-actions">
+              <button className="btn btn-ghost" onClick={() => setCancelling(true)} disabled={busy}>
+                Cancel job…
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
