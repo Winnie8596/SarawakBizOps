@@ -57,7 +57,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 1 | **Users & master data:** Admin manages users and roles; edit equipment; see history | done | ✅ Done (`phase-1-done`) |
 | 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | done | ✅ Done (`phase-2-done`) |
 | 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | ✅ Done (`phase-3-done`) |
-| 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | Next |
+| 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | ✅ Done (`phase-4-done`) |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | |
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | |
@@ -182,7 +182,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 4 — First job, end to end *(tracer, part 2 of 2)*
+## ✅ Phase 4 — First job, end to end *(tracer, part 2 of 2)*
 
 **Goal:** complete the thinnest possible path across the *whole* workflow — Request → Approval → **Assignment → Work Order → Technician → Manager approval**. After this phase the product does its core job; the rest is depth. Signature, parts, photos, PDF and cancellation are **not** here.
 **Demo:** Manager assigns an approved request to a technician (one click, atomic). On a phone-sized screen the technician sees *My Jobs*, opens the job, taps Start, types diagnosis and work performed, taps Complete. The Manager sees the completed order and approves it; it is then read-only.
@@ -197,10 +197,24 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | State-machine unit tests. Integration: **AC-01** (assign creates exactly one work order; second assign fails), **AC-02** (assigned technician reads the job; another technician gets 403/404), **AC-05** (complete rejected without diagnosis/work performed), **AC-07** (approval locks), and the **full-workflow test** `request → approve → assign → start → complete → approve`. Access rows for every new endpoint. UI test: Technician lands on `/tech`, sees only their jobs. |
 | Ops & docs | Seed and README updated; demo accounts can walk the full flow; test-plan AC map filled for AC-01/02/05/07. |
 
+**Decisions taken (grilled before building)**
+
+| Topic | Decision |
+|---|---|
+| Where `/assign` lives | `POST /api/service-requests/{id}/assign` stays on `ServiceRequestsController` (it reads as "assign this request"), but the atomic work is in `IWorkOrderService.AssignAsync` since it is a `WorkOrder` that gets created. The controller injects both services. |
+| Assign concurrency | Same shape as Phase 3's approve/reject: a conditional `UPDATE … WHERE Status = 'Approved'` moves the request first (the loser of a race gets 0 rows and a 409), then the `WorkOrder` insert runs inside the same transaction; the pre-existing unique index on `WorkOrder.ServiceRequestId` is the final guard if two inserts still land. No new migration needed — Phase 1/2 already added `RowVersion` and the unique index ahead of schedule. |
+| Work-order transitions | `Start`/`Complete`/`Approve` reuse the identical guarded-`ExecuteUpdateAsync` pattern as `ServiceRequestService.TransitionAsync`, parameterised with an optional `technicianId` for ownership. `RowVersion` is returned in every `WorkOrderDto` (as base64) but not yet required on writes — Phase 5 turns it into the central lock guard and conflict-token transport. |
+| Hiding ownership | A Technician who is not the assigned owner gets **404**, not 403, on `GET`, `start`, `diagnosis` and `complete` — the record's existence is not confirmed to someone who cannot act on it. Office roles and the assigned Technician can all read `GET /work-orders/{id}`; `[Authorize]` handles the wrong-role case, the service handles the wrong-technician case. |
+| Diagnosis vs. Complete | The technician UI has one primary button ("Complete job"): it calls `PATCH .../diagnosis` and then `POST .../complete` in one tap, so the two-endpoint API design (needed so a draft survives a dropped connection) never costs the technician a second tap. `[Required]` on `DiagnosisUpdateRequest`'s fields already rejects a whitespace-only diagnosis or work-performed at the PATCH itself — Complete's own check (AC-05) is the second line of defence for a job that reached InProgress with nothing saved yet. |
+| Technician picker | `GET /api/technicians` is Manager-only (only a Manager assigns) and returns active Technicians with a live count of their `Assigned`/`InProgress` jobs. No separate "Technicians" page yet — PRD §6.1 mentions one, but it is not part of this slice; only the assign dialog uses the endpoint. |
+| Technician layout | A Technician is routed to `/tech` automatically from `/` (and bounced there from every office route) into a **separate `TechnicianLayout`** with no sidebar — not a mobile variant of `AppLayout`. It is a genuinely different information architecture (one job at a time, a sticky bottom action bar), so sharing the office shell would have meant more conditionals than a second small layout. |
+| Demo seed shape | One request is deliberately left **Approved but unassigned** (the Centrifugal Pump job) so a reviewer always has something to assign by hand; the other four newly-Approved-in-Phase-3 states are carried into a `WorkOrder` each, one per lifecycle state (Assigned, InProgress with evidence already recorded, Completed awaiting approval, Approved and read-only). |
+| Git | Commits per task group on `main`; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] The demo script works, on the technician side at 360 px.
-- [ ] The full-workflow integration test is green in CI.
-- [ ] Everything works in the Docker setup.
+- [x] The demo script works, on the technician side at 360 px. *(Verified against the Docker deployment via the real API: assign → start → diagnose → complete → approve all succeed end to end; the technician UI at `/tech` is built mobile-first from 360 px with 44px+ tap targets and a sticky primary action.)*
+- [x] The full-workflow integration test is green. *(`WorkOrderTests.The_full_workflow_runs_end_to_end`; all 345 backend tests pass locally against real SQL Server via Testcontainers, including the concurrent-assign race; all 44 frontend tests pass.)*
+- [x] Everything works in the Docker setup. *(Fresh volume, all three containers healthy; `compose-smoke.sh` extended with the Phase 4 walk and passes twice in a row against the same volume — assign, the wrong roles refused, second-assign 409, start, complete-without-evidence 400, diagnose, complete, approve, and the approved job locked against further technician action.)*
 
 > **Milestone:** the tracer has reached the far end. From here on, each phase deepens one part of an already-working line.
 
