@@ -34,7 +34,7 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 1 | Users admin, change-password, Customers/Equipment completion | Done |
 | 2 | Deployable skeleton: `docker compose up` with seed data | Done |
 | 3 | Request intake: staff raise a service request, a Manager approves or rejects it | Done |
-| 4 | The first job end to end: assign, technician works it, Manager approves | Planned |
+| 4 | The first job end to end: assign, technician works it, Manager approves | Done |
 | 5–10 | Workflow rules, parts and stock, signature, photos, PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
 | 15 | Release polish and docs | Planned |
@@ -42,15 +42,17 @@ Customer report → Service Request → Manager approval → Technician assignme
 **Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
 management (create with one role, edit, deactivate, reset password) with immediate token revocation, all 10
 entities with the `InitialCreate` migration, Customers and Equipment (create/update, service history for office
-roles), **service requests** (raise, list with filters, approve, reject with a reason), RFC 7807 error responses,
+roles), **service requests** (raise, list with filters, approve, reject with a reason), **work orders** (atomic
+assignment to a technician, start, diagnosis, complete, Manager approval), RFC 7807 error responses,
 Swagger with bearer auth, and a React office console (role-aware sidebar and routes, Users, Customers, Equipment,
-Service Requests, detail pages with history, change password).
+Service Requests, Work Orders, detail pages with history, change password) plus a separate mobile-first
+**Technician view** (`/tech`) for the field workflow.
 
 ### Service requests (Phase 3)
 
 ```
-New ──approve──► Approved      (Assignment to a technician arrives in Phase 4, cancellation in Phase 5)
- └────reject───► Rejected      (a reason is mandatory)
+New ──approve──► Approved ──assign──► Assigned      (cancellation arrives in Phase 5)
+ └────reject───► Rejected                           (a reason is mandatory)
 ```
 
 | Who | Can |
@@ -58,7 +60,7 @@ New ──approve──► Approved      (Assignment to a technician arrives in 
 | Admin, Manager, ServiceStaff | list and open requests (`GET /api/service-requests`, filters `status`, `priority`, `customerId`) |
 | ServiceStaff, Admin | raise one (`POST /api/service-requests`) |
 | Manager | approve (`POST /{id}/approve`) or reject (`POST /{id}/reject` with `{"reason": "…"}`) |
-| Technician, WarehouseStaff | nothing here (a Technician sees only their own work orders from Phase 4) |
+| Technician, WarehouseStaff | nothing here (a Technician sees only their own work orders, below) |
 
 - **BR-10:** the equipment must belong to the chosen customer, otherwise `400`. Retired equipment is also refused; Inactive and Under Maintenance equipment can be raised against.
 - **Invalid moves are `409`.** Approving or rejecting anything that is not `New` returns a message such as *"This request is Approved and cannot be rejected. Only a New request can be approved or rejected."*, and the UI shows it.
@@ -72,7 +74,37 @@ New ──approve──► Approved      (Assignment to a technician arrives in 
 3. Open another New request and choose **Reject**. The *Confirm rejection* button stays disabled until you type a reason, and the reason is then shown on the request.
 4. Try to approve an already-approved request from a second browser tab: the page shows the 409 message and refreshes to the real state.
 5. Open **Customers → Rajang Timber Mills → View & history**: the requests appear with their status, dates in Malaysia time (UTC+8), and link to their detail page.
-6. As `technician@…` or `warehouse@…` the Service Requests page is not offered and `/service-requests` bounces to the dashboard.
+6. As `warehouse@…` the Service Requests page is not offered and `/service-requests` bounces to the dashboard; as `technician@…` it bounces to **My Jobs** instead (see below).
+
+### Work orders (Phase 4)
+
+```
+Approved ──assign──► Assigned ──start──► InProgress ──complete──► Completed ──approve──► Approved (locked)
+ (request)            (atomic:            (technician)             (needs a                (Manager;
+                       BR-01/11/12/13)                               diagnosis and            read-only after)
+                                                                      work performed, AC-05)
+```
+
+| Who | Can |
+|---|---|
+| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`) |
+| Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`) |
+| Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), complete (`POST /{id}/complete`) |
+| WarehouseStaff | nothing here |
+
+- **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one work order (a unique index is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order.
+- **BR-02, AC-02:** a technician acts only on their own job. Another technician's job is reported **404**, not 403, on every technician endpoint — its existence is not confirmed to someone who cannot open it. Office roles can read any job.
+- **AC-05:** completion is rejected without a stored diagnosis and work performed. The technician UI has one button ("Complete job") that saves both fields and completes in the same tap, even though the API models them as two calls.
+- **AC-07 (first cut):** once a Manager approves, every further technician action on that job is a `409` (Phase 5 turns this into one central guard covering every mutating endpoint).
+- The Technician role gets its own **mobile-first view at `/tech`** (no office sidebar, 360 px layout, 44 px+ tap targets, a sticky primary action button) — chosen automatically the moment a Technician signs in or lands on `/`.
+
+**Try it (demo script).** Continuing from the Service Requests walk above:
+
+1. As `manager@sarawakbizops.local`: open **Service Requests**, filter to **Approved** and open the Centrifugal Pump request (the one seeded request left unassigned on purpose). Choose **Assign to a technician**, pick `Ahmad Bujang` (shows his current open-job count) and confirm. You land on a link to the new work order.
+2. Sign in as `technician@sarawakbizops.local` on a narrow browser window (or your phone): you land on **My Jobs**, not the office dashboard. Open the pump job, tap **Start job**, type a diagnosis and what you did, then tap **Complete job** — one tap saves both fields and completes it.
+3. Back as the Manager, open **Work Orders**, find the job you just completed and tap **Approve**. It becomes read-only from then on.
+4. Try completing an in-progress job (there is a seeded one, the Air Compressor) with an empty diagnosis: the Complete button stays disabled until both fields are filled in, matching what the API would reject.
+5. As `staff@sarawakbizops.local`, open the assigned pump request: no Assign button is offered, and a hint points at the Work Orders page instead.
 
 ```
 src/
@@ -83,7 +115,7 @@ tests/
 docs/
 └── test-plan.md                Acceptance-criteria map: which test proves which AC
 scripts/
-└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake (used by CI)
+└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake and the first job end to end (used by CI)
 docker-compose.yml              sqlserver + api + web, one command
 ```
 
@@ -113,7 +145,7 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 6 service requests (3 New, one of them Urgent; 2 Approved; 1 Rejected with a reason) spread over the last three weeks.
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 9 service requests (3 New, one of them Urgent; 1 Approved and deliberately left unassigned; 4 Assigned; 1 Rejected with a reason) spread over the last three weeks, plus 4 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval) and Approved (the whole workflow closed, read-only).
 
 | Command | What it does |
 |---|---|
@@ -131,7 +163,7 @@ The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 piec
 
 **Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
 
-**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data and walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409). It needs `curl` and `jq`, and CI runs it on every push. It adds two requests per run, so `docker compose down -v` resets the demo data.
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete, approve, then the approved job locks against further technician action). It needs `curl` and `jq`, and CI runs it on every push. It adds a couple of requests and consumes the seeded unassigned request per run, so `docker compose down -v` resets the demo data.
 
 ---
 
@@ -244,9 +276,11 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 
 - The Docker demo accounts share one public, documented password and there is no forced change on first login (V2). They exist only in demo mode.
 - The Docker setup serves plain HTTP; TLS is out of scope for the demo.
-- Customers, Equipment and Service Requests (raise, approve, reject) are implemented so far; assignment and work
-  orders, inventory, files/PDF, dashboard analytics and AI features are planned in [`plan.md`](./plan.md). A request
-  cannot be cancelled yet (Phase 5), and list endpoints are not paginated yet (Phase 15 sweep).
+- Customers, Equipment, Service Requests (raise, approve, reject) and the first work-order slice (assign, start,
+  diagnose, complete, approve) are implemented so far; inventory, files/PDF, dashboard analytics and AI features
+  are planned in [`plan.md`](./plan.md). A request or work order cannot be cancelled yet, there is no
+  optimistic-concurrency conflict UI beyond the existing 409 message, and parts/photos/signature are not part of
+  completing a job yet (Phase 5 onward). List endpoints are not paginated yet (Phase 15 sweep).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
   no forced change-on-first-login. Admin-set passwords are shared out of band.
 

@@ -60,16 +60,16 @@ customer_id="$(jq -r '.customerId' <<<"$target")"
 other_customer_id="$(curl -fsS "$BASE_URL/api/customers" -H "Authorization: Bearer $token" \
   | jq -r --argjson c "$customer_id" 'map(select(.id != $c))[0].id')"
 
-# A POST always carries a body, even an empty one: like a browser's fetch, that sends Content-Length: 0.
-# (curl -X POST with no -d sends no length at all, which Kestrel rejects with a bare 400.)
+# A POST/PATCH always carries a body, even an empty one: like a browser's fetch, that sends
+# Content-Length: 0. (curl -X POST with no -d sends no length at all, which Kestrel rejects with a bare 400.)
 api() { # $1 = token, $2 = method, $3 = path, $4 = optional JSON body -> prints the response body (4xx is not an error here)
   local body=()
-  if [ "$2" = POST ]; then body=(-d "${4:-}"); fi
+  if [ "$2" = POST ] || [ "$2" = PATCH ]; then body=(-d "${4:-}"); fi
   curl -sS -X "$2" "$BASE_URL/api$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${body[@]+"${body[@]}"}
 }
 status_of() { # same arguments as api -> prints only the HTTP status code
   local body=()
-  if [ "$2" = POST ]; then body=(-d "${4:-}"); fi
+  if [ "$2" = POST ] || [ "$2" = PATCH ]; then body=(-d "${4:-}"); fi
   curl -sS -o /dev/null -w '%{http_code}' -X "$2" "$BASE_URL/api$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${body[@]+"${body[@]}"}
 }
 new_body() { jq -nc --argjson c "$1" --argjson e "$equipment_id" --arg p "$2" \
@@ -95,5 +95,43 @@ api "$token" POST "/service-requests/$reject_id/reject" '{"reason":"Smoke test r
 [ "$(status_of "$token" POST "/service-requests/$approve_id/approve")" = 409 ] \
   || fail "approving an already approved request must be a 409"
 echo "  ok: raised, approved, rejected, and the wrong roles or invalid moves were refused"
+
+# Phase 4 demo walk: assign -> start -> diagnose -> complete -> approve, plus the wrong roles refused.
+echo "First job end to end: assign, technician works it, manager approves..."
+pump_request_id="$(curl -fsS "$BASE_URL/api/service-requests?status=Approved" -H "Authorization: Bearer $token" | jq -er '.[0].id')" \
+  || fail "expected at least one Approved request to assign (the seeded, still-unassigned pump request)"
+technician_id="$(curl -fsS "$BASE_URL/api/technicians" -H "Authorization: Bearer $token" | jq -er '.[0].id')" \
+  || fail "expected at least one technician to assign to"
+
+[ "$(status_of "$staff_token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')")" = 403 ] \
+  || fail "ServiceStaff must not be able to assign"
+
+work_order_id="$(api "$token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')" | jq -er '.id')" \
+  || fail "manager could not assign the technician"
+[ "$(status_of "$token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')")" = 409 ] \
+  || fail "a second assign of the same request must be a 409 (BR-12)"
+
+warehouse_token="$(login warehouse@sarawakbizops.local)"
+[ "$(status_of "$warehouse_token" POST "/work-orders/$work_order_id/start" '')" = 403 ] \
+  || fail "WarehouseStaff must not be able to start a work order"
+
+api "$tech_token" POST "/work-orders/$work_order_id/start" '' | jq -e '.status == "InProgress"' >/dev/null \
+  || fail "technician could not start the assigned job"
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" '')" = 400 ] \
+  || fail "completing without diagnosis/work performed must be a 400 (AC-05)"
+
+api "$tech_token" PATCH "/work-orders/$work_order_id/diagnosis" \
+  '{"diagnosis":"Smoke test diagnosis","workPerformed":"Smoke test work performed"}' \
+  | jq -e '.diagnosis == "Smoke test diagnosis"' >/dev/null \
+  || fail "technician could not save the diagnosis"
+
+api "$tech_token" POST "/work-orders/$work_order_id/complete" '' | jq -e '.status == "Completed"' >/dev/null \
+  || fail "technician could not complete the job"
+
+api "$token" POST "/work-orders/$work_order_id/approve" '' | jq -e '.status == "Approved"' >/dev/null \
+  || fail "manager could not approve the completed job"
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" '')" = 409 ] \
+  || fail "an approved job must be locked against further technician action (AC-07/BR-06)"
+echo "  ok: assigned, started, diagnosed, completed and approved; wrong roles and invalid moves were refused"
 
 echo "Smoke test passed."
