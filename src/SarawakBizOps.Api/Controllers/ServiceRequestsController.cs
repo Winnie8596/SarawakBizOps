@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
+using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Common;
 using SarawakBizOps.Api.Services.ServiceRequests;
 using SarawakBizOps.Api.Services.WorkOrders;
 
@@ -50,9 +52,14 @@ public class ServiceRequestsController : ControllerBase
 
     [HttpPost("{id:int}/approve")]
     [Authorize(Roles = "Manager")]
-    public async Task<IActionResult> Approve(int id, CancellationToken ct)
+    public async Task<IActionResult> Approve(int id, [FromBody] ApproveServiceRequestRequest request, CancellationToken ct)
     {
-        var result = await _service.ApproveAsync(id, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.ApproveAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
@@ -60,7 +67,27 @@ public class ServiceRequestsController : ControllerBase
     [Authorize(Roles = "Manager")]
     public async Task<IActionResult> Reject(int id, [FromBody] RejectServiceRequestRequest request, CancellationToken ct)
     {
-        var result = await _service.RejectAsync(id, request.Reason, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.RejectAsync(id, request.Reason, ActingUserId, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Decision: a Manager may cancel a New or Approved request; the creator-side roles (ServiceStaff,
+    // Admin) may only undo their own mistake while it is still New — enforced inside the service, since
+    // it depends on both role and current status.
+    [HttpPost("{id:int}/cancel")]
+    public async Task<IActionResult> Cancel(int id, [FromBody] CancelServiceRequestRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.CancelAsync(id, request.Reason, ActingUserId, User.IsInRole(AppRoles.Manager), rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
@@ -69,7 +96,12 @@ public class ServiceRequestsController : ControllerBase
     [Authorize(Roles = "Manager")]
     public async Task<IActionResult> Assign(int id, [FromBody] AssignWorkOrderRequest request, CancellationToken ct)
     {
-        var result = await _workOrderService.AssignAsync(id, request.TechnicianId, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _workOrderService.AssignAsync(id, request.TechnicianId, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 

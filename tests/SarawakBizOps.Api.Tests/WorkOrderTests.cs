@@ -139,7 +139,7 @@ public class WorkOrderTests
         var customer = await CreateCustomerAsync(admin);
         var equipment = await CreateEquipmentAsync(admin, customer.Id);
         var request = await CreateServiceRequestAsync(admin, customer.Id, equipment.Id, "Belt slipping under load", "High");
-        await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        await PostApproveAsync(manager, request.Id);
         var workOrder = await AssignWorkOrderAsync(manager, request.Id, technician.Id);
 
         var detail = await GetWorkOrderAsync(technicianClient, workOrder.Id);
@@ -165,7 +165,7 @@ public class WorkOrderTests
         var workOrder = await CreateAssignedWorkOrderAsync(admin, manager, owner.Id);
 
         var get = await otherClient.GetAsync($"/api/work-orders/{workOrder.Id}");
-        var start = await otherClient.PostAsync($"/api/work-orders/{workOrder.Id}/start", null);
+        var start = await PostStartAsync(otherClient, workOrder.Id);
         var mine = await otherClient.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
 
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
@@ -213,7 +213,7 @@ public class WorkOrderTests
         var (technicianClient, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var workOrder = await CreateInProgressWorkOrderAsync(admin, manager, technicianClient, technician.Id);
 
-        var again = await technicianClient.PostAsync($"/api/work-orders/{workOrder.Id}/start", null);
+        var again = await PostStartAsync(technicianClient, workOrder.Id);
 
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         Assert.Contains("InProgress", await DetailAsync(again));
@@ -250,7 +250,7 @@ public class WorkOrderTests
         var (technicianClient, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var workOrder = await CreateInProgressWorkOrderAsync(admin, manager, technicianClient, technician.Id);
 
-        var response = await technicianClient.PostAsync($"/api/work-orders/{workOrder.Id}/complete", null);
+        var response = await PostCompleteAsync(technicianClient, workOrder.Id);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("diagnosis", await DetailAsync(response));
@@ -273,7 +273,7 @@ public class WorkOrderTests
 
         Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
 
-        var response = await technicianClient.PostAsync($"/api/work-orders/{workOrder.Id}/complete", null);
+        var response = await PostCompleteAsync(technicianClient, workOrder.Id);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
@@ -308,7 +308,7 @@ public class WorkOrderTests
         Assert.NotNull(approved.ApprovedAt);
 
         var editAfterApproval = await PatchDiagnosisAsync(technicianClient, workOrder.Id, "Changed my mind", "Different work");
-        var completeAgain = await technicianClient.PostAsync($"/api/work-orders/{workOrder.Id}/complete", null);
+        var completeAgain = await PostCompleteAsync(technicianClient, workOrder.Id);
 
         Assert.Equal(HttpStatusCode.Conflict, editAfterApproval.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, completeAgain.StatusCode);
@@ -322,7 +322,7 @@ public class WorkOrderTests
         var (_, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var workOrder = await CreateAssignedWorkOrderAsync(admin, manager, technician.Id);
 
-        var response = await manager.PostAsync($"/api/work-orders/{workOrder.Id}/approve", null);
+        var response = await PostApproveWorkOrderAsync(manager, workOrder.Id);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Contains("Only a completed job can be approved", await DetailAsync(response));
@@ -337,8 +337,8 @@ public class WorkOrderTests
         var (technicianClient, _) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
 
         Assert.Equal(HttpStatusCode.NotFound, (await manager.GetAsync("/api/work-orders/999999")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await technicianClient.PostAsync("/api/work-orders/999999/start", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await manager.PostAsync("/api/work-orders/999999/approve", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PostStartAsync(technicianClient, 999999)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await PostApproveWorkOrderAsync(manager, 999999)).StatusCode);
     }
 
     // ---- Technicians list ----
@@ -374,7 +374,7 @@ public class WorkOrderTests
         var created = await CreateServiceRequestAsync(staff, customer.Id, equipment.Id, "Pump vibrates excessively", "Urgent");
         Assert.Equal("New", created.Status);
 
-        var approveResponse = await manager.PostAsync($"/api/service-requests/{created.Id}/approve", null);
+        var approveResponse = await PostApproveAsync(manager, created.Id);
         Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
 
         var workOrder = await AssignWorkOrderAsync(manager, created.Id, technician.Id);

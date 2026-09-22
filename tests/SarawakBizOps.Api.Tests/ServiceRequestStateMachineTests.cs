@@ -13,7 +13,9 @@ public class ServiceRequestStateMachineTests
     private static readonly (ServiceRequestStatus From, ServiceRequestStatus To)[] Valid =
     {
         (ServiceRequestStatus.New, ServiceRequestStatus.Approved),
-        (ServiceRequestStatus.New, ServiceRequestStatus.Rejected)
+        (ServiceRequestStatus.New, ServiceRequestStatus.Rejected),
+        (ServiceRequestStatus.New, ServiceRequestStatus.Cancelled),
+        (ServiceRequestStatus.Approved, ServiceRequestStatus.Cancelled)
     };
 
     public static TheoryData<ServiceRequestStatus, ServiceRequestStatus, bool> EveryPair()
@@ -59,5 +61,19 @@ public class ServiceRequestStateMachineTests
         Assert.NotNull(refusal);
         Assert.Contains(expectedText, refusal);
         Assert.Contains("Only a New request", refusal);
+    }
+
+    [Theory]
+    [InlineData(ServiceRequestStatus.Assigned, "Assigned")]
+    [InlineData(ServiceRequestStatus.Rejected, "Rejected")]
+    [InlineData(ServiceRequestStatus.Cancelled, "Cancelled")]
+    public void Cancel_refusal_names_the_current_status_and_the_two_cancellable_states(
+        ServiceRequestStatus from, string expectedText)
+    {
+        var refusal = ServiceRequestStateMachine.Refusal(from, ServiceRequestStatus.Cancelled);
+
+        Assert.NotNull(refusal);
+        Assert.Contains(expectedText, refusal);
+        Assert.Contains("Only a New or Approved request", refusal);
     }
 }

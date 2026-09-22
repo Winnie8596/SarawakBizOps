@@ -4,8 +4,11 @@ namespace SarawakBizOps.Api.Services.ServiceRequests;
 
 /// <summary>
 /// The service-request lifecycle (SDD §8) as a pure rule table: no database, no clock, so every
-/// transition can be unit-tested directly. Phase 3 knows New→Approved and New→Rejected; assignment
-/// (Approved→Assigned) arrives in Phase 4 and cancellation in Phase 5, each by adding a row here.
+/// transition can be unit-tested directly. Phase 4 added Approved-&gt;Assigned (done directly in
+/// WorkOrderService's own transaction, so it never appears as a row here); Phase 5 adds cancellation.
+/// Cancel's extra actor-role rule (a Manager may cancel New or Approved; the creator-side roles only
+/// New) is layered on top in ServiceRequestService — this table only says which targets are ever
+/// structurally reachable from a given state.
 /// </summary>
 public static class ServiceRequestStateMachine
 {
@@ -13,7 +16,9 @@ public static class ServiceRequestStateMachine
         new HashSet<(ServiceRequestStatus, ServiceRequestStatus)>
         {
             (ServiceRequestStatus.New, ServiceRequestStatus.Approved),
-            (ServiceRequestStatus.New, ServiceRequestStatus.Rejected)
+            (ServiceRequestStatus.New, ServiceRequestStatus.Rejected),
+            (ServiceRequestStatus.New, ServiceRequestStatus.Cancelled),
+            (ServiceRequestStatus.Approved, ServiceRequestStatus.Cancelled)
         };
 
     public static bool CanTransition(ServiceRequestStatus from, ServiceRequestStatus to)
@@ -27,13 +32,15 @@ public static class ServiceRequestStateMachine
             return null;
         }
 
-        var action = to switch
+        return to switch
         {
-            ServiceRequestStatus.Approved => "approved",
-            ServiceRequestStatus.Rejected => "rejected",
-            _ => $"moved to {to}"
+            ServiceRequestStatus.Approved =>
+                $"This request is {from} and cannot be approved. Only a New request can be approved.",
+            ServiceRequestStatus.Rejected =>
+                $"This request is {from} and cannot be rejected. Only a New request can be rejected.",
+            ServiceRequestStatus.Cancelled =>
+                $"This request is {from} and cannot be cancelled. Only a New or Approved request can be cancelled.",
+            _ => $"This request is {from} and cannot be moved to {to}."
         };
-
-        return $"This request is {from} and cannot be {action}. Only a New request can be approved or rejected.";
     }
 }

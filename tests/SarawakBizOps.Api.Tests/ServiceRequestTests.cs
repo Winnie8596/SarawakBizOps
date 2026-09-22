@@ -22,7 +22,7 @@ public class ServiceRequestTests
         => (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail ?? string.Empty;
 
     private static Task<HttpResponseMessage> RejectAsync(HttpClient manager, int id, string? reason)
-        => manager.PostAsJsonAsync($"/api/service-requests/{id}/reject", new { reason });
+        => PostRejectAsync(manager, id, reason);
 
     private static Task<ServiceRequestDto?> GetAsync(HttpClient client, int id)
         => client.GetFromJsonAsync<ServiceRequestDto>($"/api/service-requests/{id}");
@@ -50,7 +50,7 @@ public class ServiceRequestTests
         Assert.Equal(staffUser.Id, request.CreatedByUserId);
         Assert.Null(request.ApprovedAt);
 
-        var approved = await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        var approved = await PostApproveAsync(manager, request.Id);
 
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
         var result = (await approved.Content.ReadFromJsonAsync<ServiceRequestDto>())!;
@@ -224,9 +224,9 @@ public class ServiceRequestTests
         var admin = await _factory.AdminClientAsync();
         var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
         var request = await CreateNewRequestAsync(admin);
-        await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        await PostApproveAsync(manager, request.Id);
 
-        var again = await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        var again = await PostApproveAsync(manager, request.Id);
 
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         var detail = await DetailAsync(again);
@@ -241,11 +241,11 @@ public class ServiceRequestTests
         var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
         var approved = await CreateNewRequestAsync(admin);
         var rejected = await CreateNewRequestAsync(admin);
-        await manager.PostAsync($"/api/service-requests/{approved.Id}/approve", null);
+        await PostApproveAsync(manager, approved.Id);
         await RejectAsync(manager, rejected.Id, "Duplicate of an earlier request");
 
         var rejectApproved = await RejectAsync(manager, approved.Id, "Changed my mind");
-        var approveRejected = await manager.PostAsync($"/api/service-requests/{rejected.Id}/approve", null);
+        var approveRejected = await PostApproveAsync(manager, rejected.Id);
         var rejectRejected = await RejectAsync(manager, rejected.Id, "Again");
 
         Assert.Equal(HttpStatusCode.Conflict, rejectApproved.StatusCode);
@@ -266,7 +266,7 @@ public class ServiceRequestTests
 
         // Three approvals and three rejections race for the same New request.
         var attempts = Enumerable.Range(0, 3)
-            .Select(_ => manager.PostAsync($"/api/service-requests/{request.Id}/approve", null))
+            .Select(_ => PostApproveAsync(manager, request.Id))
             .Concat(Enumerable.Range(0, 3).Select(_ => RejectAsync(manager, request.Id, "Racing rejection")))
             .ToList();
         var responses = await Task.WhenAll(attempts);
@@ -297,7 +297,7 @@ public class ServiceRequestTests
         var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
 
         var get = await admin.GetAsync("/api/service-requests/999999");
-        var approve = await manager.PostAsync("/api/service-requests/999999/approve", null);
+        var approve = await PostApproveAsync(manager, 999999);
         var reject = await RejectAsync(manager, 999999, "No such request");
 
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
@@ -317,7 +317,7 @@ public class ServiceRequestTests
         var first = await CreateServiceRequestAsync(admin, customer.Id, equipment.Id, "First fault", "Low");
         var second = await CreateServiceRequestAsync(admin, customer.Id, equipment.Id, "Second fault", "Urgent");
         var third = await CreateServiceRequestAsync(admin, customer.Id, equipment.Id, "Third fault", "Urgent");
-        await manager.PostAsync($"/api/service-requests/{second.Id}/approve", null);
+        await PostApproveAsync(manager, second.Id);
         var scope = $"/api/service-requests?customerId={customer.Id}";
 
         var all = await manager.GetFromJsonAsync<List<ServiceRequestDto>>(scope);
@@ -355,7 +355,7 @@ public class ServiceRequestTests
         var customer = await CreateCustomerAsync(admin);
         var equipment = await CreateEquipmentAsync(admin, customer.Id);
         var request = await CreateServiceRequestAsync(admin, customer.Id, equipment.Id, "Belt slipping", "High");
-        await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        await PostApproveAsync(manager, request.Id);
 
         var customerHistory = await admin.GetFromJsonAsync<ServiceHistoryDto>($"/api/customers/{customer.Id}/history");
         var equipmentHistory = await admin.GetFromJsonAsync<ServiceHistoryDto>($"/api/equipment/{equipment.Id}/history");

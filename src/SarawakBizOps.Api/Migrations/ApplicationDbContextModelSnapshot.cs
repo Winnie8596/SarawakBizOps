@@ -464,6 +464,16 @@ namespace SarawakBizOps.Api.Migrations
                     b.Property<string>("ApprovedByUserId")
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancelledByUserId")
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -497,6 +507,11 @@ namespace SarawakBizOps.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -505,6 +520,8 @@ namespace SarawakBizOps.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("CancelledByUserId");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -532,6 +549,16 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.Property<DateTime?>("AssignedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CancelledByUserId")
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("datetime2");
@@ -573,8 +600,11 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CancelledByUserId");
+
                     b.HasIndex("ServiceRequestId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("[Status] <> 'Cancelled'");
 
                     b.HasIndex("TechnicianId");
 
@@ -755,6 +785,11 @@ namespace SarawakBizOps.Api.Migrations
                         .HasForeignKey("ApprovedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "CancelledByUser")
+                        .WithMany()
+                        .HasForeignKey("CancelledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -780,6 +815,8 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.Navigation("ApprovedByUser");
 
+                    b.Navigation("CancelledByUser");
+
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Customer");
@@ -791,6 +828,11 @@ namespace SarawakBizOps.Api.Migrations
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.WorkOrder", b =>
                 {
+                    b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "CancelledByUser")
+                        .WithMany()
+                        .HasForeignKey("CancelledByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SarawakBizOps.Api.Models.Entities.ServiceRequest", "ServiceRequest")
                         .WithOne("WorkOrder")
                         .HasForeignKey("SarawakBizOps.Api.Models.Entities.WorkOrder", "ServiceRequestId")
@@ -801,6 +843,8 @@ namespace SarawakBizOps.Api.Migrations
                         .WithMany()
                         .HasForeignKey("TechnicianId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CancelledByUser");
 
                     b.Navigation("ServiceRequest");
 

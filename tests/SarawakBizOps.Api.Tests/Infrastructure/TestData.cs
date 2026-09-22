@@ -90,20 +90,60 @@ public static class TestData
         return await CreateServiceRequestAsync(client, customer.Id, equipment.Id);
     }
 
-    // ---- Phase 4: work orders. Each helper drives the real endpoints one step further, so a test
-    // (or EndpointAccessTests' Prepare functions) can ask for exactly the state it needs. ----
+    // ---- Phase 5: every mutating call now carries the RowVersion the caller last saw (the single
+    // conflict-token transport). These helpers re-read the record right before acting so callers can
+    // keep passing bare ids without tracking a DTO through every step of a chain. An id that does not
+    // exist still needs *some* syntactically valid token so the request reaches the service layer and
+    // comes back 404 (not a 400 for a missing rowVersion) — DummyRowVersion covers that case.
+    private static readonly string DummyRowVersion = Convert.ToBase64String(new byte[8]);
+
+    public static async Task<ServiceRequestDto?> GetServiceRequestAsync(HttpClient client, int id)
+    {
+        var response = await client.GetAsync($"/api/service-requests/{id}");
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ServiceRequestDto>() : null;
+    }
+
+    public static async Task<WorkOrderDto?> GetWorkOrderAsync(HttpClient client, int id)
+    {
+        var response = await client.GetAsync($"/api/work-orders/{id}");
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<WorkOrderDto>() : null;
+    }
+
+    public static async Task<HttpResponseMessage> PostApproveAsync(HttpClient manager, int requestId)
+    {
+        var current = await GetServiceRequestAsync(manager, requestId);
+        return await manager.PostAsJsonAsync($"/api/service-requests/{requestId}/approve",
+            new ApproveServiceRequestRequest { RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
+    public static async Task<HttpResponseMessage> PostRejectAsync(HttpClient manager, int requestId, string? reason)
+    {
+        var current = await GetServiceRequestAsync(manager, requestId);
+        return await manager.PostAsJsonAsync($"/api/service-requests/{requestId}/reject",
+            new { reason, rowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
+    public static async Task<HttpResponseMessage> PostCancelServiceRequestAsync(HttpClient client, int requestId, string? reason)
+    {
+        var current = await GetServiceRequestAsync(client, requestId);
+        return await client.PostAsJsonAsync($"/api/service-requests/{requestId}/cancel",
+            new { reason, rowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
 
     public static async Task<ServiceRequestDto> CreateApprovedRequestAsync(HttpClient admin, HttpClient manager)
     {
         var request = await CreateNewRequestAsync(admin);
-        var response = await manager.PostAsync($"/api/service-requests/{request.Id}/approve", null);
+        var response = await PostApproveAsync(manager, request.Id);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<ServiceRequestDto>())!;
     }
 
-    public static Task<HttpResponseMessage> PostAssignAsync(HttpClient manager, int requestId, string technicianId)
-        => manager.PostAsJsonAsync($"/api/service-requests/{requestId}/assign",
-            new AssignWorkOrderRequest { TechnicianId = technicianId });
+    public static async Task<HttpResponseMessage> PostAssignAsync(HttpClient manager, int requestId, string technicianId)
+    {
+        var current = await GetServiceRequestAsync(manager, requestId);
+        return await manager.PostAsJsonAsync($"/api/service-requests/{requestId}/assign",
+            new AssignWorkOrderRequest { TechnicianId = technicianId, RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
 
     public static async Task<WorkOrderDto> AssignWorkOrderAsync(HttpClient manager, int requestId, string technicianId)
     {
@@ -119,9 +159,16 @@ public static class TestData
         return await AssignWorkOrderAsync(manager, request.Id, technicianId);
     }
 
+    public static async Task<HttpResponseMessage> PostStartAsync(HttpClient technician, int workOrderId)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PostAsJsonAsync($"/api/work-orders/{workOrderId}/start",
+            new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
     public static async Task<WorkOrderDto> StartWorkOrderAsync(HttpClient technician, int workOrderId)
     {
-        var response = await technician.PostAsync($"/api/work-orders/{workOrderId}/start", null);
+        var response = await PostStartAsync(technician, workOrderId);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
@@ -133,12 +180,20 @@ public static class TestData
         return await StartWorkOrderAsync(technician, assigned.Id);
     }
 
-    public static Task<HttpResponseMessage> PatchDiagnosisAsync(
+    public static async Task<HttpResponseMessage> PatchDiagnosisAsync(
         HttpClient technician, int workOrderId,
         string diagnosis = "Compressor relay is faulty.",
         string workPerformed = "Replaced the relay and tested a full cycle.")
-        => technician.PatchAsJsonAsync($"/api/work-orders/{workOrderId}/diagnosis",
-            new DiagnosisUpdateRequest { Diagnosis = diagnosis, WorkPerformed = workPerformed });
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PatchAsJsonAsync($"/api/work-orders/{workOrderId}/diagnosis",
+            new DiagnosisUpdateRequest
+            {
+                Diagnosis = diagnosis,
+                WorkPerformed = workPerformed,
+                RowVersion = current?.RowVersion ?? DummyRowVersion
+            });
+    }
 
     public static async Task<WorkOrderDto> SaveDiagnosisAsync(
         HttpClient technician, int workOrderId,
@@ -158,9 +213,16 @@ public static class TestData
         return await SaveDiagnosisAsync(technician, inProgress.Id);
     }
 
+    public static async Task<HttpResponseMessage> PostCompleteAsync(HttpClient technician, int workOrderId)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PostAsJsonAsync($"/api/work-orders/{workOrderId}/complete",
+            new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
     public static async Task<WorkOrderDto> CompleteWorkOrderAsync(HttpClient technician, int workOrderId)
     {
-        var response = await technician.PostAsync($"/api/work-orders/{workOrderId}/complete", null);
+        var response = await PostCompleteAsync(technician, workOrderId);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
@@ -172,9 +234,30 @@ public static class TestData
         return await CompleteWorkOrderAsync(technician, ready.Id);
     }
 
+    public static async Task<HttpResponseMessage> PostApproveWorkOrderAsync(HttpClient manager, int workOrderId)
+    {
+        var current = await GetWorkOrderAsync(manager, workOrderId);
+        return await manager.PostAsJsonAsync($"/api/work-orders/{workOrderId}/approve",
+            new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
     public static async Task<WorkOrderDto> ApproveWorkOrderAsync(HttpClient manager, int workOrderId)
     {
-        var response = await manager.PostAsync($"/api/work-orders/{workOrderId}/approve", null);
+        var response = await PostApproveWorkOrderAsync(manager, workOrderId);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
+    public static async Task<HttpResponseMessage> PostCancelWorkOrderAsync(HttpClient manager, int workOrderId, string? reason)
+    {
+        var current = await GetWorkOrderAsync(manager, workOrderId);
+        return await manager.PostAsJsonAsync($"/api/work-orders/{workOrderId}/cancel",
+            new { reason, rowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
+    public static async Task<WorkOrderDto> CancelWorkOrderAsync(HttpClient manager, int workOrderId, string reason = "Customer withdrew the job")
+    {
+        var response = await PostCancelWorkOrderAsync(manager, workOrderId, reason);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }

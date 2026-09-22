@@ -29,6 +29,11 @@ public class WorkOrderDto
     public string? WorkPerformed { get; set; }
     public string? Notes { get; set; }
 
-    /// <summary>Base64 EF Core concurrency token. Not yet required on writes — Phase 5 adds that guard.</summary>
+    public string? CancelledByName { get; set; }
+    public DateTime? CancelledAt { get; set; }
+    public string? CancellationReason { get; set; }
+
+    /// <summary>Base64 EF Core concurrency token — the single conflict-token transport (Phase 5):
+    /// every mutating call on this job must send it back.</summary>
     public string RowVersion { get; set; } = string.Empty;
 }

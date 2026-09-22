@@ -64,7 +64,7 @@ public class WorkOrderService : IWorkOrderService
     }
 
     public async Task<ServiceResult<WorkOrderDto>> AssignAsync(
-        int serviceRequestId, string technicianId, string actingUserId, CancellationToken ct)
+        int serviceRequestId, string technicianId, string actingUserId, byte[] rowVersion, CancellationToken ct)
     {
         var request = await _db.ServiceRequests.AsNoTracking()
             .Where(r => r.Id == serviceRequestId)
@@ -102,18 +102,26 @@ public class WorkOrderService : IWorkOrderService
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        // Same conditional-UPDATE guard as ServiceRequestService: only a request still Approved moves,
-        // so two Managers racing to assign the same request cannot both succeed.
+        // Same conditional-UPDATE guard as ServiceRequestService.TransitionAsync: only a request still
+        // Approved *and* still carrying the RowVersion the caller last saw moves, so two Managers racing
+        // to assign the same request cannot both succeed.
         var moved = await _db.ServiceRequests
-            .Where(r => r.Id == serviceRequestId && r.Status == ServiceRequestStatus.Approved)
+            .Where(r => r.Id == serviceRequestId && r.Status == ServiceRequestStatus.Approved && r.RowVersion == rowVersion)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, ServiceRequestStatus.Assigned), ct);
 
         if (moved == 0)
         {
             await tx.RollbackAsync(ct);
             var latest = await CurrentRequestStatusAsync(serviceRequestId, ct);
+            if (latest is null)
+            {
+                return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Service request not found.");
+            }
+
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
-                AssignRefusal(latest ?? ServiceRequestStatus.Approved));
+                latest.Value != ServiceRequestStatus.Approved
+                    ? AssignRefusal(latest.Value)
+                    : "This request was changed by someone else. Refresh and try again.");
         }
 
         var now = DateTime.UtcNow;
@@ -128,8 +136,9 @@ public class WorkOrderService : IWorkOrderService
 
         try
         {
-            // BR-12's final guard: the unique index on ServiceRequestId rejects a second work order
-            // outright even if two assigns somehow both got past the check above.
+            // BR-12's final guard: the filtered unique index on ServiceRequestId (excluding Cancelled
+            // rows) rejects a second live work order outright even if two assigns somehow both got past
+            // the check above.
             await _db.SaveChangesAsync(ct);
         }
         catch (DbUpdateException)
@@ -148,10 +157,10 @@ public class WorkOrderService : IWorkOrderService
         return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(workOrder.Id, ct))!);
     }
 
-    public Task<ServiceResult<WorkOrderDto>> StartAsync(int id, string technicianId, CancellationToken ct)
+    public Task<ServiceResult<WorkOrderDto>> StartAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        return TransitionAsync(id, WorkOrderStatus.InProgress, technicianId,
+        return TransitionAsync(id, WorkOrderStatus.InProgress, technicianId, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.InProgress)
                 .SetProperty(w => w.StartedAt, now), token),
@@ -159,7 +168,8 @@ public class WorkOrderService : IWorkOrderService
     }
 
     public async Task<ServiceResult<WorkOrderDto>> UpdateDiagnosisAsync(
-        int id, string technicianId, string diagnosis, string workPerformed, string? notes, CancellationToken ct)
+        int id, string technicianId, string diagnosis, string workPerformed, string? notes,
+        byte[] rowVersion, CancellationToken ct)
     {
         var current = await _db.WorkOrders.AsNoTracking()
             .Where(w => w.Id == id)
@@ -171,6 +181,14 @@ public class WorkOrderService : IWorkOrderService
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
         }
 
+        // Central lock guard: a locked (Approved/Cancelled) job refuses any mutating call, not just a
+        // status change — checked the same way here as everywhere else, instead of a bespoke inline check.
+        if (WorkOrderStateMachine.IsLocked(current.Status))
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
+                WorkOrderStateMachine.LockedMessage(current.Status));
+        }
+
         if (current.Status != WorkOrderStatus.InProgress)
         {
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
@@ -179,7 +197,7 @@ public class WorkOrderService : IWorkOrderService
 
         var trimmedNotes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
         var updated = await _db.WorkOrders
-            .Where(w => w.Id == id && w.Status == WorkOrderStatus.InProgress)
+            .Where(w => w.Id == id && w.Status == WorkOrderStatus.InProgress && w.RowVersion == rowVersion)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Diagnosis, diagnosis.Trim())
                 .SetProperty(w => w.WorkPerformed, workPerformed.Trim())
@@ -187,14 +205,19 @@ public class WorkOrderService : IWorkOrderService
 
         if (updated == 0)
         {
-            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
-                "This job changed status while you were editing it. Refresh and try again.");
+            // Covers both races: the job left InProgress, or someone else's edit already moved the
+            // RowVersion on — either way this is the lost-update case the token exists to catch.
+            var latest = await CurrentStatusAsync(id, ct);
+            var message = latest is not null && latest.Value != WorkOrderStatus.InProgress
+                ? $"This job is {latest.Value}; diagnosis can only be recorded while it is in progress."
+                : "This job was changed by someone else. Refresh and try again.";
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, message);
         }
 
         return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(id, ct))!);
     }
 
-    public async Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, CancellationToken ct)
+    public async Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct)
     {
         var current = await _db.WorkOrders.AsNoTracking()
             .Where(w => w.Id == id)
@@ -216,21 +239,91 @@ public class WorkOrderService : IWorkOrderService
         }
 
         var now = DateTime.UtcNow;
-        return await TransitionAsync(id, WorkOrderStatus.Completed, technicianId,
+        return await TransitionAsync(id, WorkOrderStatus.Completed, technicianId, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.Completed)
                 .SetProperty(w => w.CompletedAt, now), token),
             ct);
     }
 
-    public Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, CancellationToken ct)
+    public Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, byte[] rowVersion, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        return TransitionAsync(id, WorkOrderStatus.Approved, null,
+        return TransitionAsync(id, WorkOrderStatus.Approved, null, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.Approved)
                 .SetProperty(w => w.ApprovedAt, now), token),
             ct);
+    }
+
+    public async Task<ServiceResult<WorkOrderDto>> CancelAsync(
+        int id, string reason, string actingUserId, byte[] rowVersion, CancellationToken ct)
+    {
+        var trimmed = reason.Trim();
+        if (trimmed.Length == 0)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
+                "A reason is required when cancelling a work order.");
+        }
+
+        var current = await _db.WorkOrders.AsNoTracking()
+            .Where(w => w.Id == id)
+            .Select(w => new { w.Status, w.ServiceRequestId })
+            .FirstOrDefaultAsync(ct);
+        if (current is null)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
+        }
+
+        var refusal = WorkOrderStateMachine.Refusal(current.Status, WorkOrderStatus.Cancelled);
+        if (refusal is not null)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, refusal);
+        }
+
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+        var from = current.Status;
+        var now = DateTime.UtcNow;
+        var updated = await _db.WorkOrders
+            .Where(w => w.Id == id && w.Status == from && w.RowVersion == rowVersion)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.Status, WorkOrderStatus.Cancelled)
+                .SetProperty(w => w.CancellationReason, trimmed)
+                .SetProperty(w => w.CancelledByUserId, actingUserId)
+                .SetProperty(w => w.CancelledAt, now), ct);
+
+        if (updated == 0)
+        {
+            await tx.RollbackAsync(ct);
+            var latest = await CurrentStatusAsync(id, ct);
+            if (latest is null)
+            {
+                return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
+            }
+
+            var message = latest.Value != from
+                ? WorkOrderStateMachine.Refusal(latest.Value, WorkOrderStatus.Cancelled)
+                    ?? "This job was changed by someone else. Refresh and try again."
+                : "This job was changed by someone else. Refresh and try again.";
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, message);
+        }
+
+        // Decision: cancelling a work order returns its request to Approved so it re-enters the assign
+        // queue — a side effect of the cancel, done here in the same transaction, not a manager-facing
+        // ServiceRequest transition. Only relevant once the request actually reached Assigned; a request
+        // still New (job cancelled before assignment even settled) is left alone.
+        await _db.ServiceRequests
+            .Where(r => r.Id == current.ServiceRequestId && r.Status == ServiceRequestStatus.Assigned)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, ServiceRequestStatus.Approved), ct);
+
+        await tx.CommitAsync(ct);
+
+        _logger.LogInformation(
+            "WorkOrder {WorkOrderId} cancelled ({From} -> Cancelled) by {UserId}: {Reason}",
+            id, from, actingUserId, trimmed);
+
+        return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(id, ct))!);
     }
 
     public async Task<IReadOnlyList<TechnicianSummaryDto>> GetTechniciansAsync(CancellationToken ct)
@@ -264,13 +357,14 @@ public class WorkOrderService : IWorkOrderService
 
     /// <summary>
     /// Runs one guarded status change, mirroring ServiceRequestService.TransitionAsync: the state
-    /// machine gives a clear message, then a single conditional UPDATE ... WHERE Status = @from means
-    /// two people racing on the same job cannot both succeed — the loser updates 0 rows and gets a 409.
-    /// A non-null <paramref name="technicianId"/> also enforces BR-02 ownership, hiding someone else's
-    /// job as not-found rather than exposing it with a 403.
+    /// machine gives a clear message, then a single conditional UPDATE ... WHERE Status = @from AND
+    /// RowVersion = @rowVersion means two people racing on the same job — or a status change racing a
+    /// non-status edit — cannot both succeed: the loser updates 0 rows and gets a 409. A non-null
+    /// <paramref name="technicianId"/> also enforces BR-02 ownership, hiding someone else's job as
+    /// not-found rather than exposing it with a 403.
     /// </summary>
     private async Task<ServiceResult<WorkOrderDto>> TransitionAsync(
-        int id, WorkOrderStatus target, string? technicianId,
+        int id, WorkOrderStatus target, string? technicianId, byte[] rowVersion,
         Func<IQueryable<WorkOrder>, CancellationToken, Task<int>> apply, CancellationToken ct)
     {
         var current = await _db.WorkOrders.AsNoTracking()
@@ -290,7 +384,8 @@ public class WorkOrderService : IWorkOrderService
         }
 
         var from = current.Status;
-        var updated = await apply(_db.WorkOrders.Where(w => w.Id == id && w.Status == from), ct);
+        var updated = await apply(
+            _db.WorkOrders.Where(w => w.Id == id && w.Status == from && w.RowVersion == rowVersion), ct);
         if (updated == 0)
         {
             var latest = await CurrentStatusAsync(id, ct);
@@ -299,9 +394,12 @@ public class WorkOrderService : IWorkOrderService
                 return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
             }
 
-            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
-                WorkOrderStateMachine.Refusal(latest.Value, target)
-                ?? "This job was changed by someone else. Refresh and try again.");
+            var message = latest.Value != from
+                ? WorkOrderStateMachine.Refusal(latest.Value, target)
+                    ?? "This job was changed by someone else. Refresh and try again."
+                : "This job was changed by someone else. Refresh and try again.";
+
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, message);
         }
 
         return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(id, ct))!);
@@ -331,7 +429,8 @@ public class WorkOrderService : IWorkOrderService
     private static IQueryable<WorkOrder> WithDetails(IQueryable<WorkOrder> query) => query
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Customer)
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
-        .Include(w => w.Technician);
+        .Include(w => w.Technician)
+        .Include(w => w.CancelledByUser);
 
     private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
     {
@@ -364,6 +463,9 @@ public class WorkOrderService : IWorkOrderService
         Diagnosis = w.Diagnosis,
         WorkPerformed = w.WorkPerformed,
         Notes = w.Notes,
+        CancelledByName = w.CancelledByUser?.FullName,
+        CancelledAt = w.CancelledAt,
+        CancellationReason = w.CancellationReason,
         RowVersion = Convert.ToBase64String(w.RowVersion ?? Array.Empty<byte>())
     };
 }

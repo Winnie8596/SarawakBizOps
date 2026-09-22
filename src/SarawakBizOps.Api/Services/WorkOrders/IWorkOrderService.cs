@@ -18,18 +18,24 @@ public interface IWorkOrderService
 
     /// <summary>Atomic: BR-01 (assign), BR-11 (active Technician), BR-12 (one WorkOrder per request), BR-13.</summary>
     Task<ServiceResult<WorkOrderDto>> AssignAsync(
-        int serviceRequestId, string technicianId, string actingUserId, CancellationToken ct);
+        int serviceRequestId, string technicianId, string actingUserId, byte[] rowVersion, CancellationToken ct);
 
-    Task<ServiceResult<WorkOrderDto>> StartAsync(int id, string technicianId, CancellationToken ct);
+    Task<ServiceResult<WorkOrderDto>> StartAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
 
     Task<ServiceResult<WorkOrderDto>> UpdateDiagnosisAsync(
-        int id, string technicianId, string diagnosis, string workPerformed, string? notes, CancellationToken ct);
+        int id, string technicianId, string diagnosis, string workPerformed, string? notes,
+        byte[] rowVersion, CancellationToken ct);
 
     /// <summary>BR-03 (partial): requires a stored diagnosis and work-performed record (AC-05).</summary>
-    Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, CancellationToken ct);
+    Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
 
-    /// <summary>Locks the work order (BR-06, AC-07 first cut; Phase 5 adds the central guard).</summary>
-    Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, CancellationToken ct);
+    /// <summary>Locks the work order (BR-06, AC-07, AC-08 — the central lock guard).</summary>
+    Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, byte[] rowVersion, CancellationToken ct);
+
+    /// <summary>Manager only. Reverts the linked ServiceRequest to Approved (decided in Phase 5) so it
+    /// can be reassigned — done as a side effect in the same transaction.</summary>
+    Task<ServiceResult<WorkOrderDto>> CancelAsync(
+        int id, string reason, string actingUserId, byte[] rowVersion, CancellationToken ct);
 
     Task<IReadOnlyList<TechnicianSummaryDto>> GetTechniciansAsync(CancellationToken ct);
 }

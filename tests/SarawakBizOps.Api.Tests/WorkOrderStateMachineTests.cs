@@ -14,7 +14,10 @@ public class WorkOrderStateMachineTests
     {
         (WorkOrderStatus.Assigned, WorkOrderStatus.InProgress),
         (WorkOrderStatus.InProgress, WorkOrderStatus.Completed),
-        (WorkOrderStatus.Completed, WorkOrderStatus.Approved)
+        (WorkOrderStatus.Completed, WorkOrderStatus.Approved),
+        (WorkOrderStatus.New, WorkOrderStatus.Cancelled),
+        (WorkOrderStatus.Assigned, WorkOrderStatus.Cancelled),
+        (WorkOrderStatus.InProgress, WorkOrderStatus.Cancelled)
     };
 
     public static TheoryData<WorkOrderStatus, WorkOrderStatus, bool> EveryPair()
@@ -59,5 +62,37 @@ public class WorkOrderStateMachineTests
 
         Assert.NotNull(refusal);
         Assert.Contains(expectedText, refusal);
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.Completed, "Completed")]
+    [InlineData(WorkOrderStatus.Approved, "Approved")]
+    [InlineData(WorkOrderStatus.Cancelled, "Cancelled")]
+    public void Cancel_refusal_names_the_current_status_and_the_three_cancellable_states(
+        WorkOrderStatus from, string expectedText)
+    {
+        var refusal = WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Cancelled);
+
+        Assert.NotNull(refusal);
+        Assert.Contains(expectedText, refusal);
+        Assert.Contains("Only a New, Assigned or InProgress job", refusal);
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.Approved)]
+    [InlineData(WorkOrderStatus.Cancelled)]
+    public void Locked_states_are_exactly_Approved_and_Cancelled(WorkOrderStatus status)
+    {
+        Assert.True(WorkOrderStateMachine.IsLocked(status));
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.New)]
+    [InlineData(WorkOrderStatus.Assigned)]
+    [InlineData(WorkOrderStatus.InProgress)]
+    [InlineData(WorkOrderStatus.Completed)]
+    public void Open_states_are_not_locked(WorkOrderStatus status)
+    {
+        Assert.False(WorkOrderStateMachine.IsLocked(status));
     }
 }

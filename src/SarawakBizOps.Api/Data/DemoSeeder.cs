@@ -91,13 +91,16 @@ public static class DemoSeeder
         await SeedWorkOrdersAsync(userManager, db, ct);
     }
 
-    // Phase 3 states: New, Approved and Rejected. Three of the Approved rows below are then carried
-    // into a WorkOrder by SeedWorkOrdersAsync (their ServiceRequestStatus becomes Assigned); the
-    // Centrifugal Pump request is deliberately left Approved-but-unassigned so a reviewer always has
-    // one request to assign by hand. Cancelled rows arrive once Phase 5 can produce them.
+    // Phase 3 states: New, Approved and Rejected. Four of the Approved rows below are then carried
+    // into a WorkOrder by SeedWorkOrdersAsync (their ServiceRequestStatus becomes Assigned, or Approved
+    // again for the one whose job gets cancelled); the Centrifugal Pump request is deliberately left
+    // Approved-but-unassigned so a reviewer always has one request to assign by hand. Phase 5 adds two
+    // Cancelled examples: one cancelled by the creator while still New (decision: ServiceStaff/Admin may
+    // undo their own mistake), one cancelled by the Manager after being Approved.
     private record DemoRequest(
         string EquipmentSerial, string Problem, RequestPriority Priority, ServiceRequestStatus Status,
-        int CreatedDaysAgo, int? ReviewedDaysAgo = null, string? RejectionReason = null);
+        int CreatedDaysAgo, int? ReviewedDaysAgo = null, string? RejectionReason = null,
+        int? CancelledDaysAgo = null, string? CancellationReason = null, bool CancelledByCreator = false);
 
     private static readonly DemoRequest[] Requests =
     {
@@ -129,16 +132,28 @@ public static class DemoSeeder
             RequestPriority.Urgent, ServiceRequestStatus.Approved, CreatedDaysAgo: 12, ReviewedDaysAgo: 11),
         new("MOS-FLT-001",
             "Forklift hydraulic lift is slow to raise a loaded pallet and leaks a little fluid at the mast.",
-            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 18, ReviewedDaysAgo: 17)
+            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 18, ReviewedDaysAgo: 17),
+        new("RTM-DRY-002",
+            "Timber drying kiln temperature sensor reading looks wrong, but it may just be a loose lead.",
+            RequestPriority.Low, ServiceRequestStatus.Cancelled, CreatedDaysAgo: 4,
+            CancelledDaysAgo: 3, CancelledByCreator: true,
+            CancellationReason: "The sensor lead was reseated and re-tested outside the system before this reached " +
+                                 "review; no repair job is needed after all."),
+        new("SBW-FIL-001",
+            "Filling line A conveyor belt is fraying and needs replacing before it fails completely.",
+            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 11, ReviewedDaysAgo: 10)
     };
 
     // Phase 4 states: one job at each of Assigned, InProgress, Completed and Approved, all worked by
     // the demo Technician, so every status the UI can show — and both the technician's and the
     // Manager's next action — is represented without touching the still-unassigned pump request above.
+    // Phase 5 adds one Cancelled job, whose linked request reverts to Approved (BR-12's filtered unique
+    // index then lets it be reassigned) — the seeded proof that the revert-and-reassign path works.
     private record DemoWorkOrder(
         string EquipmentSerial, string Problem, WorkOrderStatus Status, int AssignedDaysAgo,
         int? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
-        string? Diagnosis = null, string? WorkPerformed = null);
+        string? Diagnosis = null, string? WorkPerformed = null,
+        int? CancelledDaysAgo = null, string? CancellationReason = null);
 
     private static readonly DemoWorkOrder[] WorkOrders =
     {
@@ -166,7 +181,16 @@ public static class DemoSeeder
             "Forklift hydraulic lift is slow to raise a loaded pallet and leaks a little fluid at the mast.",
             WorkOrderStatus.Approved, AssignedDaysAgo: 16, StartedDaysAgo: 16, CompletedDaysAgo: 15, ApprovedDaysAgo: 14,
             Diagnosis: "Hydraulic pump inlet strainer was clogged and a lift-cylinder seal was worn, causing external leakage.",
-            WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec.")
+            WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec."),
+
+        // Cancelled before it could be started: the request behind it reverts to Approved and shows up
+        // in the assign queue again, exactly as a real cancel would leave it.
+        new("SBW-FIL-001",
+            "Filling line A conveyor belt is fraying and needs replacing before it fails completely.",
+            WorkOrderStatus.Cancelled, AssignedDaysAgo: 5,
+            CancelledDaysAgo: 4,
+            CancellationReason: "The parts supplier could not confirm a belt in stock; cancelled so the job can be " +
+                                 "reassigned once stock arrives.")
     };
 
     // Natural key: equipment serial number + problem text. Created by the demo ServiceStaff account and
@@ -215,6 +239,14 @@ public static class DemoSeeder
                 request.RejectedAt = now.AddDays(-demo.ReviewedDaysAgo!.Value);
                 request.RejectionReason = demo.RejectionReason;
             }
+            else if (demo.Status == ServiceRequestStatus.Cancelled)
+            {
+                // Decision: the creator-side roles may cancel their own New request; a Manager cancels
+                // an already-Approved one. Both are represented across the two Cancelled demo rows.
+                request.CancelledByUserId = demo.CancelledByCreator ? staff.Id : manager.Id;
+                request.CancelledAt = now.AddDays(-demo.CancelledDaysAgo!.Value);
+                request.CancellationReason = demo.CancellationReason;
+            }
 
             db.ServiceRequests.Add(request);
         }
@@ -230,10 +262,19 @@ public static class DemoSeeder
     {
         var technician = await userManager.FindByEmailAsync("technician@sarawakbizops.local")
             ?? throw new InvalidOperationException("Demo Technician account is missing.");
+        var manager = await userManager.FindByEmailAsync("manager@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Manager account is missing.");
 
-        var requestsByKey = await db.ServiceRequests
-            .Include(r => r.Equipment)
-            .ToDictionaryAsync(r => (r.Equipment!.SerialNumber, r.ProblemDescription), ct);
+        // Grouped rather than ToDictionaryAsync: the key is only unique among the seeded rows
+        // themselves. Real requests created through the API (e.g. a repeated demo/smoke run raising
+        // the same fault on the same equipment) can share it too, and a duplicate key must not crash
+        // startup. OrderBy(Id) makes "first per key" the earliest row — the original seeded one.
+        var requestsByKey = (await db.ServiceRequests
+                .Include(r => r.Equipment)
+                .OrderBy(r => r.Id)
+                .ToListAsync(ct))
+            .GroupBy(r => (r.Equipment!.SerialNumber, r.ProblemDescription))
+            .ToDictionary(g => g.Key, g => g.First());
         var alreadyAssigned = (await db.WorkOrders.Select(w => w.ServiceRequestId).ToListAsync(ct)).ToHashSet();
 
         var now = DateTime.UtcNow;
@@ -245,7 +286,7 @@ public static class DemoSeeder
                 continue;
             }
 
-            db.WorkOrders.Add(new WorkOrder
+            var workOrder = new WorkOrder
             {
                 ServiceRequestId = request.Id,
                 TechnicianId = technician.Id,
@@ -256,8 +297,23 @@ public static class DemoSeeder
                 ApprovedAt = demo.ApprovedDaysAgo.HasValue ? now.AddDays(-demo.ApprovedDaysAgo.Value) : null,
                 Diagnosis = demo.Diagnosis,
                 WorkPerformed = demo.WorkPerformed
-            });
-            request.Status = ServiceRequestStatus.Assigned;
+            };
+
+            if (demo.Status == WorkOrderStatus.Cancelled)
+            {
+                workOrder.CancelledByUserId = manager.Id;
+                workOrder.CancelledAt = now.AddDays(-demo.CancelledDaysAgo!.Value);
+                workOrder.CancellationReason = demo.CancellationReason;
+            }
+
+            db.WorkOrders.Add(workOrder);
+
+            // Decision: cancelling a work order reverts its request to Approved (re-assignable, thanks
+            // to BR-12's filtered unique index); every other demo status carries the request to
+            // Assigned, exactly as the real /assign endpoint would.
+            request.Status = demo.Status == WorkOrderStatus.Cancelled
+                ? ServiceRequestStatus.Approved
+                : ServiceRequestStatus.Assigned;
         }
 
         await db.SaveChangesAsync(ct);

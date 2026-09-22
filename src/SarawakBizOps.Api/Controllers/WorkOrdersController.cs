@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Common;
 using SarawakBizOps.Api.Services.WorkOrders;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -43,9 +44,14 @@ public class WorkOrdersController : ControllerBase
 
     [HttpPost("{id:int}/start")]
     [Authorize(Roles = "Technician")]
-    public async Task<IActionResult> Start(int id, CancellationToken ct)
+    public async Task<IActionResult> Start(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
-        var result = await _service.StartAsync(id, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.StartAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
@@ -53,24 +59,53 @@ public class WorkOrdersController : ControllerBase
     [Authorize(Roles = "Technician")]
     public async Task<IActionResult> UpdateDiagnosis(int id, [FromBody] DiagnosisUpdateRequest request, CancellationToken ct)
     {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
         var result = await _service.UpdateDiagnosisAsync(
-            id, ActingUserId, request.Diagnosis, request.WorkPerformed, request.Notes, ct);
+            id, ActingUserId, request.Diagnosis, request.WorkPerformed, request.Notes, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
     [HttpPost("{id:int}/complete")]
     [Authorize(Roles = "Technician")]
-    public async Task<IActionResult> Complete(int id, CancellationToken ct)
+    public async Task<IActionResult> Complete(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
-        var result = await _service.CompleteAsync(id, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.CompleteAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
     [HttpPost("{id:int}/approve")]
     [Authorize(Roles = "Manager")]
-    public async Task<IActionResult> Approve(int id, CancellationToken ct)
+    public async Task<IActionResult> Approve(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
-        var result = await _service.ApproveAsync(id, ActingUserId, ct);
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.ApproveAsync(id, ActingUserId, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Manager only, mirroring approve (plan's demo script: "a Manager cancels an assigned job").
+    [HttpPost("{id:int}/cancel")]
+    [Authorize(Roles = "Manager")]
+    public async Task<IActionResult> Cancel(int id, [FromBody] CancelWorkOrderRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.CancelAsync(id, request.Reason, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 

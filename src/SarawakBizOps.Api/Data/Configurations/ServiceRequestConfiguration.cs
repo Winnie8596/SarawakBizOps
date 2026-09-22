@@ -30,6 +30,13 @@ public class ServiceRequestConfiguration : IEntityTypeConfiguration<ServiceReque
             .HasForeignKey(sr => sr.RejectedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.Property(sr => sr.CancellationReason).HasMaxLength(500);
+
+        builder.HasOne(sr => sr.CancelledByUser)
+            .WithMany()
+            .HasForeignKey(sr => sr.CancelledByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         // The Manager queue and every list filter start from the status.
         builder.HasIndex(sr => sr.Status);
 

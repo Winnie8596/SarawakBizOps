@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using SarawakBizOps.Api.Models.Enums;
 
 namespace SarawakBizOps.Api.Models.Entities;
@@ -32,6 +33,19 @@ public class ServiceRequest
     public string? RejectedByUserId { get; set; }
     public ApplicationUser? RejectedByUser { get; set; }
     public DateTime? RejectedAt { get; set; }
+
+    // Set together when the request is cancelled (Phase 5): either the creator-side roles undoing
+    // their own mistake while still New, or a Manager cancelling a New or Approved request.
+    public string? CancellationReason { get; set; }
+    public string? CancelledByUserId { get; set; }
+    public ApplicationUser? CancelledByUser { get; set; }
+    public DateTime? CancelledAt { get; set; }
+
+    // Optimistic concurrency token (Phase 5) — symmetric with WorkOrder.RowVersion. The single
+    // conflict-token mechanism across both entities: every mutating call sends this back so the
+    // conditional UPDATE guard also catches a non-status edit, not just a status race.
+    [Timestamp]
+    public byte[]? RowVersion { get; set; }
 
     // 1:1 for MVP — BR-12: a ServiceRequest can produce at most one WorkOrder.
     public WorkOrder? WorkOrder { get; set; }

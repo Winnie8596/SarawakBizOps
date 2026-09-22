@@ -29,6 +29,13 @@ public class WorkOrder
     public string? Notes { get; set; }
     public string? CustomerSignatureUrl { get; set; }
 
+    // Set together when a Manager cancels the job (Phase 5); the reason is mandatory. Cancelling
+    // reverts the linked ServiceRequest to Approved (decided in Phase 5) so it can be reassigned.
+    public string? CancellationReason { get; set; }
+    public string? CancelledByUserId { get; set; }
+    public ApplicationUser? CancelledByUser { get; set; }
+    public DateTime? CancelledAt { get; set; }
+
     // Optimistic concurrency token: protects state-transition and inventory
     // writes against two people acting on the same work order at once
     // (design doc Section 10 / Section 18 concurrency requirements).

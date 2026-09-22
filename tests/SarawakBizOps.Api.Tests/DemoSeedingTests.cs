@@ -76,13 +76,55 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(before, after);
         Assert.Equal(5, after.Customers);
         Assert.Equal(10, after.Equipment);
-        Assert.Equal(9, after.Requests);
-        Assert.Equal(4, after.WorkOrders);
+        Assert.Equal(11, after.Requests);
+        Assert.Equal(5, after.WorkOrders);
     }
 
     private static async Task<(int Users, int Customers, int Equipment, int Requests, int WorkOrders)> CountsAsync(ApplicationDbContext db)
         => (await db.Users.CountAsync(), await db.Customers.CountAsync(), await db.Equipment.CountAsync(),
             await db.ServiceRequests.CountAsync(), await db.WorkOrders.CountAsync());
+
+    [Fact]
+    public async Task Seeding_tolerates_service_requests_created_outside_the_seeder_that_share_a_natural_key()
+    {
+        // Mirrors compose-smoke.sh: it raises "Smoke test: approve me" on the same equipment on every
+        // run, so a database re-used across two runs ends up with two ServiceRequest rows sharing the
+        // (equipment, problem text) natural key SeedWorkOrdersAsync groups on. The next API start must
+        // not crash seeding on that duplicate key.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
+        var equipment = await db.Equipment.FirstAsync();
+        var staff = await users.FindByEmailAsync("staff@sarawakbizops.local");
+
+        // The database fixture is shared with the other tests in this class, so the two rows added
+        // to reproduce the collision are removed again afterwards to leave their counts untouched.
+        var duplicates = Enumerable.Range(0, 2)
+            .Select(_ => new ServiceRequest
+            {
+                CustomerId = equipment.CustomerId,
+                EquipmentId = equipment.Id,
+                ProblemDescription = "Smoke test: approve me",
+                Priority = RequestPriority.High,
+                Status = ServiceRequestStatus.New,
+                CreatedByUserId = staff!.Id
+            })
+            .ToList();
+        db.ServiceRequests.AddRange(duplicates);
+        await db.SaveChangesAsync();
+
+        try
+        {
+            var exception = await Record.ExceptionAsync(() => DemoSeeder.SeedAsync(scope.ServiceProvider));
+            Assert.Null(exception);
+        }
+        finally
+        {
+            db.ServiceRequests.RemoveRange(duplicates);
+            await db.SaveChangesAsync();
+        }
+    }
 
     [Fact]
     public async Task Demo_requests_cover_the_new_approved_assigned_and_rejected_states_for_the_manager()
@@ -92,15 +134,19 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var requests = await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests");
 
-        Assert.Equal(9, requests!.Count);
+        Assert.Equal(11, requests!.Count);
         Assert.Equal(3, requests.Count(r => r.Status == "New"));
         // One request is left Approved-but-unassigned so a reviewer always has one to assign by hand;
-        // the other four Approved requests were carried into a WorkOrder and are now Assigned.
-        Assert.Equal(1, requests.Count(r => r.Status == "Approved"));
+        // a second is Approved because its work order was cancelled (BR-12's revert-to-Approved); the
+        // other four Approved requests were carried into a WorkOrder and are now Assigned.
+        Assert.Equal(2, requests.Count(r => r.Status == "Approved"));
         Assert.Equal(4, requests.Count(r => r.Status == "Assigned"));
         var rejected = Assert.Single(requests, r => r.Status == "Rejected");
         Assert.False(string.IsNullOrWhiteSpace(rejected.RejectionReason));
         Assert.NotNull(rejected.RejectedByName);
+        var cancelled = Assert.Single(requests, r => r.Status == "Cancelled");
+        Assert.False(string.IsNullOrWhiteSpace(cancelled.CancellationReason));
+        Assert.Equal("Aina Abdullah", cancelled.CancelledByName); // cancelled by its own creator (ServiceStaff)
         Assert.Contains(requests, r => r.Status == "New" && r.Priority == "Urgent");
         Assert.All(requests, r => Assert.Equal("Aina Abdullah", r.CreatedByName));
         // Every seeded request satisfies BR-10: its equipment belongs to its customer.
@@ -121,7 +167,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var workOrders = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
 
-        Assert.Equal(4, workOrders!.Count);
+        Assert.Equal(5, workOrders!.Count);
         Assert.All(workOrders, w => Assert.Equal("Ahmad Bujang", w.TechnicianName));
         var assigned = Assert.Single(workOrders, w => w.Status == "Assigned");
         Assert.Null(assigned.Diagnosis);
@@ -133,10 +179,17 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Null(completed.ApprovedAt);
         var approved = Assert.Single(workOrders, w => w.Status == "Approved");
         Assert.NotNull(approved.ApprovedAt);
+        var cancelled = Assert.Single(workOrders, w => w.Status == "Cancelled");
+        Assert.False(string.IsNullOrWhiteSpace(cancelled.CancellationReason));
+        Assert.Equal("Jenny Lau", cancelled.CancelledByName);
+        // Cancelling reverted its request to Approved (BR-12's filtered unique index then allows a
+        // second, live work order for the same request).
+        var revertedRequest = await manager.GetFromJsonAsync<ServiceRequestDto>($"/api/service-requests/{cancelled.ServiceRequestId}");
+        Assert.Equal("Approved", revertedRequest!.Status);
 
         // The demo Technician sees exactly their own jobs (BR-02) and can act on the assigned one.
         var mine = await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
-        Assert.Equal(4, mine!.Count);
+        Assert.Equal(5, mine!.Count);
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)

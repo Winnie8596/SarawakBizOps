@@ -22,8 +22,11 @@ public class EndpointAccessTests
 
     private static readonly string[] Office = { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff };
 
-    /// <summary>Ids of the records an endpoint row's Path/Body can point at.</summary>
-    private record Fixture(int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId);
+    /// <summary>Ids of the records an endpoint row's Path/Body can point at. RowVersion is the base64
+    /// concurrency token of whichever record the row's Body posts back (Phase 5: required on every
+    /// mutating call), left blank for rows that do not need one.</summary>
+    private record Fixture(
+        int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId, string RowVersion = "");
 
     /// <summary>Clients set up once per test row, for Prepare functions to drive through real endpoints.</summary>
     private record PrepContext(HttpClient Admin, HttpClient Manager, HttpClient TechnicianClient, string TechnicianId);
@@ -64,24 +67,32 @@ public class EndpointAccessTests
             }),
 
         new("POST /api/service-requests/{id}/approve", HttpMethod.Post,
-            f => $"/api/service-requests/{f.RequestId}/approve", _ => null,
+            f => $"/api/service-requests/{f.RequestId}/approve", f => new ApproveServiceRequestRequest { RowVersion = f.RowVersion },
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
             Prepare: async ctx => await NewRequestFixtureAsync(ctx)),
 
         new("POST /api/service-requests/{id}/reject", HttpMethod.Post,
-            f => $"/api/service-requests/{f.RequestId}/reject", _ => new RejectServiceRequestRequest { Reason = "Access check" },
+            f => $"/api/service-requests/{f.RequestId}/reject",
+            f => new RejectServiceRequestRequest { Reason = "Access check", RowVersion = f.RowVersion },
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx => await NewRequestFixtureAsync(ctx)),
+
+        // ServiceStaff/Admin can cancel their own New request; a Manager can cancel New or Approved.
+        new("POST /api/service-requests/{id}/cancel", HttpMethod.Post,
+            f => $"/api/service-requests/{f.RequestId}/cancel",
+            f => new CancelServiceRequestRequest { Reason = "Access check", RowVersion = f.RowVersion },
+            new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff }, HttpStatusCode.OK,
             Prepare: async ctx => await NewRequestFixtureAsync(ctx)),
 
         // ---- Phase 4: assignment and work orders ----
         new("POST /api/service-requests/{id}/assign", HttpMethod.Post,
             f => $"/api/service-requests/{f.RequestId}/assign",
-            f => new AssignWorkOrderRequest { TechnicianId = f.TechnicianId },
+            f => new AssignWorkOrderRequest { TechnicianId = f.TechnicianId, RowVersion = f.RowVersion },
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
                 var request = await CreateApprovedRequestAsync(ctx.Admin, ctx.Manager);
-                return new Fixture(request.CustomerId, request.EquipmentId, request.Id, 0, ctx.TechnicianId);
+                return new Fixture(request.CustomerId, request.EquipmentId, request.Id, 0, ctx.TechnicianId, request.RowVersion);
             }),
 
         new("GET /api/work-orders", HttpMethod.Get,
@@ -104,43 +115,54 @@ public class EndpointAccessTests
             OwnedByTechnician: true),
 
         new("POST /api/work-orders/{id}/start", HttpMethod.Post,
-            f => $"/api/work-orders/{f.WorkOrderId}/start", _ => null,
+            f => $"/api/work-orders/{f.WorkOrderId}/start", f => new RowVersionRequest { RowVersion = f.RowVersion },
             new[] { AppRoles.Technician }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
                 var wo = await CreateAssignedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianId);
-                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
             },
             OwnedByTechnician: true),
 
         new("PATCH /api/work-orders/{id}/diagnosis", HttpMethod.Patch,
             f => $"/api/work-orders/{f.WorkOrderId}/diagnosis",
-            _ => new DiagnosisUpdateRequest { Diagnosis = "Access check", WorkPerformed = "Access check" },
+            f => new DiagnosisUpdateRequest { Diagnosis = "Access check", WorkPerformed = "Access check", RowVersion = f.RowVersion },
             new[] { AppRoles.Technician }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
                 var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
-                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
             },
             OwnedByTechnician: true),
 
         new("POST /api/work-orders/{id}/complete", HttpMethod.Post,
-            f => $"/api/work-orders/{f.WorkOrderId}/complete", _ => null,
+            f => $"/api/work-orders/{f.WorkOrderId}/complete", f => new RowVersionRequest { RowVersion = f.RowVersion },
             new[] { AppRoles.Technician }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
                 var wo = await CreateReadyToCompleteWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
-                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
             },
             OwnedByTechnician: true),
 
         new("POST /api/work-orders/{id}/approve", HttpMethod.Post,
-            f => $"/api/work-orders/{f.WorkOrderId}/approve", _ => null,
+            f => $"/api/work-orders/{f.WorkOrderId}/approve", f => new RowVersionRequest { RowVersion = f.RowVersion },
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
                 var wo = await CreateCompletedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
-                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
+            }),
+
+        // Manager only, mirroring approve.
+        new("POST /api/work-orders/{id}/cancel", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/cancel",
+            f => new CancelWorkOrderRequest { Reason = "Access check", RowVersion = f.RowVersion },
+            new[] { AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateAssignedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
             }),
 
         new("GET /api/technicians", HttpMethod.Get,
@@ -152,7 +174,7 @@ public class EndpointAccessTests
     private static async Task<Fixture> NewRequestFixtureAsync(PrepContext ctx)
     {
         var request = await CreateNewRequestAsync(ctx.Admin);
-        return new Fixture(request.CustomerId, request.EquipmentId, request.Id, 0, ctx.TechnicianId);
+        return new Fixture(request.CustomerId, request.EquipmentId, request.Id, 0, ctx.TechnicianId, request.RowVersion);
     }
 
     public static TheoryData<string, string> Rows()

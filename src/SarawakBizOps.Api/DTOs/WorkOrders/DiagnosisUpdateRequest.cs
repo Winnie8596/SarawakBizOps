@@ -14,4 +14,7 @@ public class DiagnosisUpdateRequest
 
     [MaxLength(2000)]
     public string? Notes { get; set; }
+
+    [Required]
+    public string RowVersion { get; set; } = string.Empty;
 }

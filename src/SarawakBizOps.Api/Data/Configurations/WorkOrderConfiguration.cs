@@ -13,9 +13,13 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
         builder.Property(wo => wo.WorkPerformed).HasMaxLength(4000);
         builder.Property(wo => wo.Notes).HasMaxLength(2000);
         builder.Property(wo => wo.CustomerSignatureUrl).HasMaxLength(500);
+        builder.Property(wo => wo.CancellationReason).HasMaxLength(500);
 
-        // BR-12: a ServiceRequest can produce at most one WorkOrder.
-        builder.HasIndex(wo => wo.ServiceRequestId).IsUnique();
+        // BR-12: a ServiceRequest can produce at most one WorkOrder — but a Cancelled work order
+        // (Phase 5 decision) is excluded, so a request whose job was cancelled can be assigned again.
+        builder.HasIndex(wo => wo.ServiceRequestId)
+            .IsUnique()
+            .HasFilter("[Status] <> 'Cancelled'");
 
         // BR-11: TechnicianId must reference a user with the Technician role.
         // EF Core cannot express "role must be X" as a constraint — that check
@@ -23,6 +27,11 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
         builder.HasOne(wo => wo.Technician)
             .WithMany()
             .HasForeignKey(wo => wo.TechnicianId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(wo => wo.CancelledByUser)
+            .WithMany()
+            .HasForeignKey(wo => wo.CancelledByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(wo => wo.ServiceReport)
