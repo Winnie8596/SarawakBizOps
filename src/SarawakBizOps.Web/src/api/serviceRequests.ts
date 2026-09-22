@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { ServiceRequest, ServiceRequestFilters, ServiceRequestInput } from '../types'
+import type { ServiceRequest, ServiceRequestFilters, ServiceRequestInput, WorkOrder } from '../types'
 
 export function getServiceRequests(token: string, filters: ServiceRequestFilters = {}): Promise<ServiceRequest[]> {
   const params = new URLSearchParams()
@@ -32,5 +32,13 @@ export function rejectServiceRequest(token: string, id: number, reason: string):
     method: 'POST',
     token,
     body: JSON.stringify({ reason })
+  })
+}
+
+export function assignServiceRequest(token: string, id: number, technicianId: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/service-requests/${id}/assign`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ technicianId })
   })
 }

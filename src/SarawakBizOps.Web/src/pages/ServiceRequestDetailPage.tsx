@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { approveServiceRequest, getServiceRequest, rejectServiceRequest } from '../api/serviceRequests'
+import { approveServiceRequest, assignServiceRequest, getServiceRequest, rejectServiceRequest } from '../api/serviceRequests'
+import { getTechnicians } from '../api/technicians'
 import { ApiError } from '../api/client'
-import type { ServiceRequest } from '../types'
+import type { ServiceRequest, Technician } from '../types'
 import { PriorityBadge } from '../components/PriorityBadge'
 import { StatusBadge } from '../components/StatusBadge'
 import { formatDateTime } from '../utils/format'
@@ -13,6 +14,7 @@ export function ServiceRequestDetailPage() {
   const { id } = useParams()
   const requestId = Number(id)
   const canReview = hasRole('Manager')
+  const canAssign = hasRole('Manager')
 
   const [request, setRequest] = useState<ServiceRequest | null>(null)
   const [loading, setLoading] = useState(true)
@@ -22,6 +24,11 @@ export function ServiceRequestDetailPage() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  const [assigning, setAssigning] = useState(false)
+  const [technicians, setTechnicians] = useState<Technician[]>([])
+  const [technicianId, setTechnicianId] = useState('')
+  const [assignedWorkOrderId, setAssignedWorkOrderId] = useState<number | null>(null)
 
   useEffect(() => {
     if (!auth) return
@@ -44,6 +51,24 @@ export function ServiceRequestDetailPage() {
       cancelled = true
     }
   }, [auth, requestId])
+
+  // The technician picker only makes sense once there is something to assign.
+  useEffect(() => {
+    if (!auth || !canAssign || request?.status !== 'Approved') return
+    let cancelled = false
+
+    getTechnicians(auth.token)
+      .then(data => {
+        if (!cancelled) setTechnicians(data)
+      })
+      .catch(() => {
+        if (!cancelled) setActionError('Could not load the technician list.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [auth, canAssign, request?.status])
 
   // Runs one review action. A 409 means someone else already decided (or the state moved on), so the
   // record is reloaded and the buttons then match what is really stored.
@@ -79,6 +104,31 @@ export function ServiceRequestDetailPage() {
     event.preventDefault()
     if (!auth) return
     void review(() => rejectServiceRequest(auth.token, requestId, reason.trim()))
+  }
+
+  async function handleAssign(event: FormEvent) {
+    event.preventDefault()
+    if (!auth || technicianId === '') return
+
+    setBusy(true)
+    setActionError(null)
+    try {
+      const workOrder = await assignServiceRequest(auth.token, requestId, technicianId)
+      setAssignedWorkOrderId(workOrder.id)
+      setAssigning(false)
+      setRequest(await getServiceRequest(auth.token, requestId))
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Could not assign this job.')
+      if (err instanceof ApiError && err.status === 409) {
+        try {
+          setRequest(await getServiceRequest(auth.token, requestId))
+        } catch {
+          // The message above already explains the conflict; the page keeps its previous data.
+        }
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (loading) return <p className="page-subtitle">Loading service request…</p>
@@ -183,6 +233,61 @@ export function ServiceRequestDetailPage() {
 
       {request.status === 'New' && !canReview && (
         <p className="form-hint">Waiting for a Manager to review this request.</p>
+      )}
+
+      {request.status === 'Approved' && canAssign && (
+        <div className="panel">
+          <h2 className="panel-title">Assign a technician</h2>
+
+          {assignedWorkOrderId ? (
+            <p className="form-notice" role="status">
+              Assigned. <Link to={`/work-orders/${assignedWorkOrderId}`}>View the work order</Link>
+            </p>
+          ) : assigning ? (
+            <form onSubmit={handleAssign}>
+              <label className="field">
+                <span className="field-label">Technician</span>
+                <select
+                  value={technicianId}
+                  onChange={e => setTechnicianId(e.target.value)}
+                  required
+                  autoFocus
+                >
+                  <option value="">Select a technician…</option>
+                  {technicians.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.fullName} ({t.openJobCount} open job{t.openJobCount === 1 ? '' : 's'})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="panel-actions">
+                <button type="button" className="btn btn-ghost" onClick={() => setAssigning(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={busy || technicianId === ''}>
+                  {busy ? 'Assigning…' : 'Assign'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="panel-actions">
+              <button className="btn btn-primary" onClick={() => setAssigning(true)} disabled={busy}>
+                Assign to a technician
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {request.status === 'Approved' && !canAssign && (
+        <p className="form-hint">Waiting for a Manager to assign this job to a technician.</p>
+      )}
+
+      {request.status === 'Assigned' && !assignedWorkOrderId && (
+        <p className="form-hint">
+          This request has been assigned to a technician. See it on the <Link to="/work-orders">Work Orders</Link> page.
+        </p>
       )}
     </div>
   )

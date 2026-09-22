@@ -143,3 +143,47 @@ export interface ServiceRequestFilters {
   priority?: RequestPriority | ''
   customerId?: number | ''
 }
+
+export const WORK_ORDER_STATUSES = [
+  'New', 'Assigned', 'InProgress', 'PendingParts', 'Completed', 'Approved', 'Cancelled'
+] as const
+export type WorkOrderStatus = (typeof WORK_ORDER_STATUSES)[number]
+
+export interface WorkOrder {
+  id: number
+  serviceRequestId: number
+  customerId: number
+  customerName: string
+  equipmentId: number
+  equipmentSerialNumber: string
+  equipmentType: string
+  problemDescription: string
+  priority: RequestPriority
+  technicianId?: string | null
+  technicianName: string
+  status: WorkOrderStatus
+  assignedAt?: string | null
+  startedAt?: string | null
+  completedAt?: string | null
+  approvedAt?: string | null
+  diagnosis?: string | null
+  workPerformed?: string | null
+  notes?: string | null
+  rowVersion: string
+}
+
+export interface DiagnosisInput {
+  diagnosis: string
+  workPerformed: string
+  notes?: string
+}
+
+export interface WorkOrderFilters {
+  status?: WorkOrderStatus | ''
+}
+
+export interface Technician {
+  id: string
+  fullName: string
+  openJobCount: number
+}

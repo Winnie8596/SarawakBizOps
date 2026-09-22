@@ -13,7 +13,11 @@ const STATUS_TONE: Record<string, string> = {
   Approved: 'tone-green',
   Assigned: 'tone-green',
   Rejected: 'tone-red',
-  Cancelled: 'tone-grey'
+  Cancelled: 'tone-grey',
+  // Work orders
+  InProgress: 'tone-steel',
+  PendingParts: 'tone-amber',
+  Completed: 'tone-green'
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {

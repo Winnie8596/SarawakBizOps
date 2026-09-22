@@ -567,3 +567,133 @@ a.btn {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Phase 4: technician mobile view ----------
+   Deliberately separate from the office .app-shell: one scrolling column, no sidebar, and a sticky
+   bottom action bar, so the primary next step is always reachable with one thumb (NFR-04, 360 px). */
+.tech-shell {
+  min-height: 100vh;
+  background: var(--steel-100);
+  display: flex;
+  flex-direction: column;
+}
+
+.tech-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--navy-950);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.tech-brand {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.tech-topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tech-name {
+  font-size: 13px;
+  color: #cbd8e6;
+}
+
+.tech-topbar .btn-ghost {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+  min-height: 40px;
+}
+
+.tech-page {
+  flex: 1;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+  /* Room for the sticky action bar so the last field is never hidden behind it. */
+  padding-bottom: 96px;
+  box-sizing: border-box;
+}
+
+.tech-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tech-job-card {
+  display: block;
+  min-height: 44px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tech-job-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.tech-job-customer {
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--navy-800);
+}
+
+.tech-job-problem {
+  margin: 0 0 8px 0;
+  color: var(--ink-500);
+  font-size: 13px;
+}
+
+.tech-job-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tech-job-date {
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+/* Pinned to the bottom of the viewport so it survives scrolling a long diagnosis form. */
+.tech-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--paper);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) 16px;
+}
+
+.tech-primary-btn {
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px;
+}
+
+@media (min-width: 520px) {
+  .tech-action-bar {
+    max-width: 480px;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+}
