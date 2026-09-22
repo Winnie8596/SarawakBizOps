@@ -27,11 +27,11 @@ the `Api` collection shares one SQL Server container per test run.
 | AC-04 | Insufficient stock rejected, stock unchanged | 7 | | Not yet implemented |
 | AC-05 | Completion rejected without diagnosis / work performed | 4 | `WorkOrderTests.Completing_without_diagnosis_or_work_performed_is_rejected`, `Saving_a_diagnosis_with_a_blank_field_is_rejected_and_the_job_still_cannot_complete` | **Done** |
 | AC-06 | Completion rejected without a signature | 8 | | Not yet implemented |
-| AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (first cut; Phase 5 adds the central lock guard for every mutating endpoint) | **Done (Phase 4 cut)** |
-| AC-08 | Technician edit after approval rejected | 5 | | Not yet implemented |
+| AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
+| AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | | Not yet implemented |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the five `/api/service-requests` + nine Phase 4 assignment/work-order/technician endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -45,12 +45,15 @@ the `Api` collection shares one SQL Server container per test run.
 | Two simultaneous decisions have one winner | `ServiceRequestTests.Concurrent_decisions_on_one_request_have_exactly_one_winner` (6 racing calls: 1 × 200, 5 × 409; run repeatedly before merge) |
 | Creator comes from the token | `ServiceRequestTests.The_creator_comes_from_the_token_not_from_the_request_body` |
 | Timestamps stored in UTC, shown in MYT | UI: `shows dates in Malaysia time (UTC+8)…` |
-| Demo data is consistent and idempotent | `DemoSeedingTests` (9 requests and 4 work orders in the right states, BR-10 holds for every seeded row, re-seeding changes nothing) |
+| Demo data is consistent and idempotent | `DemoSeedingTests` (11 requests and 5 work orders in the right states, including one Cancelled of each, BR-10 holds for every seeded row, re-seeding changes nothing) |
 | BR-01 (assignment half), BR-13 request follows the job | `WorkOrderTests` full-workflow test; `ServiceRequestStateMachineTests`/`WorkOrderTests` cover the two halves separately since assignment moves the *request*, not the work order |
 | BR-02 a technician acts only on their own job | `WorkOrderTests.Another_technician_cannot_read_or_act_on_someone_elses_job` (get, start and `mine` all checked); ownership is reported as 404, not 403, so a technician cannot even confirm another's job exists |
 | BR-11 only an active Technician can be assigned | `WorkOrderTests.Assigning_to_a_non_technician_or_inactive_technician_is_rejected` |
-| BR-12 one WorkOrder per request | `WorkOrderTests.Assigning_the_same_request_twice_fails_on_the_second_attempt`, `Two_managers_racing_to_assign_the_same_request_have_exactly_one_winner` (the unique index on `WorkOrder.ServiceRequestId` is the final guard) |
-| Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
+| BR-12 one *live* WorkOrder per request | `WorkOrderTests.Assigning_the_same_request_twice_fails_on_the_second_attempt`, `Two_managers_racing_to_assign_the_same_request_have_exactly_one_winner`; `WorkflowCancellationTests.A_manager_cancels_an_assigned_job_and_the_request_becomes_reassignable` (the filtered unique index on `WorkOrder.ServiceRequestId`, excluding `Cancelled` rows, is the final guard both ways) |
+| Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs, including the three new Cancel targets); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
+| BR-06/AC-08 central lock guard (Phase 5) | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (a locked job refuses a non-transition edit, not just a status change, via `WorkOrderStateMachine.IsLocked`) |
+| Cancellation (Phase 5) | `WorkflowCancellationTests` — request cancel by creator-side roles (New only) and by a Manager (New or Approved); work-order cancel by a Manager (New/Assigned/InProgress) with the request-revert side effect; both require a reason |
+| RowVersion conflict token (Phase 5) | `WorkflowCancellationTests.Two_diagnosis_edits_against_the_same_stale_RowVersion_have_exactly_one_winner` (closes the lost-update gap a pure status guard cannot: two edits to the same field, same status), `Approving_a_request_with_a_stale_RowVersion_is_a_409`, `A_missing_or_malformed_RowVersion_is_a_400` |
 
 ## Phase 3 test inventory
 

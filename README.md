@@ -35,36 +35,46 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 2 | Deployable skeleton: `docker compose up` with seed data | Done |
 | 3 | Request intake: staff raise a service request, a Manager approves or rejects it | Done |
 | 4 | The first job end to end: assign, technician works it, Manager approves | Done |
-| 5–10 | Workflow rules, parts and stock, signature, photos, PDF report | Planned |
+| 5 | Workflow rules for real: cancellation, a central lock guard, RowVersion conflicts, status timeline | Done |
+| 6–10 | Parts and stock, signature, photos, PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
 | 15 | Release polish and docs | Planned |
 
 **Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
 management (create with one role, edit, deactivate, reset password) with immediate token revocation, all 10
 entities with the `InitialCreate` migration, Customers and Equipment (create/update, service history for office
-roles), **service requests** (raise, list with filters, approve, reject with a reason), **work orders** (atomic
-assignment to a technician, start, diagnosis, complete, Manager approval), RFC 7807 error responses,
-Swagger with bearer auth, and a React office console (role-aware sidebar and routes, Users, Customers, Equipment,
-Service Requests, Work Orders, detail pages with history, change password) plus a separate mobile-first
-**Technician view** (`/tech`) for the field workflow.
+roles), **service requests** (raise, list with filters, approve, reject with a reason, cancel with a reason),
+**work orders** (atomic assignment to a technician, start, diagnosis, complete, Manager approval, cancel with a
+reason), a **central lock guard** so a locked (Approved/Cancelled) record refuses every mutating call, a
+**RowVersion conflict token** required on every mutating call (409 "record changed — refresh" on a stale one),
+RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
+Users, Customers, Equipment, Service Requests, Work Orders, detail pages with history, status timeline, a shared
+conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
+workflow.
 
-### Service requests (Phase 3)
+### Service requests (Phase 3, cancellation added in Phase 5)
 
 ```
-New ──approve──► Approved ──assign──► Assigned      (cancellation arrives in Phase 5)
- └────reject───► Rejected                           (a reason is mandatory)
+                     ┌──approve──► Approved ──assign──► Assigned
+New ─────────────────┤
+ │                    └──cancel───► Cancelled ◄──cancel──┘ (Manager only, once Approved)
+ └────reject───► Rejected
+
+Cancel from New: ServiceStaff, Admin or Manager (the creator-side roles undo their own mistake).
+Cancel from Approved: Manager only.
 ```
 
 | Who | Can |
 |---|---|
 | Admin, Manager, ServiceStaff | list and open requests (`GET /api/service-requests`, filters `status`, `priority`, `customerId`) |
 | ServiceStaff, Admin | raise one (`POST /api/service-requests`) |
-| Manager | approve (`POST /{id}/approve`) or reject (`POST /{id}/reject` with `{"reason": "…"}`) |
+| Manager | approve (`POST /{id}/approve`), reject (`POST /{id}/reject`), cancel a New or Approved request (`POST /{id}/cancel`) |
+| ServiceStaff, Admin | cancel their own New request (`POST /{id}/cancel`) |
 | Technician, WarehouseStaff | nothing here (a Technician sees only their own work orders, below) |
 
 - **BR-10:** the equipment must belong to the chosen customer, otherwise `400`. Retired equipment is also refused; Inactive and Under Maintenance equipment can be raised against.
-- **Invalid moves are `409`.** Approving or rejecting anything that is not `New` returns a message such as *"This request is Approved and cannot be rejected. Only a New request can be approved or rejected."*, and the UI shows it.
-- **Two Managers, one request.** The status change is a single conditional `UPDATE … WHERE Status = 'New'`. If two decisions race, exactly one changes a row and the other gets a `409`, so a decision is never silently overwritten. (Phase 5 adds `RowVersion` conflict handling for work orders on top of this.)
+- **Invalid moves are `409`.** Approving, rejecting or cancelling anything that is not in the right state returns a message such as *"This request is Approved and cannot be rejected. Only a New request can be approved or rejected."*, and the UI shows it.
+- **Two Managers, one request.** Every mutating call (`approve`/`reject`/`cancel`/`assign`) sends back the record's `rowVersion`; the write is a single conditional `UPDATE … WHERE Status = @from AND RowVersion = @rowVersion`. If two decisions race — or a status change races an unrelated edit — exactly one changes a row and the other gets a `409` with "This record was changed by someone else. Refresh and try again.", so a decision is never silently overwritten.
 - The creator always comes from the sign-in token, never from the request body.
 
 **Try it (demo script).** After `docker compose up`, sign in at <http://localhost:8080>:
@@ -76,26 +86,33 @@ New ──approve──► Approved ──assign──► Assigned      (cancell
 5. Open **Customers → Rajang Timber Mills → View & history**: the requests appear with their status, dates in Malaysia time (UTC+8), and link to their detail page.
 6. As `warehouse@…` the Service Requests page is not offered and `/service-requests` bounces to the dashboard; as `technician@…` it bounces to **My Jobs** instead (see below).
 
-### Work orders (Phase 4)
+### Work orders (Phase 4, cancellation and the lock guard added in Phase 5)
 
 ```
 Approved ──assign──► Assigned ──start──► InProgress ──complete──► Completed ──approve──► Approved (locked)
- (request)            (atomic:            (technician)             (needs a                (Manager;
-                       BR-01/11/12/13)                               diagnosis and            read-only after)
-                                                                      work performed, AC-05)
+ (request)            (atomic:         │  (technician)             (needs a                (Manager;
+                       BR-01/11/12/13) │                            diagnosis and            read-only after)
+                                       │                            work performed, AC-05)
+                        New ──────────►┤
+                                       └──cancel──► Cancelled (locked; Manager only)
+                                            │
+                                            └─► the linked request reverts to Approved,
+                                                 so it can be reassigned (BR-12's index
+                                                 now excludes Cancelled rows)
 ```
 
 | Who | Can |
 |---|---|
-| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`) |
+| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`), cancel a New/Assigned/InProgress job (`POST /{id}/cancel`) |
 | Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`) |
 | Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), complete (`POST /{id}/complete`) |
 | WarehouseStaff | nothing here |
 
-- **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one work order (a unique index is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order.
+- **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one **live** work order (a filtered unique index — excluding `Cancelled` rows — is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order; cancelling a job frees its request to be assigned again.
 - **BR-02, AC-02:** a technician acts only on their own job. Another technician's job is reported **404**, not 403, on every technician endpoint — its existence is not confirmed to someone who cannot open it. Office roles can read any job.
 - **AC-05:** completion is rejected without a stored diagnosis and work performed. The technician UI has one button ("Complete job") that saves both fields and completes in the same tap, even though the API models them as two calls.
-- **AC-07 (first cut):** once a Manager approves, every further technician action on that job is a `409` (Phase 5 turns this into one central guard covering every mutating endpoint).
+- **AC-07/AC-08, the central lock guard:** once a job is `Approved` or `Cancelled`, *every* mutating call refuses it with a `409` naming the lock — not just the status-changing ones. The diagnosis PATCH used to check this with its own inline `if`; it now goes through the same `WorkOrderStateMachine.IsLocked` check as everything else.
+- **RowVersion conflicts:** every mutating call (`start`/`diagnosis`/`complete`/`approve`/`cancel`) sends back the job's `rowVersion`. This is what actually protects the diagnosis PATCH, which does not change status: two technicians (or two tabs) editing the same in-progress job both match `WHERE Status = 'InProgress'`, but only the one whose `RowVersion` still matches wins — the other gets the same "record changed — refresh" `409`.
 - The Technician role gets its own **mobile-first view at `/tech`** (no office sidebar, 360 px layout, 44 px+ tap targets, a sticky primary action button) — chosen automatically the moment a Technician signs in or lands on `/`.
 
 **Try it (demo script).** Continuing from the Service Requests walk above:
@@ -105,6 +122,13 @@ Approved ──assign──► Assigned ──start──► InProgress ──co
 3. Back as the Manager, open **Work Orders**, find the job you just completed and tap **Approve**. It becomes read-only from then on.
 4. Try completing an in-progress job (there is a seeded one, the Air Compressor) with an empty diagnosis: the Complete button stays disabled until both fields are filled in, matching what the API would reject.
 5. As `staff@sarawakbizops.local`, open the assigned pump request: no Assign button is offered, and a hint points at the Work Orders page instead.
+
+**Cancellation and conflicts (Phase 5).**
+
+1. As `staff@sarawakbizops.local`, raise a request, then open it and choose **Cancel request…** — type a reason and confirm. It moves straight to *Cancelled*; a Manager could have cancelled it too, but not another technician or warehouse account.
+2. As `manager@sarawakbizops.local`, open the seeded **Assigned** job (Band Saw) and choose **Cancel job…**. Once confirmed, its request shows *Approved* again — open **Service Requests** and you can assign it to a technician a second time.
+3. Open a work order's detail page: the **Timeline** panel lists every dated step (raised/assigned/started/completed/approved/cancelled) derived purely from its own timestamp columns — there is no separate history table.
+4. Open the same work order in two browser tabs as the Manager, approve it in one, then click Approve in the other: the second tab shows the shared conflict banner ("This record was changed by someone else…") and reloads to the real state — the same banner every page uses for a `409`.
 
 ```
 src/
@@ -145,7 +169,7 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 9 service requests (3 New, one of them Urgent; 1 Approved and deliberately left unassigned; 4 Assigned; 1 Rejected with a reason) spread over the last three weeks, plus 4 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval) and Approved (the whole workflow closed, read-only).
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 11 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 4 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 5 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only) and Cancelled (its request reverted to Approved, ready to be reassigned).
 
 | Command | What it does |
 |---|---|
@@ -264,9 +288,11 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 ### Design decisions carried from the SDD
 
 - **No custom password/role fields.** Identity owns all of that.
-- **`RowVersion` concurrency tokens** on `WorkOrder` and `Part`, for transactional, concurrency-safe
-  status changes and stock issuing (a conflicting save throws `DbUpdateConcurrencyException` instead
-  of silently overwriting someone else's change).
+- **`RowVersion` concurrency tokens** on `ServiceRequest`, `WorkOrder` and `Part`, checked by hand rather
+  than via EF's `DbUpdateConcurrencyException`: every mutating call extends the same conditional
+  `UPDATE … WHERE Status = @from` guard already used for status races with `AND RowVersion = @rowVersion`,
+  so a status conflict and a same-status conflict (e.g. two edits to a diagnosis) both land on one
+  consistent `409`, instead of a second EF-specific error path living alongside the first.
 - **Repository layer omitted** and **manual DTO mapping**: less indirection for an app this size.
 - **`launchSettings.json` pins the dev ports** (`5080`/`5443`) so the web app's `.env.example` points at a real port.
 
@@ -276,11 +302,12 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 
 - The Docker demo accounts share one public, documented password and there is no forced change on first login (V2). They exist only in demo mode.
 - The Docker setup serves plain HTTP; TLS is out of scope for the demo.
-- Customers, Equipment, Service Requests (raise, approve, reject) and the first work-order slice (assign, start,
-  diagnose, complete, approve) are implemented so far; inventory, files/PDF, dashboard analytics and AI features
-  are planned in [`plan.md`](./plan.md). A request or work order cannot be cancelled yet, there is no
-  optimistic-concurrency conflict UI beyond the existing 409 message, and parts/photos/signature are not part of
-  completing a job yet (Phase 5 onward). List endpoints are not paginated yet (Phase 15 sweep).
+- Customers, Equipment, Service Requests (raise, approve, reject, cancel) and the work-order lifecycle (assign,
+  start, diagnose, complete, approve, cancel) are implemented so far, with a RowVersion conflict token on every
+  mutating call and a shared conflict banner in the UI; inventory, files/PDF, dashboard analytics and AI features
+  are planned in [`plan.md`](./plan.md). Parts/photos/signature are not part of completing a job yet (Phase 6
+  onward). Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
+  no separate audit-log table (D-05). List endpoints are not paginated yet (Phase 15 sweep).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
   no forced change-on-first-login. Admin-set passwords are shared out of band.
 
