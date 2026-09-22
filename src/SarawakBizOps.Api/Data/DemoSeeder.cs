@@ -85,12 +85,16 @@ public static class DemoSeeder
         await SeedUsersAsync(services, password);
 
         var db = services.GetRequiredService<ApplicationDbContext>();
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
         await SeedCustomersAndEquipmentAsync(db, ct);
-        await SeedServiceRequestsAsync(services.GetRequiredService<UserManager<ApplicationUser>>(), db, ct);
+        await SeedServiceRequestsAsync(userManager, db, ct);
+        await SeedWorkOrdersAsync(userManager, db, ct);
     }
 
-    // Phase 3 states only: New, Approved and Rejected. Assigned and Cancelled rows arrive with the
-    // phases that can produce them, so the demo never shows a state the app cannot reach yet.
+    // Phase 3 states: New, Approved and Rejected. Three of the Approved rows below are then carried
+    // into a WorkOrder by SeedWorkOrdersAsync (their ServiceRequestStatus becomes Assigned); the
+    // Centrifugal Pump request is deliberately left Approved-but-unassigned so a reviewer always has
+    // one request to assign by hand. Cancelled rows arrive once Phase 5 can produce them.
     private record DemoRequest(
         string EquipmentSerial, string Problem, RequestPriority Priority, ServiceRequestStatus Status,
         int CreatedDaysAgo, int? ReviewedDaysAgo = null, string? RejectionReason = null);
@@ -116,7 +120,53 @@ public static class DemoSeeder
             "Log conveyor motor trips out under load.",
             RequestPriority.Low, ServiceRequestStatus.Rejected, CreatedDaysAgo: 20, ReviewedDaysAgo: 19,
             RejectionReason: "The conveyor is inactive pending replacement, so a repair is not worthwhile. " +
-                             "Raise a new request if the unit is reinstated.")
+                             "Raise a new request if the unit is reinstated."),
+        new("KCC-CMP-002",
+            "Air compressor short-cycles under load and trips its overload relay.",
+            RequestPriority.High, ServiceRequestStatus.Approved, CreatedDaysAgo: 8, ReviewedDaysAgo: 7),
+        new("SBW-GEN-002",
+            "Standby generator fails to reach rated voltage on load and the AVR indicator flashes.",
+            RequestPriority.Urgent, ServiceRequestStatus.Approved, CreatedDaysAgo: 12, ReviewedDaysAgo: 11),
+        new("MOS-FLT-001",
+            "Forklift hydraulic lift is slow to raise a loaded pallet and leaks a little fluid at the mast.",
+            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 18, ReviewedDaysAgo: 17)
+    };
+
+    // Phase 4 states: one job at each of Assigned, InProgress, Completed and Approved, all worked by
+    // the demo Technician, so every status the UI can show — and both the technician's and the
+    // Manager's next action — is represented without touching the still-unassigned pump request above.
+    private record DemoWorkOrder(
+        string EquipmentSerial, string Problem, WorkOrderStatus Status, int AssignedDaysAgo,
+        int? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
+        string? Diagnosis = null, string? WorkPerformed = null);
+
+    private static readonly DemoWorkOrder[] WorkOrders =
+    {
+        // Assigned only: the technician's next job is to tap Start.
+        new("RTM-BSW-001",
+            "Band saw blade tracking drifts after warm-up, with unusual vibration on the sawmill floor.",
+            WorkOrderStatus.Assigned, AssignedDaysAgo: 7),
+
+        // In progress with the evidence already recorded: ready for the technician to tap Complete.
+        new("KCC-CMP-002",
+            "Air compressor short-cycles under load and trips its overload relay.",
+            WorkOrderStatus.InProgress, AssignedDaysAgo: 6, StartedDaysAgo: 5,
+            Diagnosis: "Overload relay set point was too low for the compressor's duty cycle; contacts were also pitted.",
+            WorkPerformed: "Replaced the overload relay, reset it to the compressor's rated current and ran a 30-minute load test."),
+
+        // Completed: the Manager's next action is to approve it.
+        new("SBW-GEN-002",
+            "Standby generator fails to reach rated voltage on load and the AVR indicator flashes.",
+            WorkOrderStatus.Completed, AssignedDaysAgo: 10, StartedDaysAgo: 10, CompletedDaysAgo: 9,
+            Diagnosis: "AVR sensing lead had a loose crimp, causing voltage regulation to hunt under load.",
+            WorkPerformed: "Re-terminated the AVR sensing lead, recalibrated the voltage set point and confirmed with a 3-hour load-bank test."),
+
+        // Approved: the whole workflow closed, shown read-only.
+        new("MOS-FLT-001",
+            "Forklift hydraulic lift is slow to raise a loaded pallet and leaks a little fluid at the mast.",
+            WorkOrderStatus.Approved, AssignedDaysAgo: 16, StartedDaysAgo: 16, CompletedDaysAgo: 15, ApprovedDaysAgo: 14,
+            Diagnosis: "Hydraulic pump inlet strainer was clogged and a lift-cylinder seal was worn, causing external leakage.",
+            WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec.")
     };
 
     // Natural key: equipment serial number + problem text. Created by the demo ServiceStaff account and
@@ -167,6 +217,47 @@ public static class DemoSeeder
             }
 
             db.ServiceRequests.Add(request);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Natural key: the ServiceRequestId (BR-12 — one WorkOrder per request), found via the same
+    // equipment serial + problem text used above. Assigning bumps the request to Assigned, exactly as
+    // the real /assign endpoint would, so the seeded rows stay consistent with the state machine.
+    private static async Task SeedWorkOrdersAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, CancellationToken ct)
+    {
+        var technician = await userManager.FindByEmailAsync("technician@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Technician account is missing.");
+
+        var requestsByKey = await db.ServiceRequests
+            .Include(r => r.Equipment)
+            .ToDictionaryAsync(r => (r.Equipment!.SerialNumber, r.ProblemDescription), ct);
+        var alreadyAssigned = (await db.WorkOrders.Select(w => w.ServiceRequestId).ToListAsync(ct)).ToHashSet();
+
+        var now = DateTime.UtcNow;
+        foreach (var demo in WorkOrders)
+        {
+            if (!requestsByKey.TryGetValue((demo.EquipmentSerial, demo.Problem), out var request)
+                || !alreadyAssigned.Add(request.Id))
+            {
+                continue;
+            }
+
+            db.WorkOrders.Add(new WorkOrder
+            {
+                ServiceRequestId = request.Id,
+                TechnicianId = technician.Id,
+                Status = demo.Status,
+                AssignedAt = now.AddDays(-demo.AssignedDaysAgo),
+                StartedAt = demo.StartedDaysAgo.HasValue ? now.AddDays(-demo.StartedDaysAgo.Value) : null,
+                CompletedAt = demo.CompletedDaysAgo.HasValue ? now.AddDays(-demo.CompletedDaysAgo.Value) : null,
+                ApprovedAt = demo.ApprovedDaysAgo.HasValue ? now.AddDays(-demo.ApprovedDaysAgo.Value) : null,
+                Diagnosis = demo.Diagnosis,
+                WorkPerformed = demo.WorkPerformed
+            });
+            request.Status = ServiceRequestStatus.Assigned;
         }
 
         await db.SaveChangesAsync(ct);

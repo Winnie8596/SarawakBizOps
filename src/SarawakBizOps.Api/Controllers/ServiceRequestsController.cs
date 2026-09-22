@@ -2,7 +2,9 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
+using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Services.ServiceRequests;
+using SarawakBizOps.Api.Services.WorkOrders;
 
 namespace SarawakBizOps.Api.Controllers;
 
@@ -14,10 +16,12 @@ namespace SarawakBizOps.Api.Controllers;
 public class ServiceRequestsController : ControllerBase
 {
     private readonly IServiceRequestService _service;
+    private readonly IWorkOrderService _workOrderService;
 
-    public ServiceRequestsController(IServiceRequestService service)
+    public ServiceRequestsController(IServiceRequestService service, IWorkOrderService workOrderService)
     {
         _service = service;
+        _workOrderService = workOrderService;
     }
 
     [HttpGet]
@@ -57,6 +61,15 @@ public class ServiceRequestsController : ControllerBase
     public async Task<IActionResult> Reject(int id, [FromBody] RejectServiceRequestRequest request, CancellationToken ct)
     {
         var result = await _service.RejectAsync(id, request.Reason, ActingUserId, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Atomically creates the WorkOrder and marks the request Assigned (BR-01, BR-12, BR-13, AC-01).
+    [HttpPost("{id:int}/assign")]
+    [Authorize(Roles = "Manager")]
+    public async Task<IActionResult> Assign(int id, [FromBody] AssignWorkOrderRequest request, CancellationToken ct)
+    {
+        var result = await _workOrderService.AssignAsync(id, request.TechnicianId, ActingUserId, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 

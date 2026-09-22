@@ -14,6 +14,7 @@ using SarawakBizOps.Api.Services.Equipment;
 using SarawakBizOps.Api.Services.History;
 using SarawakBizOps.Api.Services.ServiceRequests;
 using SarawakBizOps.Api.Services.Users;
+using SarawakBizOps.Api.Services.WorkOrders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -97,6 +98,7 @@ builder.Services.AddScoped<IEquipmentService, EquipmentService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IServiceHistoryService, ServiceHistoryService>();
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
+builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
 
 // ---------------------------------------------------------------------
 // CORS — allow the future React web app and Expo dev server to call this API.

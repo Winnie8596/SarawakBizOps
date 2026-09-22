@@ -1,0 +1,23 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.Services.WorkOrders;
+
+namespace SarawakBizOps.Api.Controllers;
+
+// Backs the Manager's assign dialog (PRD §6.1 technician picker with open-job counts).
+[ApiController]
+[Route("api/technicians")]
+[Authorize(Roles = "Manager")]
+public class TechniciansController : ControllerBase
+{
+    private readonly IWorkOrderService _service;
+
+    public TechniciansController(IWorkOrderService service)
+    {
+        _service = service;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+        => Ok(await _service.GetTechniciansAsync(ct));
+}
