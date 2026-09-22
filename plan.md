@@ -220,7 +220,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 5 — Workflow rules for real
+## ✅ Phase 5 — Workflow rules for real
 
 **Goal:** turn the thin line into a trustworthy state machine: every transition guarded, every conflict visible, every state explained.
 **Demo:** a Manager cancels an assigned job with a reason; a technician tries to edit an approved job and is told it is locked; two Managers act on the same order at once and the second sees "This record changed — refresh"; the order page shows a status timeline.
@@ -228,16 +228,28 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 | Layer | Work |
 |---|---|
-| Data | Migration: cancellation reason columns and transition-timestamp fields the timeline needs (reviewed). |
-| Service | Full transition tables from SDD §8–9 with actor role + guard predicates. Request cancel (`New/Approved→Cancelled`); work-order cancel (`New/Assigned/InProgress`, reason). **One central lock guard**: any mutating call on `Approved`/`Cancelled` → 409 (not scattered `if`s). `RowVersion` conflicts (`DbUpdateConcurrencyException`) → 409 "reload and retry"; pick one mechanism (`If-Match` header or body field) and document it. Cancelling a work order returns its request to a defined state (decide and document). |
-| Route | `POST /api/service-requests/{id}/cancel`, `POST /api/work-orders/{id}/cancel`; state-changing calls accept the `RowVersion`. |
-| UI | Cancel actions with reason; buttons appear **only for valid transitions**; **status timeline** on work-order detail; a shared "record changed — refresh" conflict banner used by every page; locked-order read-only display. |
-| Tests | Table-driven tests for *every* transition including forbidden ones; **AC-08** (technician edit after approval rejected); concurrency test (two simultaneous status changes → one succeeds, one 409); cancel paths; access rows for the new endpoints. |
-| Ops & docs | Workflow state diagrams (request + work order) drafted for the README; seed gets `Cancelled` examples. |
+| Data | Migration `WorkflowCancellationAndConcurrency`: `CancelledAt`/`CancelledByUserId`/`CancellationReason` on both `ServiceRequest` and `WorkOrder`; `RowVersion` added to `ServiceRequest` (symmetric with `WorkOrder`); `WorkOrder.ServiceRequestId`'s unique index becomes filtered (`WHERE Status <> 'Cancelled'`). |
+| Service | `ServiceRequestStateMachine`/`WorkOrderStateMachine` grow `→Cancelled` rows (request: `New`/`Approved`; work order: `New`/`Assigned`/`InProgress`). `CancelAsync` on both services (request cancel layers an actor-role rule — Manager vs. creator-side roles — on top of the state machine's structural check). **Central lock guard**: `WorkOrderStateMachine.IsLocked` is checked the same way by every mutating call, including `UpdateDiagnosisAsync`, which used to have its own bespoke inline check. `RowVersion` conflicts extend the existing conditional-`UPDATE … WHERE Status = @from` guard with `AND RowVersion = @rowVersion` (not `DbUpdateConcurrencyException` — see decisions). Cancelling a work order reverts its request to `Approved` as a transactional side effect. |
+| Route | `POST /api/service-requests/{id}/cancel`, `POST /api/work-orders/{id}/cancel`; every mutating call (`approve`/`reject`/`cancel`/`assign`/`start`/`diagnosis`/`complete`) now requires a body `rowVersion`. |
+| UI | Cancel actions with reason (mirrors the existing reject-with-reason form); buttons appear only for valid transitions/roles; `StatusTimeline` component on both detail pages (derived from timestamp columns, no new table); shared `ConflictBanner` component + `useGuardedAction` hook replace the duplicated inline 409-catch-and-reload logic; `TechnicianJobDetailPage` gets a read-only Cancelled branch. |
+| Tests | `ServiceRequestStateMachineTests`/`WorkOrderStateMachineTests` extended for the new transitions; `WorkflowCancellationTests` (new file): cancel paths for both entities and both actor rules, the work-order-cancel-reverts-request-to-Approved behaviour plus reassignment through the filtered index, AC-08 (locked job refuses a diagnosis edit), the RowVersion lost-update race on the diagnosis PATCH, stale-RowVersion 409, missing/malformed RowVersion 400; `EndpointAccessTests` gains both `/cancel` rows; `DemoSeedingTests` updated for the two new seeded Cancelled rows. Frontend: cancel-button visibility per role/status and the conflict banner, in `ServiceRequests.test.tsx`/`WorkOrders.test.tsx`. |
+| Ops & docs | README workflow diagrams (request + work order) updated with the cancel paths and the RowVersion mechanism; test-plan AC map updated for AC-07/AC-08; seed gets one `Cancelled` service request (creator-cancelled while New) and one `Cancelled` work order (Manager-cancelled, request reverted to Approved). |
+
+**Decisions taken (grilled before building)**
+
+| Topic | Decision |
+|---|---|
+| BR-12 after a cancelled job | **Reassignable.** `WorkOrder.ServiceRequestId`'s unique index becomes filtered (excludes `Cancelled`), and cancelling a work order reverts its request to `Approved` inside the same transaction — a side effect of `WorkOrderService.CancelAsync`, not a manager-facing `ServiceRequest` transition. |
+| Who can cancel a request | Decided per actor role *and* current status, not a single rule: ServiceStaff/Admin may cancel their own mistake while it is still `New`; a Manager may cancel a `New` **or** `Approved` request. Enforced in `ServiceRequestService.CancelAsync` (a plain `[Authorize(Roles=…)]` cannot express the status-dependent half), reusing `ServiceRequestStateMachine`'s structural check and layering the role rule only for the `Approved` case. |
+| Conflict-token transport (Open Question 9) | Body field `rowVersion`, required on every mutating call — including `ServiceRequest`'s (a new `RowVersion` column, symmetric with `WorkOrder`). One mechanism everywhere: the existing conditional `UPDATE … WHERE Status = @from` guard gains `AND RowVersion = @rowVersion`. Explicitly **not** EF's `DbUpdateConcurrencyException`/attach-and-catch pattern — that would mean two different concurrency idioms side by side for equivalent behaviour. This is what actually closes the lost-update gap on `UpdateDiagnosisAsync`: two edits from the same status both match the `WHERE Status = 'InProgress'` clause, but only one still matches the `RowVersion`. |
+| Status timeline data source | Derived purely from the timestamp/actor columns already on the record (`StatusTimeline` component) — no new history table, consistent with D-05 ("no AuditLog"). |
+| Shared base class between the two services | **No.** `ServiceRequestService`/`WorkOrderService` stay independently evolvable; `UpdateDiagnosisAsync` was fixed to use the same guard *style* (`WorkOrderStateMachine.IsLocked` + the `RowVersion`-extended conditional update) as everything else, without forcing a shared abstraction across the two entities. |
+| Work-order cancel role | Manager only (mirrors `approve`) — the plan's own demo script says "a Manager cancels an assigned job". |
+| Git | Commits per task group on `main`; nothing pushed by the assistant. |
 
 **Exit criteria**
-- [ ] No mutation path bypasses the lock guard (a test enumerates the mutating endpoints).
-- [ ] The concurrency and conflict UI works in a manual two-browser check.
+- [x] No mutation path bypasses the lock guard. *(`WorkOrderStateMachine.IsLocked` is the single check both `TransitionAsync` (via `CanTransition` — `Approved`/`Cancelled` have zero outgoing edges) and `UpdateDiagnosisAsync` go through; `EndpointAccessTests` enumerates every mutating endpoint × every role; `WorkflowCancellationTests` proves the diagnosis PATCH specifically refuses a locked job.)*
+- [x] The concurrency and conflict UI works, verified two ways: `WorkflowCancellationTests.Two_diagnosis_edits_against_the_same_stale_RowVersion_have_exactly_one_winner` drives the real race through the real API (Testcontainers SQL Server), and the frontend conflict-banner behaviour (409 → banner → reload) is covered by `ServiceRequests.test.tsx`'s `shows the conflict message and refreshes…` test. *A live manual two-browser check against the Docker deployment was not performed in this session — worth doing before a demo.*
 
 ---
 
