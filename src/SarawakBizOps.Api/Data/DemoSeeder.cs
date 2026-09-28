@@ -7,8 +7,9 @@ namespace SarawakBizOps.Api.Data;
 
 /// <summary>
 /// Opt-in sample data for demos (Seed:Demo=true): one account per role plus fictional customers,
-/// equipment and service requests. Every row is inserted only if its natural key is missing (email,
-/// company name, serial number, equipment + problem text), so it is safe to run on every start and a
+/// equipment, service requests, work orders and a parts catalogue with its stock ledger. Every row is
+/// inserted only if its natural key is missing (email, company name, serial number, equipment + problem
+/// text, part number), so it is safe to run on every start and a
 /// half-finished earlier run heals itself.
 /// Later phases extend this class with their lifecycle states.
 /// All names, numbers and addresses are fictional.
@@ -89,6 +90,7 @@ public static class DemoSeeder
         await SeedCustomersAndEquipmentAsync(db, ct);
         await SeedServiceRequestsAsync(userManager, db, ct);
         await SeedWorkOrdersAsync(userManager, db, ct);
+        await SeedPartsAsync(userManager, db, ct);
     }
 
     // Phase 3 states: New, Approved and Rejected. Four of the Approved rows below are then carried
@@ -314,6 +316,112 @@ public static class DemoSeeder
             request.Status = demo.Status == WorkOrderStatus.Cancelled
                 ? ServiceRequestStatus.Approved
                 : ServiceRequestStatus.Assigned;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 6: a parts catalogue for the equipment above. Every part's stock comes from its own ledger
+    // rows (Receive, plus the odd Adjustment with a reason), so QuantityOnHand == SUM(ledger) holds for
+    // the seed exactly as it must for the API (BR-09). Four active parts sit at or below their minimum
+    // (the low-stock list, AC-09); the discontinued fuse is below its minimum too but inactive, so it
+    // proves inactive parts stay off that list. The conveyor belt at zero is the one the cancelled
+    // filling-line job was waiting for.
+    private record DemoMovement(InventoryTransactionType Type, decimal Quantity, int DaysAgo, string Notes);
+
+    private record DemoPart(
+        string PartNumber, string Name, string Description, string Unit, decimal UnitCost,
+        decimal MinimumStockLevel, DemoMovement[] Movements, bool IsActive = true);
+
+    private static DemoMovement Received(decimal quantity, int daysAgo, string deliveryNote)
+        => new(InventoryTransactionType.Receive, quantity, daysAgo, deliveryNote);
+
+    private static DemoMovement Adjusted(decimal quantity, int daysAgo, string reason)
+        => new(InventoryTransactionType.Adjustment, quantity, daysAgo, reason);
+
+    private static readonly DemoPart[] Parts =
+    {
+        new("REL-OVL-25A", "Thermal overload relay 18–25 A", "Three-pole thermal overload relay for compressor motors.",
+            "pcs", 145.00m, 2, new[] { Received(6, 20, "Delivery note DN-24817, Borneo Industrial Supply") }),
+        new("FLT-AIR-HC75", "Air filter element, HC-75 compressor", "Intake filter element for Hartmann HC-series compressors.",
+            "pcs", 62.00m, 4, new[] { Received(10, 20, "Delivery note DN-24817, Borneo Industrial Supply") }),
+        new("OIL-HYD-46", "Hydraulic oil ISO VG 46", "Anti-wear hydraulic oil, decanted from 200 L drums.",
+            "L", 14.90m, 80, new[]
+            {
+                Received(200, 19, "Delivery note DN-24833, Kuching Lubricants"),
+                Received(60, 6, "Delivery note DN-25102, Kuching Lubricants"),
+                Adjusted(-3.5m, 5, "Spillage while decanting into the workshop dispenser; cleaned up and logged.")
+            }),
+        new("SEAL-KIT-HYD", "Hydraulic lift-cylinder seal kit", "Seal kit for Tanjung TL-series forklift lift cylinders.",
+            "kit", 185.00m, 2, new[] { Received(5, 18, "Delivery note DN-24851, Tanjung Parts Centre") }),
+        new("SEAL-MECH-35", "Mechanical seal 35 mm", "Single mechanical seal for Hartmann HP-150 centrifugal pumps.",
+            "pcs", 320.00m, 3, new[] { Received(2, 15, "Delivery note DN-24960, Borneo Industrial Supply (part order, 2 of 4)") }),
+        new("AVR-SX460", "Automatic voltage regulator SX460", "AVR module for Kestrel KG-series standby generators.",
+            "pcs", 690.00m, 1, new[] { Received(1, 14, "Delivery note DN-24977, Sibu Power Systems") }),
+        new("BLD-BSW-900", "Band saw blade, 900 series", "Bi-metal blade for Hartmann HB-900 band saws.",
+            "pcs", 410.00m, 4, new[] { Received(3, 12, "Delivery note DN-25018, Rajang Saw Services") }),
+        new("BRG-6205-2RS", "Deep-groove ball bearing 6205-2RS", "Sealed bearing used across conveyors, pumps and fans.",
+            "pcs", 18.40m, 20, new[] { Received(40, 11, "Delivery note DN-25040, Borneo Industrial Supply") }),
+        new("SNS-PT100", "PT100 temperature sensor", "Three-wire PT100 probe for kilns and cold rooms.",
+            "pcs", 95.00m, 2, new[] { Received(6, 10, "Delivery note DN-25061, Kuching Instrumentation") }),
+        new("GSK-BLR-10T", "Boiler manhole gasket", "Graphite manhole gasket for Kestrel KB-10T steam boilers.",
+            "pcs", 48.00m, 2, new[] { Received(8, 9, "Delivery note DN-25077, Sibu Power Systems") }),
+        new("BLT-CNV-600", "Conveyor belt, 600 mm", "Food-grade PVC conveyor belting for Tanjung TF filling lines, sold by the metre.",
+            "m", 88.50m, 10, new[]
+            {
+                Received(12, 8, "Delivery note DN-25090, Tanjung Parts Centre"),
+                Adjusted(-12, 4, "Roll water-damaged in the store-room leak and written off; replacement ordered.")
+            }),
+        new("FUSE-HRC-63", "HRC fuse 63 A (discontinued)", "Superseded by the 63 A gG fuse; remaining stock is being used up.",
+            "pcs", 12.00m, 5, new[] { Received(3, 21, "Opening stock carried over from the old spreadsheet") },
+            IsActive: false)
+    };
+
+    // Natural key: PartNumber. A part's ledger rows are inserted only together with the part itself, so a
+    // re-run never adds a second set of movements to an existing part.
+    private static async Task SeedPartsAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, CancellationToken ct)
+    {
+        var warehouse = await userManager.FindByEmailAsync("warehouse@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo WarehouseStaff account is missing.");
+
+        var existing = (await db.Parts.Select(p => p.PartNumber).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var now = DateTime.UtcNow;
+        foreach (var demo in Parts)
+        {
+            if (!existing.Add(demo.PartNumber))
+            {
+                continue;
+            }
+
+            var part = new Part
+            {
+                PartNumber = demo.PartNumber,
+                Name = demo.Name,
+                Description = demo.Description,
+                Unit = demo.Unit,
+                UnitCost = demo.UnitCost,
+                MinimumStockLevel = demo.MinimumStockLevel,
+                QuantityOnHand = demo.Movements.Sum(m => m.Quantity),
+                IsActive = demo.IsActive,
+                CreatedAt = now.AddDays(-demo.Movements.Max(m => m.DaysAgo))
+            };
+
+            foreach (var movement in demo.Movements)
+            {
+                part.Transactions.Add(new InventoryTransaction
+                {
+                    TransactionType = movement.Type,
+                    Quantity = movement.Quantity,
+                    CreatedByUserId = warehouse.Id,
+                    Notes = movement.Notes,
+                    CreatedAt = now.AddDays(-movement.DaysAgo)
+                });
+            }
+
+            db.Parts.Add(part);
         }
 
         await db.SaveChangesAsync(ct);

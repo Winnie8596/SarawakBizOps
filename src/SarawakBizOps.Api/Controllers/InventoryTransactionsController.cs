@@ -1,0 +1,39 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.DTOs.Inventory;
+using SarawakBizOps.Api.Services.Inventory;
+
+namespace SarawakBizOps.Api.Controllers;
+
+// SDD §10. The ledger is append-only (BR-09): there is intentionally no PUT, PATCH or DELETE here —
+// a mistake is corrected by posting an offsetting Adjustment with a reason.
+[ApiController]
+[Route("api/inventory-transactions")]
+[Authorize(Roles = "Admin,Manager,WarehouseStaff")]
+public class InventoryTransactionsController : ControllerBase
+{
+    private readonly IInventoryService _service;
+
+    public InventoryTransactionsController(IInventoryService service)
+    {
+        _service = service;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll([FromQuery] InventoryTransactionFilter filter, CancellationToken ct)
+    {
+        var result = await _service.GetAllAsync(filter, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Receive or Adjustment only; Issue/Return come from work-order part operations (Phase 7).
+    // There is no GET-by-id, so the 201 carries the new row in its body without a Location header.
+    [HttpPost]
+    [Authorize(Roles = "Admin,WarehouseStaff")]
+    public async Task<IActionResult> Create([FromBody] CreateInventoryTransactionRequest request, CancellationToken ct)
+    {
+        var result = await _service.CreateAsync(request, User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct);
+        return result.Succeeded ? StatusCode(StatusCodes.Status201Created, result.Value) : this.ToProblem(result);
+    }
+}

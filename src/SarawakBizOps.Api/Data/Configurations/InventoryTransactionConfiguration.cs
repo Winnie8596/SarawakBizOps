@@ -12,6 +12,11 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
         builder.Property(t => t.Quantity).HasColumnType("decimal(18,3)");
         builder.Property(t => t.Notes).HasMaxLength(500);
 
+        // History filters (Phase 6): "this part's movements, newest first" and date-range scans across
+        // all parts. The composite index also serves the PartId foreign key, replacing its own index.
+        builder.HasIndex(t => new { t.PartId, t.CreatedAt });
+        builder.HasIndex(t => t.CreatedAt);
+
         builder.HasOne(t => t.Part)
             .WithMany(p => p.Transactions)
             .HasForeignKey(t => t.PartId)

@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using SarawakBizOps.Api.DTOs.Customers;
 using SarawakBizOps.Api.DTOs.Equipment;
+using SarawakBizOps.Api.DTOs.Inventory;
+using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 
@@ -260,5 +262,60 @@ public static class TestData
         var response = await PostCancelWorkOrderAsync(manager, workOrderId, reason);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
+    // ---- Phase 6: parts and the stock ledger ----
+
+    public static async Task<HttpResponseMessage> PostPartAsync(
+        HttpClient client, string? partNumber = null, decimal minimumStockLevel = 5, decimal unitCost = 25.50m,
+        string unit = "pcs", string? name = null)
+        => await client.PostAsJsonAsync("/api/parts", new CreatePartRequest
+        {
+            PartNumber = partNumber ?? $"PN-{Guid.NewGuid():N}"[..20],
+            Name = name ?? $"Test part {Guid.NewGuid():N}",
+            Unit = unit,
+            UnitCost = unitCost,
+            MinimumStockLevel = minimumStockLevel
+        });
+
+    public static async Task<PartDto> CreatePartAsync(
+        HttpClient client, string? partNumber = null, decimal minimumStockLevel = 5, decimal unitCost = 25.50m,
+        string unit = "pcs", string? name = null)
+    {
+        var response = await PostPartAsync(client, partNumber, minimumStockLevel, unitCost, unit, name);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<PartDto>())!;
+    }
+
+    public static async Task<PartDto> GetPartAsync(HttpClient client, int id)
+        => (await client.GetFromJsonAsync<PartDto>($"/api/parts/{id}"))!;
+
+    public static Task<HttpResponseMessage> PostStockMovementAsync(
+        HttpClient client, int partId, string type, decimal quantity, string? notes = null)
+        => client.PostAsJsonAsync("/api/inventory-transactions", new CreateInventoryTransactionRequest
+        {
+            PartId = partId,
+            TransactionType = type,
+            Quantity = quantity,
+            Notes = notes
+        });
+
+    public static async Task<InventoryTransactionDto> ReceiveAsync(
+        HttpClient client, int partId, decimal quantity, string? notes = "Delivery note DN-TEST")
+    {
+        var response = await PostStockMovementAsync(client, partId, "Receive", quantity, notes);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<InventoryTransactionDto>())!;
+    }
+
+    /// <summary>A new part with <paramref name="onHand"/> units already received through the ledger.</summary>
+    public static async Task<PartDto> CreateStockedPartAsync(HttpClient client, decimal onHand, decimal minimumStockLevel = 5)
+    {
+        var part = await CreatePartAsync(client, minimumStockLevel: minimumStockLevel);
+        if (onHand > 0)
+        {
+            await ReceiveAsync(client, part.Id, onHand);
+        }
+        return await GetPartAsync(client, part.Id);
     }
 }

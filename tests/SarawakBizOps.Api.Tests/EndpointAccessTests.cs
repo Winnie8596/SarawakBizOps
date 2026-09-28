@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using SarawakBizOps.Api.DTOs.Inventory;
+using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
@@ -22,11 +24,17 @@ public class EndpointAccessTests
 
     private static readonly string[] Office = { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff };
 
+    // Phase 6: the warehouse runs inventory; a Manager may read it (low stock feeds the dashboard).
+    // ServiceStaff never touch inventory and a Technician gets no inventory access until Phase 7.
+    private static readonly string[] InventoryReaders = { AppRoles.Admin, AppRoles.Manager, AppRoles.WarehouseStaff };
+    private static readonly string[] InventoryWriters = { AppRoles.Admin, AppRoles.WarehouseStaff };
+
     /// <summary>Ids of the records an endpoint row's Path/Body can point at. RowVersion is the base64
     /// concurrency token of whichever record the row's Body posts back (Phase 5: required on every
     /// mutating call), left blank for rows that do not need one.</summary>
     private record Fixture(
-        int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId, string RowVersion = "");
+        int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId, string RowVersion = "",
+        PartDto? Part = null);
 
     /// <summary>Clients set up once per test row, for Prepare functions to drive through real endpoints.</summary>
     private record PrepContext(HttpClient Admin, HttpClient Manager, HttpClient TechnicianClient, string TechnicianId);
@@ -168,8 +176,51 @@ public class EndpointAccessTests
         new("GET /api/technicians", HttpMethod.Get,
             _ => "/api/technicians", _ => null,
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
-            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId))
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        // ---- Phase 6: parts and the inventory ledger ----
+        new("GET /api/parts", HttpMethod.Get,
+            _ => "/api/parts", _ => null, InventoryReaders, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/parts/low-stock", HttpMethod.Get,
+            _ => "/api/parts/low-stock", _ => null, InventoryReaders, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/parts/{id}", HttpMethod.Get,
+            f => $"/api/parts/{f.Part!.Id}", _ => null, InventoryReaders, HttpStatusCode.OK,
+            Prepare: async ctx => await NewPartFixtureAsync(ctx)),
+
+        new("POST /api/parts", HttpMethod.Post,
+            _ => "/api/parts",
+            _ => new CreatePartRequest { PartNumber = $"ACL-{Guid.NewGuid():N}"[..20], Name = "Access check", Unit = "pcs" },
+            InventoryWriters, HttpStatusCode.Created,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("PUT /api/parts/{id}", HttpMethod.Put,
+            f => $"/api/parts/{f.Part!.Id}",
+            f => new UpdatePartRequest
+            {
+                PartNumber = f.Part!.PartNumber, Name = "Access check", Unit = f.Part.Unit,
+                UnitCost = f.Part.UnitCost, MinimumStockLevel = f.Part.MinimumStockLevel,
+                IsActive = true, RowVersion = f.Part.RowVersion
+            },
+            InventoryWriters, HttpStatusCode.OK,
+            Prepare: async ctx => await NewPartFixtureAsync(ctx)),
+
+        new("GET /api/inventory-transactions", HttpMethod.Get,
+            _ => "/api/inventory-transactions", _ => null, InventoryReaders, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("POST /api/inventory-transactions", HttpMethod.Post,
+            _ => "/api/inventory-transactions",
+            f => new CreateInventoryTransactionRequest { PartId = f.Part!.Id, TransactionType = "Receive", Quantity = 1 },
+            InventoryWriters, HttpStatusCode.Created,
+            Prepare: async ctx => await NewPartFixtureAsync(ctx))
     };
+
+    private static async Task<Fixture> NewPartFixtureAsync(PrepContext ctx)
+        => new(0, 0, 0, 0, ctx.TechnicianId, Part: await CreatePartAsync(ctx.Admin));
 
     private static async Task<Fixture> NewRequestFixtureAsync(PrepContext ctx)
     {

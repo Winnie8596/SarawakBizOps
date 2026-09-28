@@ -353,11 +353,13 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedAt");
+
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("PartId");
-
                     b.HasIndex("WorkOrderId");
+
+                    b.HasIndex("PartId", "CreatedAt");
 
                     b.ToTable("InventoryTransactions");
                 });
@@ -374,7 +376,8 @@ namespace SarawakBizOps.Api.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -413,7 +416,10 @@ namespace SarawakBizOps.Api.Migrations
                     b.HasIndex("PartNumber")
                         .IsUnique();
 
-                    b.ToTable("Parts");
+                    b.ToTable("Parts", t =>
+                        {
+                            t.HasCheckConstraint("CK_Parts_QuantityOnHand_NonNegative", "[QuantityOnHand] >= 0");
+                        });
                 });
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.ServiceReport", b =>

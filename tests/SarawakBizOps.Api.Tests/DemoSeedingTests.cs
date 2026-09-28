@@ -6,6 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Auth;
 using SarawakBizOps.Api.DTOs.Equipment;
+using SarawakBizOps.Api.DTOs.Inventory;
+using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Entities;
@@ -78,11 +80,15 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(10, after.Equipment);
         Assert.Equal(11, after.Requests);
         Assert.Equal(5, after.WorkOrders);
+        Assert.Equal(12, after.Parts);
+        Assert.Equal(15, after.Transactions);
     }
 
-    private static async Task<(int Users, int Customers, int Equipment, int Requests, int WorkOrders)> CountsAsync(ApplicationDbContext db)
+    private static async Task<(int Users, int Customers, int Equipment, int Requests, int WorkOrders, int Parts, int Transactions)>
+        CountsAsync(ApplicationDbContext db)
         => (await db.Users.CountAsync(), await db.Customers.CountAsync(), await db.Equipment.CountAsync(),
-            await db.ServiceRequests.CountAsync(), await db.WorkOrders.CountAsync());
+            await db.ServiceRequests.CountAsync(), await db.WorkOrders.CountAsync(),
+            await db.Parts.CountAsync(), await db.InventoryTransactions.CountAsync());
 
     [Fact]
     public async Task Seeding_tolerates_service_requests_created_outside_the_seeder_that_share_a_natural_key()
@@ -190,6 +196,38 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         // The demo Technician sees exactly their own jobs (BR-02) and can act on the assigned one.
         var mine = await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
         Assert.Equal(5, mine!.Count);
+    }
+
+    [Fact]
+    public async Task Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock()
+    {
+        var warehouse = await _factory.CreateAuthenticatedClientAsync(
+            "warehouse@sarawakbizops.local", DemoApiFactory.DemoPassword);
+
+        var active = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts");
+        var all = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts?includeInactive=true");
+        var lowStock = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts/low-stock");
+        var ledger = await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>("/api/inventory-transactions");
+
+        Assert.Equal(11, active!.Count);
+        Assert.Equal(12, all!.Count);
+        // AC-09 groundwork: the four active parts at or below their minimum. The discontinued fuse is
+        // below its minimum too but inactive, so it must stay off the list.
+        Assert.Equal(
+            new[] { "AVR-SX460", "BLD-BSW-900", "BLT-CNV-600", "SEAL-MECH-35" },
+            lowStock!.Select(p => p.PartNumber).Order());
+        Assert.Equal("BLT-CNV-600", lowStock![0].PartNumber); // 10 below its minimum: the most urgent
+        Assert.DoesNotContain(lowStock, p => p.PartNumber == "FUSE-HRC-63");
+
+        // Every movement is a warehouse Receive or a reasoned Adjustment; nothing is tied to a job yet.
+        Assert.Equal(15, ledger!.Count);
+        Assert.All(ledger, t => Assert.Contains(t.TransactionType, new[] { "Receive", "Adjustment" }));
+        Assert.All(ledger, t => Assert.Equal("Siti Nurul", t.CreatedByName));
+        Assert.All(ledger.Where(t => t.TransactionType == "Adjustment"), t => Assert.False(string.IsNullOrWhiteSpace(t.Notes)));
+        Assert.All(ledger, t => Assert.Null(t.WorkOrderId));
+        Assert.Equal(256.5m, all.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand);
+
+        await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)
