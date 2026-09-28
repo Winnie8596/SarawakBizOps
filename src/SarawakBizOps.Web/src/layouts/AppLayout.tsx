@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { RoleBadge } from '../components/RoleBadge'
-import { OFFICE_ROLES } from '../auth/roles'
+import { INVENTORY_ROLES, OFFICE_ROLES } from '../auth/roles'
 
 // `roles` omitted = every signed-in user. This only hides links; the API is what
 // actually enforces access, and routes are guarded with the same lists in App.tsx.
@@ -11,6 +11,7 @@ const navItems: { to: string; label: string; end: boolean; roles?: readonly stri
   { to: '/equipment', label: 'Equipment', end: false, roles: OFFICE_ROLES },
   { to: '/service-requests', label: 'Service Requests', end: false, roles: OFFICE_ROLES },
   { to: '/work-orders', label: 'Work Orders', end: false, roles: OFFICE_ROLES },
+  { to: '/inventory', label: 'Inventory', end: false, roles: INVENTORY_ROLES },
   { to: '/users', label: 'Users', end: false, roles: ['Admin'] }
 ]
 

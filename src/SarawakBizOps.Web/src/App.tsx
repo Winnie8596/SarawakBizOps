@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { ProtectedRoute } from './auth/ProtectedRoute'
-import { OFFICE_ROLES } from './auth/roles'
+import { INVENTORY_ROLES, OFFICE_ROLES } from './auth/roles'
 import { AppLayout } from './layouts/AppLayout'
 import { TechnicianLayout } from './layouts/TechnicianLayout'
 import { LoginPage } from './pages/LoginPage'
@@ -16,6 +16,8 @@ import { WorkOrdersPage } from './pages/WorkOrdersPage'
 import { WorkOrderDetailPage } from './pages/WorkOrderDetailPage'
 import { TechnicianJobsPage } from './pages/tech/TechnicianJobsPage'
 import { TechnicianJobDetailPage } from './pages/tech/TechnicianJobDetailPage'
+import { InventoryPage } from './pages/InventoryPage'
+import { InventoryHistoryPage } from './pages/InventoryHistoryPage'
 import { UsersPage } from './pages/UsersPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -55,6 +57,11 @@ export default function App() {
               <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
               <Route path="/work-orders" element={<WorkOrdersPage />} />
               <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
+            </Route>
+
+            <Route element={<ProtectedRoute roles={[...INVENTORY_ROLES]} />}>
+              <Route path="/inventory" element={<InventoryPage />} />
+              <Route path="/inventory/history" element={<InventoryHistoryPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={['Admin']} />}>

@@ -196,3 +196,77 @@ export interface Technician {
   fullName: string
   openJobCount: number
 }
+
+// ---- Phase 6: parts and the inventory ledger ----
+
+export interface Part {
+  id: number
+  partNumber: string
+  name: string
+  description?: string | null
+  unit: string
+  unitCost: number
+  quantityOnHand: number
+  minimumStockLevel: number
+  isActive: boolean
+  isLowStock: boolean
+  createdAt: string
+  rowVersion: string
+}
+
+// No quantityOnHand: stock only ever changes through a ledger movement (BR-09).
+export interface PartInput {
+  partNumber: string
+  name: string
+  description?: string
+  unit: string
+  unitCost: number
+  minimumStockLevel: number
+}
+
+export interface PartUpdateInput extends PartInput {
+  isActive: boolean
+  rowVersion: string
+}
+
+export interface PartFilters {
+  search?: string
+  includeInactive?: boolean
+}
+
+export const TRANSACTION_TYPES = ['Receive', 'Issue', 'Return', 'Adjustment'] as const
+export type InventoryTransactionType = (typeof TRANSACTION_TYPES)[number]
+
+/** What the warehouse may raise directly; Issue/Return come only from work-order parts (Phase 7). */
+export type StockMovementType = Extract<InventoryTransactionType, 'Receive' | 'Adjustment'>
+
+export interface StockMovementInput {
+  partId: number
+  transactionType: StockMovementType
+  quantity: number
+  notes?: string
+}
+
+export interface InventoryTransaction {
+  id: number
+  partId: number
+  partNumber: string
+  partName: string
+  unit: string
+  transactionType: InventoryTransactionType
+  quantity: number
+  quantityOnHandAfter?: number | null
+  workOrderId?: number | null
+  createdByName: string
+  notes?: string | null
+  createdAt: string
+}
+
+export interface TransactionFilters {
+  partId?: number | ''
+  type?: InventoryTransactionType | ''
+  workOrderId?: number | ''
+  /** MYT calendar days, yyyy-mm-dd, inclusive at both ends. */
+  fromDate?: string
+  toDate?: string
+}

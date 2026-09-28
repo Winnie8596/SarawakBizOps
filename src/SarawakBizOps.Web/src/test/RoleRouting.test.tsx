@@ -11,7 +11,9 @@ const quiet = () => stubApi({
   'GET /users': { body: [] },
   'GET /service-requests': { body: [] },
   'GET /work-orders': { body: [] },
-  'GET /work-orders/mine': { body: [] }
+  'GET /work-orders/mine': { body: [] },
+  'GET /parts': { body: [] },
+  'GET /inventory-transactions': { body: [] }
 })
 
 const sidebarLinks = () => within(screen.getByRole('navigation')).getAllByRole('link').map(a => a.textContent)
@@ -52,7 +54,16 @@ describe('Protected routes', () => {
     expect(screen.queryByRole('heading', { name: 'Service requests' })).not.toBeInTheDocument()
   })
 
-  it.each(['/users', '/service-requests', '/work-orders', '/customers'])(
+  it('bounces ServiceStaff from the inventory pages — they never touch stock', async () => {
+    signInAs('ServiceStaff', 'Sam Tester')
+    quiet()
+    renderApp('/inventory')
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back, Sam' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Inventory' })).not.toBeInTheDocument()
+  })
+
+  it.each(['/users', '/service-requests', '/work-orders', '/customers', '/inventory'])(
     'a Technician visiting %s lands on My Jobs instead',
     async path => {
       signInAs('Technician')
@@ -65,10 +76,10 @@ describe('Protected routes', () => {
 
 describe('Sidebar', () => {
   it.each([
-    ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Users']],
-    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders']],
+    ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Inventory', 'Users']],
+    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Inventory']],
     ['ServiceStaff', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders']],
-    ['WarehouseStaff', ['Dashboard']]
+    ['WarehouseStaff', ['Dashboard', 'Inventory']]
   ])('offers %s only the pages that role can open', async (role, expected) => {
     signInAs(role)
     quiet()

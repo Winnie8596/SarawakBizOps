@@ -15,3 +15,22 @@ export function formatDateTime(utcIso: string): string {
     hour12: false
   })
 }
+
+// Money is shown as RM with two decimals and thousands separators, e.g. "RM 1,234.50".
+export function formatMoney(amount: number): string {
+  return `RM ${amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// Stock quantities carry up to three decimals (litres, metres); whole numbers are shown without any.
+export function formatQuantity(quantity: number): string {
+  return quantity.toLocaleString('en-MY', { maximumFractionDigits: 3 })
+}
+
+/**
+ * The UTC instant at which a Malaysia-time (UTC+8, no DST) calendar day starts, optionally shifted by
+ * whole days: mytDayStartUtc('2026-09-28') === '2026-09-27T16:00:00.000Z'.
+ */
+export function mytDayStartUtc(isoDate: string, addDays = 0): string {
+  const [year, month, day] = isoDate.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day + addDays) - 8 * 60 * 60 * 1000).toISOString()
+}

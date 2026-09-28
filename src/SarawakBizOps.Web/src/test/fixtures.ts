@@ -1,4 +1,4 @@
-import type { Customer, Equipment, ServiceRequest, Technician, WorkOrder } from '../types'
+import type { Customer, Equipment, InventoryTransaction, Part, ServiceRequest, Technician, WorkOrder } from '../types'
 
 export const customers: Customer[] = [
   { id: 1, companyName: 'Kuching Cold Chain Sdn Bhd', createdAt: '2026-09-01T00:00:00' },
@@ -69,6 +69,42 @@ export function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     cancelledAt: null,
     cancellationReason: null,
     rowVersion: 'AAAAAAAAB9E=',
+    ...overrides
+  }
+}
+
+export function part(overrides: Partial<Part> = {}): Part {
+  return {
+    id: 301,
+    partNumber: 'REL-OVL-25A',
+    name: 'Thermal overload relay 18–25 A',
+    description: null,
+    unit: 'pcs',
+    unitCost: 1450.5,
+    quantityOnHand: 6,
+    minimumStockLevel: 2,
+    isActive: true,
+    isLowStock: false,
+    createdAt: '2026-09-01T00:00:00',
+    rowVersion: 'AAAAAAAAC9E=',
+    ...overrides
+  }
+}
+
+export function inventoryTransaction(overrides: Partial<InventoryTransaction> = {}): InventoryTransaction {
+  return {
+    id: 901,
+    partId: 301,
+    partNumber: 'REL-OVL-25A',
+    partName: 'Thermal overload relay 18–25 A',
+    unit: 'pcs',
+    transactionType: 'Receive',
+    quantity: 6,
+    quantityOnHandAfter: null,
+    workOrderId: null,
+    createdByName: 'Siti Nurul',
+    notes: 'Delivery note DN-24817',
+    createdAt: '2026-09-20T02:30:00',
     ...overrides
   }
 }

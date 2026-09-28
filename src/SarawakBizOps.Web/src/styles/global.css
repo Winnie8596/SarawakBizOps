@@ -263,6 +263,14 @@ select {
   gap: 8px;
 }
 
+/* A checkbox with its label to the right. */
+.field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
 .form-error {
   color: var(--red-600);
   background: var(--red-100);
@@ -339,6 +347,17 @@ select {
 
 .data-table tr:last-child td {
   border-bottom: none;
+}
+
+/* Numbers line up on the right so quantities and money compare at a glance. */
+.data-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A row that needs attention (e.g. a part at or below its minimum stock level). */
+.data-table tr.row-warn td {
+  background: var(--red-100);
 }
 
 /* ---------- Badges ---------- */
