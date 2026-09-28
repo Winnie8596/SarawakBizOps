@@ -72,6 +72,13 @@ status_of() { # same arguments as api -> prints only the HTTP status code
   if [ "$2" = POST ] || [ "$2" = PATCH ]; then body=(-d "${4:-}"); fi
   curl -sS -o /dev/null -w '%{http_code}' -X "$2" "$BASE_URL/api$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${body[@]+"${body[@]}"}
 }
+# Phase 5 made a RowVersion conflict token mandatory on every workflow mutation. with_rv reads the record's
+# current token and merges it into the body, like the web app does from the record it last loaded.
+with_rv() { # $1 = token, $2 = record path (e.g. /service-requests/7), $3 = optional JSON object -> body with rowVersion
+  local rv
+  rv="$(api "$1" GET "$2" | jq -er '.rowVersion')" || fail "could not read the rowVersion of $2"
+  jq -nc --arg rv "$rv" --argjson extra "${3:-"{}"}" '$extra + {rowVersion:$rv}'
+}
 new_body() { jq -nc --argjson c "$1" --argjson e "$equipment_id" --arg p "$2" \
   '{customerId:$c, equipmentId:$e, problemDescription:$p, priority:"High"}'; }
 
@@ -87,12 +94,12 @@ reject_id="$(api "$staff_token" POST /service-requests "$(new_body "$customer_id
 [ "$(status_of "$staff_token" POST /service-requests "$(new_body "$other_customer_id" 'wrong customer')")" = 400 ] \
   || fail "equipment of another customer must be refused (BR-10)"
 
-api "$token" POST "/service-requests/$approve_id/approve" | jq -e '.status == "Approved"' >/dev/null \
+api "$token" POST "/service-requests/$approve_id/approve" "$(with_rv "$token" "/service-requests/$approve_id")" | jq -e '.status == "Approved"' >/dev/null \
   || fail "manager could not approve"
-api "$token" POST "/service-requests/$reject_id/reject" '{"reason":"Smoke test rejection"}' \
+api "$token" POST "/service-requests/$reject_id/reject" "$(with_rv "$token" "/service-requests/$reject_id" '{"reason":"Smoke test rejection"}')" \
   | jq -e '.status == "Rejected" and .rejectionReason == "Smoke test rejection"' >/dev/null \
   || fail "manager could not reject with a reason"
-[ "$(status_of "$token" POST "/service-requests/$approve_id/approve")" = 409 ] \
+[ "$(status_of "$token" POST "/service-requests/$approve_id/approve" "$(with_rv "$token" "/service-requests/$approve_id")")" = 409 ] \
   || fail "approving an already approved request must be a 409"
 echo "  ok: raised, approved, rejected, and the wrong roles or invalid moves were refused"
 
@@ -106,32 +113,58 @@ technician_id="$(curl -fsS "$BASE_URL/api/technicians" -H "Authorization: Bearer
 [ "$(status_of "$staff_token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')")" = 403 ] \
   || fail "ServiceStaff must not be able to assign"
 
-work_order_id="$(api "$token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')" | jq -er '.id')" \
+assign_body() { with_rv "$token" "/service-requests/$pump_request_id" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')"; }
+work_order_id="$(api "$token" POST "/service-requests/$pump_request_id/assign" "$(assign_body)" | jq -er '.id')" \
   || fail "manager could not assign the technician"
-[ "$(status_of "$token" POST "/service-requests/$pump_request_id/assign" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')")" = 409 ] \
+[ "$(status_of "$token" POST "/service-requests/$pump_request_id/assign" "$(assign_body)")" = 409 ] \
   || fail "a second assign of the same request must be a 409 (BR-12)"
 
 warehouse_token="$(login warehouse@sarawakbizops.local)"
 [ "$(status_of "$warehouse_token" POST "/work-orders/$work_order_id/start" '')" = 403 ] \
   || fail "WarehouseStaff must not be able to start a work order"
 
-api "$tech_token" POST "/work-orders/$work_order_id/start" '' | jq -e '.status == "InProgress"' >/dev/null \
+wo_rv() { with_rv "$tech_token" "/work-orders/$work_order_id" "${1:-}"; }
+api "$tech_token" POST "/work-orders/$work_order_id/start" "$(wo_rv)" | jq -e '.status == "InProgress"' >/dev/null \
   || fail "technician could not start the assigned job"
-[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" '')" = 400 ] \
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 400 ] \
   || fail "completing without diagnosis/work performed must be a 400 (AC-05)"
 
 api "$tech_token" PATCH "/work-orders/$work_order_id/diagnosis" \
-  '{"diagnosis":"Smoke test diagnosis","workPerformed":"Smoke test work performed"}' \
+  "$(wo_rv '{"diagnosis":"Smoke test diagnosis","workPerformed":"Smoke test work performed"}')" \
   | jq -e '.diagnosis == "Smoke test diagnosis"' >/dev/null \
   || fail "technician could not save the diagnosis"
 
-api "$tech_token" POST "/work-orders/$work_order_id/complete" '' | jq -e '.status == "Completed"' >/dev/null \
+api "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)" | jq -e '.status == "Completed"' >/dev/null \
   || fail "technician could not complete the job"
 
-api "$token" POST "/work-orders/$work_order_id/approve" '' | jq -e '.status == "Approved"' >/dev/null \
+api "$token" POST "/work-orders/$work_order_id/approve" "$(wo_rv)" | jq -e '.status == "Approved"' >/dev/null \
   || fail "manager could not approve the completed job"
-[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" '')" = 409 ] \
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 409 ] \
   || fail "an approved job must be locked against further technician action (AC-07/BR-06)"
 echo "  ok: assigned, started, diagnosed, completed and approved; wrong roles and invalid moves were refused"
+
+# Phase 6 demo walk: the warehouse runs the parts catalogue and the stock ledger; other roles cannot.
+echo "Parts and stock: warehouse adds a part, receives, adjusts; low stock and history; wrong roles refused..."
+low_stock="$(api "$warehouse_token" GET /parts/low-stock)"
+jq -e 'length >= 4 and any(.[]; .partNumber == "BLT-CNV-600")' <<<"$low_stock" >/dev/null   || fail "expected the seeded low-stock parts (AC-09), got: $low_stock"
+
+[ "$(status_of "$staff_token" GET /parts)" = 403 ] || fail "ServiceStaff must not see inventory"
+[ "$(status_of "$staff_token" POST /parts '{"partNumber":"NOPE","name":"Nope","unit":"pcs"}')" = 403 ]   || fail "ServiceStaff must not be able to change inventory"
+[ "$(status_of "$tech_token" POST /inventory-transactions '{"partId":1,"transactionType":"Receive","quantity":1}')" = 403 ]   || fail "Technician must not be able to receive stock"
+
+part_number="SMOKE-$(date +%s)"
+part_id="$(api "$warehouse_token" POST /parts   "$(jq -nc --arg n "$part_number" '{partNumber:$n, name:"Smoke test part", unit:"pcs", unitCost:12.5, minimumStockLevel:5}')"   | jq -er '.id')" || fail "warehouse could not create a part"
+[ "$(status_of "$warehouse_token" POST /parts "$(jq -nc --arg n "$part_number" '{partNumber:$n, name:"Duplicate", unit:"pcs"}')")" = 409 ]   || fail "a duplicate part number must be a 409"
+
+api "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Receive", quantity:10, notes:"Smoke delivery"}')"   | jq -e '.quantityOnHandAfter == 10' >/dev/null || fail "warehouse could not receive stock"
+[ "$(status_of "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Adjustment", quantity:-1}')")" = 400 ]   || fail "an adjustment without a reason must be a 400"
+api "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Adjustment", quantity:-3, notes:"Smoke stocktake"}')"   | jq -e '.quantityOnHandAfter == 7' >/dev/null || fail "warehouse could not adjust stock with a reason"
+[ "$(status_of "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Adjustment", quantity:-100, notes:"Too much"}')")" = 409 ]   || fail "stock must never go below zero"
+[ "$(status_of "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Issue", quantity:-1, notes:"x"}')")" = 400 ]   || fail "Issue transactions must only come from work orders"
+
+history="$(api "$warehouse_token" GET "/inventory-transactions?partId=$part_id")"
+jq -e 'length == 2 and (map(.quantity) | add) == 7' <<<"$history" >/dev/null   || fail "the ledger must hold exactly the two movements and sum to the stock on hand, got: $history"
+api "$token" GET "/parts/$part_id" | jq -e '.quantityOnHand == 7' >/dev/null || fail "Manager must be able to read the part"
+echo "  ok: created, received, adjusted with a reason; the ledger reconciles and the wrong roles were refused"
 
 echo "Smoke test passed."

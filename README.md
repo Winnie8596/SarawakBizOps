@@ -36,7 +36,8 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 3 | Request intake: staff raise a service request, a Manager approves or rejects it | Done |
 | 4 | The first job end to end: assign, technician works it, Manager approves | Done |
 | 5 | Workflow rules for real: cancellation, a central lock guard, RowVersion conflicts, status timeline | Done |
-| 6–10 | Parts and stock, signature, photos, PDF report | Planned |
+| 6 | Parts and stock in: the warehouse runs the parts catalogue, receives and adjusts stock, sees low stock and the ledger | Done |
+| 7–10 | Parts used on a job, signature, photos, PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
 | 15 | Release polish and docs | Planned |
 
@@ -47,8 +48,9 @@ roles), **service requests** (raise, list with filters, approve, reject with a r
 **work orders** (atomic assignment to a technician, start, diagnosis, complete, Manager approval, cancel with a
 reason), a **central lock guard** so a locked (Approved/Cancelled) record refuses every mutating call, a
 **RowVersion conflict token** required on every mutating call (409 "record changed — refresh" on a stale one),
-RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
-Users, Customers, Equipment, Service Requests, Work Orders, detail pages with history, status timeline, a shared
+a **parts catalogue and immutable inventory ledger** (receive, adjust with a reason, low stock, filtered history;
+stock always equals the sum of its ledger rows), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
+Users, Customers, Equipment, Service Requests, Work Orders, Inventory, detail pages with history, status timeline, a shared
 conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
 workflow.
 
@@ -130,6 +132,39 @@ Approved ──assign──► Assigned ──start──► InProgress ──co
 3. Open a work order's detail page: the **Timeline** panel lists every dated step (raised/assigned/started/completed/approved/cancelled) derived purely from its own timestamp columns — there is no separate history table.
 4. Open the same work order in two browser tabs as the Manager, approve it in one, then click Approve in the other: the second tab shows the shared conflict banner ("This record was changed by someone else…") and reloads to the real state — the same banner every page uses for a `409`.
 
+### Parts and stock (Phase 6)
+
+```
+Receive     (+q, warehouse)          ┐   one database transaction:
+Adjustment  (±q, reason required)    ├─► 1. UPDATE Parts SET QuantityOnHand = QuantityOnHand + q
+                                     │      WHERE Id = @id AND QuantityOnHand + q >= 0
+Issue/Return  only from work-order   ┘   2. INSERT exactly one immutable InventoryTransaction
+              parts (Phase 7)
+Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never below zero.
+```
+
+| Who | Can |
+|---|---|
+| WarehouseStaff, Admin | create and edit parts (`POST /api/parts`, `PUT /api/parts/{id}`), receive and adjust stock (`POST /api/inventory-transactions`) |
+| WarehouseStaff, Admin, Manager | list/search parts (`GET /api/parts?search=&includeInactive=`), open one (`GET /{id}`), see low stock (`GET /api/parts/low-stock`), read the ledger (`GET /api/inventory-transactions`, filters `partId`, `type`, `workOrderId`, `from`, `to`) |
+| ServiceStaff, Technician | nothing here yet (a Technician gets parts on their own jobs in Phase 7) |
+
+- **BR-09, the ledger is the truth.** `QuantityOnHand` is a cached balance that only the inventory service moves, always in the same database transaction as exactly one new ledger row. There is **no PUT, PATCH or DELETE** for ledger rows (a test enumerates the app's routes to prove it); a mistake is fixed with an offsetting Adjustment. Editing a part never touches its stock, and a new part starts at zero — its first delivery is a Receive.
+- **Adjustments need a reason** (`400` without one) and can go either way; a Receive must be positive. Issue and Return are refused here (`400`): they only ever come from adding or returning parts on a work order.
+- **Never below zero, even under concurrency.** The stock change is a single conditional `UPDATE … SET QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`, so the database computes the balance from its current value and a movement that would go negative matches no row (`409` "Not enough stock: only N on hand"). Eight simultaneous write-offs racing for three units leave exactly three winners. A `CHECK (QuantityOnHand >= 0)` constraint is the database backstop.
+- **Low stock (AC-09, API half):** active parts at or below their `MinimumStockLevel`, most urgent first. Inactive parts never appear, and cannot receive stock (their leftovers can still be written off). The Phase 11 dashboard will show the same list.
+- Quantities are decimals (up to 3 places, for litres and metres); money is RM with 2 places. A value with more places is refused rather than silently rounded. Part edits carry the part's `rowVersion` like every other edit; a stock movement bumps it, so an edit made against a stale screen gets the usual `409`.
+- The history's date filter takes UTC instants (`from` inclusive, `to` exclusive); the web app turns whole Malaysia-time days into that window.
+
+**Try it (demo script).** Sign in at <http://localhost:8080>:
+
+1. As `warehouse@sarawakbizops.local`: the sidebar shows **Inventory**. The list has 11 active parts with RM prices; four rows are highlighted **Low stock** (the conveyor belt is at 0 m, 10 below its minimum). Tick **Low stock only** to see just those four.
+2. **New part** — e.g. `BRG-6206-2RS`, *Ball bearing 6206*, unit `pcs`, RM 21.90, minimum 10. It is saved with no stock and shows as low.
+3. On that row choose **Receive**, enter `25` and a delivery note, and confirm: *Received 25 pcs… On hand now 25 pcs*, and the row is no longer low.
+4. Choose **Adjust** on the same part, pick *Remove stock*, enter `2`: **Confirm adjustment** stays disabled until you type a reason. Then try removing `100`: the API refuses it — *Not enough stock: only 23 pcs on hand* — and nothing changes.
+5. Open **History** on that row (or **Inventory → transaction history**): the receive and the adjustment, newest first, signed, with who did them and why. Filter by type or by a date range in Malaysia time. There is nothing to edit or delete.
+6. As `manager@…` the Inventory pages are read-only (no New part, Receive, Adjust or Edit). As `staff@…` they are not offered and `/inventory` bounces to the dashboard; a technician lands on **My Jobs**.
+
 ```
 src/
 ├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity (+ Dockerfile)
@@ -139,7 +174,7 @@ tests/
 docs/
 └── test-plan.md                Acceptance-criteria map: which test proves which AC
 scripts/
-└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake and the first job end to end (used by CI)
+└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end, and parts and stock (used by CI)
 docker-compose.yml              sqlserver + api + web, one command
 ```
 
@@ -169,7 +204,7 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 11 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 4 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 5 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only) and Cancelled (its request reverted to Approved, ready to be reassigned).
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 11 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 4 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 5 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only) and Cancelled (its request reverted to Approved, ready to be reassigned). The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 15 ledger rows — deliveries plus two reasoned adjustments — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
 
 | Command | What it does |
 |---|---|
@@ -187,7 +222,7 @@ The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 piec
 
 **Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
 
-**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete, approve, then the approved job locks against further technician action). It needs `curl` and `jq`, and CI runs it on every push. It adds a couple of requests and consumes the seeded unassigned request per run, so `docker compose down -v` resets the demo data.
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete, approve, then the approved job locks against further technician action), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock). It needs `curl` and `jq`, and CI runs it on every push. It adds a couple of requests and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
 
 ---
 
@@ -288,6 +323,7 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 ### Design decisions carried from the SDD
 
 - **No custom password/role fields.** Identity owns all of that.
+- **Stock is moved by one conditional `UPDATE`, not read-modify-write** (Phase 6): `QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`. The database serialises concurrent updates to the row and re-checks the predicate, so warehouse movements need no retry loop. Phase 7 decides how issuing parts to a job (which also has to snapshot price and create a `WorkOrderPart`) builds on this (Open Question 8).
 - **`RowVersion` concurrency tokens** on `ServiceRequest`, `WorkOrder` and `Part`, checked by hand rather
   than via EF's `DbUpdateConcurrencyException`: every mutating call extends the same conditional
   `UPDATE … WHERE Status = @from` guard already used for status races with `AND RowVersion = @rowVersion`,
@@ -304,9 +340,10 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 - The Docker setup serves plain HTTP; TLS is out of scope for the demo.
 - Customers, Equipment, Service Requests (raise, approve, reject, cancel) and the work-order lifecycle (assign,
   start, diagnose, complete, approve, cancel) are implemented so far, with a RowVersion conflict token on every
-  mutating call and a shared conflict banner in the UI; inventory, files/PDF, dashboard analytics and AI features
-  are planned in [`plan.md`](./plan.md). Parts/photos/signature are not part of completing a job yet (Phase 6
-  onward). Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
+  mutating call and a shared conflict banner in the UI, plus the parts catalogue and inventory ledger (receive,
+  adjust, low stock, history); parts used on jobs, files/PDF, dashboard analytics and AI features are planned in
+  [`plan.md`](./plan.md). Parts/photos/signature are not part of completing a job yet (Phase 7 onward), and low
+  stock is an Inventory-page list until the Phase 11 dashboard. Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
   no separate audit-log table (D-05). List endpoints are not paginated yet (Phase 15 sweep).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
   no forced change-on-first-login. Admin-set passwords are shared out of band.

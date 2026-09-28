@@ -58,8 +58,8 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 2 | **Deployable skeleton:** `docker compose up` gives a seeded, working system | done | ✅ Done (`phase-2-done`) |
 | 3 | **Request intake:** staff raise a service request, Manager approves or rejects it | 18–22 | ✅ Done (`phase-3-done`) |
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | ✅ Done (`phase-4-done`) |
-| 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | |
-| 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | |
+| 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | ✅ Done |
+| 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | ✅ Done |
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | |
 | 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | |
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | |
@@ -253,7 +253,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 6 — Parts & stock in
+## ✅ Phase 6 — Parts & stock in
 
 **Goal:** the inventory ledger exists and a warehouse user can run it. Deliberately *not* yet connected to jobs.
 **Demo:** Warehouse adds parts, receives a delivery, applies a stock adjustment with a reason, sees the low-stock list and the transaction history; other roles cannot touch inventory.
@@ -268,9 +268,23 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | **AC-09** at API level; reconciliation helper (`QuantityOnHand == SUM(ledger)`) used by tests; adjustment without a reason rejected; no code path edits or deletes a transaction; access rows (ServiceStaff cannot change inventory, Technician cannot Receive/Adjust, Warehouse cannot assign jobs). UI tests for role gating. |
 | Ops & docs | Seed + README; test-plan updated. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Who sees inventory | Read (parts, low stock, ledger): **Admin, Manager, WarehouseStaff** — the Manager needs low stock for the Phase 11 dashboard (AC-09). Write (parts, Receive/Adjust): **Admin, WarehouseStaff**. ServiceStaff get nothing (PRD: "cannot change inventory"; they have no reason to read it either). A Technician gets no inventory access yet; Phase 7 opens exactly what the parts step needs. |
+| How stock moves | One atomic conditional `UPDATE Parts SET QuantityOnHand = QuantityOnHand + @q WHERE Id = @id AND QuantityOnHand + @q >= 0`, in the same transaction as the single ledger `INSERT`. The database computes the balance, so warehouse movements need neither a `RowVersion` from the client nor a retry loop; a movement that would go negative matches no row and is a `409`. Open Question 8 (stock *issue* to a job) is still Phase 7's call — this pattern is a candidate. |
+| Opening stock | A new part always starts at **0**; stock arrives only through a Receive, so the seed and the API both satisfy `QuantityOnHand == SUM(ledger)` with no "opening balance" special case. |
+| Part edits | `PUT` never touches `QuantityOnHand` and carries the part's `rowVersion` (the Phase 5 conflict-token rule). A stock movement bumps the `RowVersion`, so an edit made against a stale screen is a `409`. |
+| Inactive parts | Hidden from the list unless asked for, never on the low-stock list, cannot **receive**; an **adjustment** is still allowed so leftover stock can be written off with a reason. |
+| Precision | Quantities up to 3 decimals, money up to 2; more is a `400` rather than SQL Server's silent rounding. A sane ceiling (1 000 000 000) turns absurd values into a `400` instead of an overflow `500`. |
+| Schema (migration `InventoryLedgerIndexes`) | `(PartId, CreatedAt)` and `CreatedAt` indexes for the history filters (the composite replaces the plain `PartId` FK index); `Part.Description` capped at 1000; `CHECK (QuantityOnHand >= 0)` as a database backstop for BR-04. No new tables. |
+| History date filter | API takes UTC instants (`from` inclusive, `to` exclusive); the UI converts whole MYT days. |
+| Ledger immutability proof | Besides the service having no update/delete, a test enumerates the app's route table and asserts the only inventory-transaction routes are `GET` and `POST` on the collection. |
+
 **Exit criteria**
-- [ ] Stock always reconciles with the ledger after the test suite.
-- [ ] Demo script works in Docker.
+- [x] Stock always reconciles with the ledger after the test suite. *(`LedgerReconciliation` checks every part in the database at the end of every stock-moving test in `InventoryTests`, including the concurrent ones, and on the demo seed.)*
+- [x] Demo script works in Docker. *(`scripts/compose-smoke.sh` walks it against a fresh `docker compose` stack — which also surfaced, and this phase fixed, that the earlier smoke walks had not been sending the `rowVersion` Phase 5 made mandatory. The UI click-through in the README was not executed by hand in a browser in this session.)*
 
 ---
 

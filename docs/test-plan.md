@@ -12,7 +12,8 @@ and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
 | Integration | `tests/SarawakBizOps.Api.Tests` | The real API against a real SQL Server container (Testcontainers): business rules, validation, concurrency, seed data |
 | Authorization | `EndpointAccessTests` | Every endpoint × (anonymous + all five roles) → exactly 401, 403 or the success status (AC-11) |
 | Frontend | `src/SarawakBizOps.Web/src/test` (Vitest + React Testing Library) | The UI honours role gating and shows the API's messages; `fetch` is stubbed, the components are real |
-| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake |
+| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job, parts and stock |
+| Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` ends with it, and `DemoSeedingTests` runs it on the seed |
 
 Conventions: each integration test creates its own uniquely named customers/users, so tests never depend on run order;
 the `Api` collection shares one SQL Server container per test run.
@@ -29,9 +30,9 @@ the `Api` collection shares one SQL Server container per test run.
 | AC-06 | Completion rejected without a signature | 8 | | Not yet implemented |
 | AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
-| AC-09 | Low-stock parts appear on the dashboard | 6, 11 | | Not yet implemented |
+| AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -53,6 +54,9 @@ the `Api` collection shares one SQL Server container per test run.
 | Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs, including the three new Cancel targets); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
 | BR-06/AC-08 central lock guard (Phase 5) | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (a locked job refuses a non-transition edit, not just a status change, via `WorkOrderStateMachine.IsLocked`) |
 | Cancellation (Phase 5) | `WorkflowCancellationTests` — request cancel by creator-side roles (New only) and by a Manager (New or Approved); work-order cancel by a Manager (New/Assigned/InProgress) with the request-revert side effect; both require a reason |
+| BR-09 immutable ledger, stock == SUM(ledger) (Phase 6) | `InventoryTests.Receiving_stock_writes_exactly_one_ledger_row_and_raises_the_stock_in_step`, `Editing_a_part_changes_the_catalogue_fields_but_never_the_stock`, `No_route_can_edit_or_delete_a_ledger_row` (enumerates the app's routes: only `GET`/`POST` on the collection), plus `LedgerReconciliation` after every stock-moving test |
+| Adjustment requires a reason; Issue/Return only from work orders (Phase 6) | `StockMovementRulesTests`; `InventoryTests.An_adjustment_without_a_reason_is_rejected_and_changes_nothing`, `Issue_and_return_cannot_be_created_through_the_inventory_endpoint`; UI: `will not submit an adjustment until a reason is given…` |
+| BR-04 groundwork: stock never below zero (Phase 6) | `InventoryTests.An_adjustment_that_would_take_stock_below_zero_is_a_409_and_changes_nothing`, `Concurrent_write_offs_of_the_last_units_never_take_stock_below_zero` (8 racing write-offs for 3 units: exactly 3 win), `Concurrent_receives_all_land_and_the_total_is_exact`; a `CHECK (QuantityOnHand >= 0)` constraint backs it in the database |
 | RowVersion conflict token (Phase 5) | `WorkflowCancellationTests.Two_diagnosis_edits_against_the_same_stale_RowVersion_have_exactly_one_winner` (closes the lost-update gap a pure status guard cannot: two edits to the same field, same status), `Approving_a_request_with_a_stale_RowVersion_is_a_409`, `A_missing_or_malformed_RowVersion_is_a_400` |
 
 ## Phase 3 test inventory
@@ -86,6 +90,21 @@ the `Api` collection shares one SQL Server container per test run.
 
 **Docker smoke**
 - Assign the seeded, still-Approved request to the demo Technician; ServiceStaff cannot assign (403); a second assign of the same request is a 409; the Technician starts, completing without diagnosis/work performed is a 400, saves the diagnosis, completes, and the Manager approves; a WarehouseStaff cannot start a job (403); the approved job then rejects a further complete (409).
+
+## Phase 6 test inventory
+
+**Backend (xUnit)**
+- `StockMovementRulesTests` (unit, no database): only Receive/Adjustment are directly creatable, a Receive must be positive, an Adjustment must be non-zero and have a reason, more than 3 decimal places is refused, stock may reach zero but not go below it.
+- `InventoryTests`: part created with zero stock and no ledger rows; unique part number (case-insensitive) on create and rename; money/quantity validation; editing a part never changes stock (even with a crafted `quantityOnHand` in the body); stale/missing `rowVersion` on edit (409/400); search and inactive filtering; receive and adjust write exactly one ledger row each; adjustment without a reason, below zero, Issue/Return and malformed movements are refused and change nothing; unknown part (404); inactive parts cannot receive but can be written off; concurrent write-offs and concurrent receives; no route edits or deletes a ledger row; AC-09 low stock (below, at, above, inactive, ordering, leaving the list after a receive); history ordering and filters (part, type, work order, date range) and invalid filters (400). Every stock-moving test ends with a whole-database reconciliation.
+- `EndpointAccessTests`: seven new rows (`GET /parts`, `GET /parts/low-stock`, `GET /parts/{id}`, `POST /parts`, `PUT /parts/{id}`, `GET /inventory-transactions`, `POST /inventory-transactions`) × anonymous and five roles — ServiceStaff and Technician get 403 on all of them, Manager on the writes.
+- `DemoSeedingTests`: 12 parts / 15 ledger rows, idempotent re-seed, the four low-stock part numbers (the inactive fuse excluded), every seeded movement a Receive or reasoned Adjustment by the warehouse account, and the seed reconciles.
+
+**Frontend (Vitest)**
+- `Inventory.test.tsx`: list with RM prices and low-stock highlighting; "Low stock only" uses the low-stock endpoint; empty and error states; a Manager's read-only view; receive (exact body, new stock shown); adjust (disabled until a reason is typed, removal sent negative); a below-zero refusal shown; create sends no stock field; a stale edit's 409 closes the form and reloads; history shows signed quantities, honours `?partId=`, has no buttons, and turns an MYT date range into the right UTC window.
+- `RoleRouting.test.tsx`: Inventory appears in the sidebar for Admin, Manager and WarehouseStaff only; ServiceStaff is bounced from `/inventory`, a Technician lands on My Jobs.
+
+**Docker smoke**
+- Seeded low stock visible to the warehouse; ServiceStaff cannot read or change inventory and a Technician cannot receive (403); create a part, duplicate number (409), receive, adjustment without a reason (400), adjust with one, going below zero (409), Issue refused (400); the part's ledger sums to its stock and a Manager can read it. (Phase 6 also fixed the earlier walks to send each record's `rowVersion`, which Phase 5 made mandatory.)
 
 ## Running
 
