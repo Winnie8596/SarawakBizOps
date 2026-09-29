@@ -67,6 +67,8 @@ export function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     diagnosis: null,
     workPerformed: null,
     notes: null,
+    hasSignature: false,
+    signedAt: null,
     cancelledByName: null,
     cancelledAt: null,
     cancellationReason: null,

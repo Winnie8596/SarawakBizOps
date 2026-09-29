@@ -9,7 +9,8 @@ import {
   resumeWorkOrder,
   returnWorkOrderPart,
   saveDiagnosis,
-  startWorkOrder
+  startWorkOrder,
+  uploadSignature
 } from '../../api/workOrders'
 import { ApiError } from '../../api/client'
 import type { WorkOrder, WorkOrderPart } from '../../types'
@@ -18,10 +19,12 @@ import { StatusBadge } from '../../components/StatusBadge'
 import { ConflictBanner } from '../../components/ConflictBanner'
 import { useGuardedAction } from '../../hooks/useGuardedAction'
 import { formatDateTime, formatQuantity } from '../../utils/format'
+import { SignaturePad } from '../../components/SignaturePad'
+import { SignatureImage } from '../../components/SignatureImage'
 import { JobPartsSection } from './JobPartsSection'
 
-// One screen, few taps (NFR-04): Start; add parts; type the diagnosis and work performed; Complete. The
-// sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
+// One screen, few taps (NFR-04): Start; add parts; type the diagnosis and work performed; the customer signs;
+// Complete. The sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
 export function TechnicianJobDetailPage() {
   const { auth } = useAuth()
   const { id } = useParams()
@@ -34,6 +37,8 @@ export function TechnicianJobDetailPage() {
   const [diagnosis, setDiagnosis] = useState('')
   const [workPerformed, setWorkPerformed] = useState('')
   const [notes, setNotes] = useState('')
+  // True while the customer signs again over an already stored signature.
+  const [resigning, setResigning] = useState(false)
 
   const reload = () => getWorkOrder(auth!.token, jobId)
   const { busy, error: actionError, run } = useGuardedAction(reload)
@@ -108,6 +113,16 @@ export function TechnicianJobDetailPage() {
       () => markPendingParts(auth!.token, jobId, { reason, partId, quantity, rowVersion: job!.rowVersion }),
       'Could not pause this job.'
     )
+  }
+
+  // Stored straight away (not on Complete), so the phone can go back to the technician with the signature safe.
+  async function handleSaveSignature(png: Blob) {
+    const saved = await runSucceeded(
+      () => uploadSignature(auth!.token, jobId, png, job!.rowVersion),
+      'Could not save the signature.'
+    )
+    if (saved) setResigning(false)
+    return saved
   }
 
   function handleResume() {
@@ -253,11 +268,36 @@ export function TechnicianJobDetailPage() {
             </div>
           </div>
 
+          <div className="panel">
+            <h2 className="panel-title">Customer signature</h2>
+            {job.hasSignature && !resigning ? (
+              <>
+                <SignatureImage workOrderId={job.id} signedAt={job.signedAt} />
+                {job.signedAt && <p className="form-hint">Signed {formatDateTime(job.signedAt)}</p>}
+                <button type="button" className="btn btn-ghost tech-secondary-btn" onClick={() => setResigning(true)} disabled={busy}>
+                  Sign again
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="form-hint">Hand the phone to the customer to sign for the work done.</p>
+                <SignaturePad
+                  onSave={handleSaveSignature}
+                  busy={busy}
+                  onCancel={job.hasSignature ? () => setResigning(false) : undefined}
+                />
+              </>
+            )}
+          </div>
+
           <div className="tech-action-bar">
+            {!job.hasSignature && (
+              <p className="form-hint tech-action-hint">The customer must sign before the job can be completed.</p>
+            )}
             <button
               type="submit"
               className="btn btn-primary tech-primary-btn"
-              disabled={busy || diagnosis.trim() === '' || workPerformed.trim() === ''}
+              disabled={busy || diagnosis.trim() === '' || workPerformed.trim() === '' || !job.hasSignature}
             >
               {busy ? 'Completing…' : 'Complete job'}
             </button>
@@ -275,6 +315,12 @@ export function TechnicianJobDetailPage() {
             <div><dt>Work performed</dt><dd className="prose">{job.workPerformed}</dd></div>
             {job.notes && <div><dt>Notes</dt><dd className="prose">{job.notes}</dd></div>}
           </dl>
+          {job.hasSignature && (
+            <>
+              <h3 className="panel-subtitle">Customer signature</h3>
+              <SignatureImage workOrderId={job.id} signedAt={job.signedAt} />
+            </>
+          )}
         </div>
       )}
 

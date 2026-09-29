@@ -46,7 +46,11 @@ describe('Job detail (technician)', () => {
   it('keeps Complete job disabled until both fields are filled, then saves and completes', async () => {
     signInAs('Technician')
     const fetchMock = stubApi({
-      'GET /work-orders/41': { body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00' }) },
+      // Already signed (Phase 8), so only the two fields gate the button here; see Signature.test.tsx.
+      'GET /work-orders/41': {
+        body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00', hasSignature: true, signedAt: '2026-09-21T01:30:00' })
+      },
+      'GET /work-orders/41/signature': { body: new Blob(['png'], { type: 'image/png' }) },
       'PATCH /work-orders/41/diagnosis': ({ body }) => ({
         body: workOrder({ status: 'InProgress', ...(body as object) })
       }),

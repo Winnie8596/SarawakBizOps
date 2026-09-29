@@ -174,6 +174,9 @@ export interface WorkOrder {
   diagnosis?: string | null
   workPerformed?: string | null
   notes?: string | null
+  /** Phase 8: whether the customer has signed (BR-03). The image is fetched from /work-orders/{id}/signature. */
+  hasSignature: boolean
+  signedAt?: string | null
   cancelledByName?: string | null
   cancelledAt?: string | null
   cancellationReason?: string | null

@@ -46,33 +46,48 @@ interface RequestOptions extends RequestInit {
   token?: string | null
 }
 
-export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { token, headers, ...rest } = options
+async function send(path: string, options: RequestOptions): Promise<Response> {
+  const { token, headers, body, ...rest } = options
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
+    body,
     headers: {
-      'Content-Type': 'application/json',
+      // A FormData body (file uploads) must let the browser set multipart/form-data with its boundary.
+      ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers
     }
   })
+
+  if (!response.ok) {
+    const isJson = response.headers.get('content-type')?.includes('json')
+    const problem = isJson ? await response.json() : undefined
+    // A 401 on a call that carried a token means the session is no longer
+    // valid. A 401 without a token (bad login) is just an error to display.
+    if (response.status === 401 && token) {
+      onUnauthorized?.()
+    }
+    throw new ApiError(response.status, messageFromProblem(response.status, problem), problem?.errors)
+  }
+
+  return response
+}
+
+export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await send(path, options)
 
   if (response.status === 204) {
     return undefined as T
   }
 
   const isJson = response.headers.get('content-type')?.includes('json')
-  const body = isJson ? await response.json() : undefined
+  return (isJson ? await response.json() : undefined) as T
+}
 
-  if (!response.ok) {
-    // A 401 on a call that carried a token means the session is no longer
-    // valid. A 401 without a token (bad login) is just an error to display.
-    if (response.status === 401 && token) {
-      onUnauthorized?.()
-    }
-    throw new ApiError(response.status, messageFromProblem(response.status, body), body?.errors)
-  }
-
-  return body as T
+/** For files served through the API (e.g. the signature image): the bearer token rides along, which a plain
+ *  `<img src>` could not do, so the caller turns the Blob into an object URL. */
+export async function apiFetchBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const response = await send(path, options)
+  return response.blob()
 }

@@ -8,8 +8,9 @@ import { PriorityBadge } from '../components/PriorityBadge'
 import { StatusBadge } from '../components/StatusBadge'
 import { ConflictBanner } from '../components/ConflictBanner'
 import { StatusTimeline } from '../components/StatusTimeline'
+import { SignatureImage } from '../components/SignatureImage'
 import { useGuardedAction } from '../hooks/useGuardedAction'
-import { formatMoney, formatQuantity } from '../utils/format'
+import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
 const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress', 'PendingParts']
 
@@ -183,12 +184,27 @@ export function WorkOrderDetailPage() {
         )}
       </div>
 
+      {(workOrder.hasSignature || workOrder.status !== 'Cancelled') && (
+        <div className="panel">
+          <h2 className="panel-title">Customer signature</h2>
+          {workOrder.hasSignature ? (
+            <>
+              <SignatureImage workOrderId={workOrder.id} signedAt={workOrder.signedAt} />
+              {workOrder.signedAt && <p className="form-hint">Signed {formatDateTime(workOrder.signedAt)}</p>}
+            </>
+          ) : (
+            <p className="form-hint">Not signed yet. The customer signs on the technician’s phone before the job is completed.</p>
+          )}
+        </div>
+      )}
+
       <StatusTimeline
         entries={[
           { label: 'Assigned', at: workOrder.assignedAt },
           { label: 'Started', at: workOrder.startedAt },
           { label: 'Waiting for parts', at: workOrder.pendingPartsAt, detail: workOrder.pendingPartsReason },
           { label: 'Resumed', at: workOrder.resumedAt },
+          { label: 'Customer signed', at: workOrder.signedAt },
           { label: 'Completed', at: workOrder.completedAt },
           { label: 'Approved', at: workOrder.approvedAt },
           {

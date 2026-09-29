@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, apiFetchBlob } from './client'
 import type { DiagnosisInput, PendingPartsInput, WorkOrder, WorkOrderFilters } from '../types'
 
 export function getWorkOrders(token: string, filters: WorkOrderFilters = {}): Promise<WorkOrder[]> {
@@ -86,6 +86,22 @@ export function resumeWorkOrder(token: string, id: number, rowVersion: string): 
     token,
     body: JSON.stringify({ rowVersion })
   })
+}
+
+// ---- Phase 8: the customer's signature (BR-03: required to complete) ----
+
+// multipart/form-data: the PNG from the signature pad plus the job's rowVersion. Assigned technician only,
+// while the job is InProgress; signing again replaces the earlier signature.
+export function uploadSignature(token: string, id: number, png: Blob, rowVersion: string): Promise<WorkOrder> {
+  const form = new FormData()
+  form.append('file', png, 'signature.png')
+  form.append('rowVersion', rowVersion)
+  return apiFetch<WorkOrder>(`/work-orders/${id}/signature`, { method: 'POST', token, body: form })
+}
+
+// There is no public URL for the image: it is only ever read through this authorized endpoint.
+export function getSignature(token: string, id: number): Promise<Blob> {
+  return apiFetchBlob(`/work-orders/${id}/signature`, { token })
 }
 
 // Manager only, mirroring approve (plan's demo script: "a Manager cancels an assigned job").

@@ -53,8 +53,13 @@ export function stubApi(routes: Record<string, Route>) {
   return fetchMock
 }
 
-function respond({ status = 200, body }: StubbedResponse): Response {
+async function respond({ status = 200, body }: StubbedResponse): Promise<Response> {
   if (body === undefined) return new Response(null, { status })
+  // A file served through the API (e.g. the signature image) comes back as its own bytes, not JSON.
+  // Node's Response cannot read a jsdom Blob, so it gets the bytes.
+  if (body instanceof Blob) {
+    return new Response(await body.arrayBuffer(), { status, headers: { 'content-type': body.type } })
+  }
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': status >= 400 ? 'application/problem+json' : 'application/json' }
