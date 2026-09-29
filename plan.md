@@ -64,7 +64,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | ✅ Done |
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | ✅ Done |
 | 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | ✅ Done |
-| 11 | **Manager dashboard (core metrics)** | 15–18 | |
+| 11 | **Manager dashboard (core metrics)** | 15–18 | ✅ Done |
 | 12 | **Analytics depth:** remaining metrics, role-specific dashboards | 12–16 | |
 | 13 | **AI Technician Assistant** (mock-first) | 18–22 | |
 | 14 | **AI Manager Insights** (grounded in analytics) | 15–20 | |
@@ -438,7 +438,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 11 — Manager dashboard (core metrics)
+## ✅ Phase 11 — Manager dashboard (core metrics)
 
 **Goal:** first real analytics through every layer. Start with the metrics that are cheap and demonstrable, and establish the named-operation pattern the AI will call later.
 **Demo:** the Manager opens the dashboard and sees work orders by status, open requests by priority, jobs completed per month and the low-stock count — matching numbers a person can verify against the seed data.
@@ -453,8 +453,21 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | Each operation over a small **deterministic dataset** with known answers, incl. empty data and month boundaries in MYT; **AC-09** through the summary; a latency sanity check on the seed dataset (NFR-03, < 500 ms target); access rows. |
 | Ops & docs | Metric definitions in the README; seed spans several months so charts are meaningful. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Charts (Open Question 6) | **Hand-rolled HTML/CSS**, no library (D-06): bars are an HTML `<table>` and the monthly columns an `<ol>`, sized with CSS percentages; the bars are `aria-hidden` decoration, the numbers are text. Four simple charts do not justify a dependency, and the markup is readable to screen readers and tests. SVG was not needed. |
+| Metric definitions | In `AnalyticsRules` and the README. **Open requests** = New or Approved (Approved includes a request whose job was cancelled). **Work orders by status** = all, Cancelled included. **Jobs completed** = status Completed or Approved, bucketed by the **MYT** calendar month of `CompletedAt`, six months ending with the current one, zero-filled. **Low stock** = the Phase 6 rule, moved to one shared expression (`StockLevels.IsLow`) so the dashboard and `GET /parts/low-stock` cannot disagree. Tiles (open requests, active jobs = Assigned/InProgress/PendingParts, awaiting approval = Completed, completed this month, low stock) are derived from the series, never queried separately. |
+| Shape of the operations | One grouped query per operation (the database counts; only a handful of rows come back), then a pure zero-fill/ordering step. Month buckets are computed in SQL (`DATEPART(…, DATEADD(hour, 8, CompletedAt))`) over a UTC range derived from the MYT month boundaries. "Now" comes from an injected `TimeProvider` (.NET 8, no package). The months and top-N are parameters on the service; the endpoint uses 6 months and top 5 (no query parameters yet). |
+| Indexes (migration `DashboardIndexes`) | `IX_WorkOrders_Status` (index-only status count) and `IX_WorkOrders_CompletedAt` including `Status` (range seek for the trend). Requests use the existing `IX_ServiceRequests_Status`; parts need none (small table, a two-column comparison). Reviewed: two `CREATE INDEX`, no data change. |
+| Known-answer tests | The operations count whole tables, so their tests run on a **scratch database per test** on the shared SQL Server container (migrated, rows inserted directly with chosen timestamps, dropped afterwards) with a fixed clock. The seed test computes the expected monthly trend independently from the seeded jobs' own `CompletedAt`, since the seed is relative to today. |
+| Who sees it | Manager and Admin (`[Authorize(Roles = "Admin,Manager")]`). ServiceStaff and WarehouseStaff keep the simple counts on the home page until Phase 12; a Technician still lands on My Jobs. |
+| Demo seed | Eight more jobs, approved over the previous ~4½ months (completed 24–135 days ago, so always inside the six-month window), each signed and with its report; no parts (the ledger starts three weeks ago). The pump fails twice for Phase 12's repeated-failures metric. |
+| Git | Branch `phase-11-dashboard` from the Phase 10 commit (Phase 10 was committed first, in its three task groups); commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] Dashboard numbers equal hand-computed values on the seed data.
+- [x] Dashboard numbers equal hand-computed values on the seed data. *(`DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`, the counts hand-derived from `DemoSeeder` in the README demo script, and the compose smoke walk's consistency checks. Not clicked through by hand in a real browser in this session.)*
 
 ---
 
@@ -606,7 +619,7 @@ Because every phase is a working slice, cutting never leaves the app broken. Dro
 | 3 | PDF library / license check | Start of Phase 10 | **Decided (Phase 10):** no library — a hand-rolled PDF writer (see Phase 10 decisions); recorded in the README |
 | 4 | Live deployment | Phase 15 | Skip |
 | 5 | React Native | End of Phase 15 | Move to V2 |
-| 6 | Dashboard charts approach | Start of Phase 11 | Hand-rolled SVG/CSS |
+| 6 | Dashboard charts approach | Start of Phase 11 | **Decided (Phase 11):** hand-rolled HTML/CSS (tables and lists sized with CSS), no library — see Phase 11 decisions |
 | 7 | SDD v1.2 vs PRD-as-amendment | Phase 15 | PRD-as-amendment + `docs/decisions.md` |
 | 8 | Concurrency strategy for stock (RowVersion retry vs `UPDLOCK`) | Start of Phase 7 | **Decided (Phase 7):** neither — the Phase 6 single conditional `UPDATE` (see Phase 7 decisions) |
 | 9 | Conflict token transport (`If-Match` vs body field) | Start of Phase 5 | Body field `rowVersion` (simplest for a hand-rolled client) |

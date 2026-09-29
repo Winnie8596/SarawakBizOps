@@ -31,9 +31,9 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-06 | Completion rejected without a signature | 8 | `WorkOrderSignatureTests.Completing_without_a_signature_is_rejected_and_succeeds_once_the_customer_has_signed`, `The_diagnosis_is_still_asked_for_first_when_both_are_missing`; `WorkOrderTests.Completing_with_both_fields_and_the_signature_recorded_succeeds`; UI: `Signature.test.tsx` › `refuses to complete until the customer has signed…`; smoke: complete-without-signature is a 400 | **Done** |
 | AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
-| AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
+| AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…`; dashboard (Phase 11): `AnalyticsTests.Low_stock_summary_counts_active_parts_at_or_below_minimum_and_agrees_with_the_low_stock_list`, `A_part_that_falls_low_appears_on_the_Manager_dashboard`, `DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`; UI: `Dashboard.test.tsx` › `shows the server-computed tiles and charts to a Manager` | **Done** (API Phase 6, dashboard Phase 11) |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -191,6 +191,28 @@ test list is covered as below.
 
 **Docker smoke**
 - A Technician and ServiceStaff cannot generate (403); a job without a report has nothing to download (404); the Manager generates (`SR-…`, revision 1) and regenerates (same number, revision 2); after approval regenerating is a 409; the technician downloads a real PDF through nginx and WarehouseStaff cannot (403); ServiceStaff see it locked in `GET /reports` and WarehouseStaff cannot list (403); the seeded Approved job's locked report downloads as a PDF.
+
+## Phase 11 test inventory
+
+The Manager dashboard (PRD §6.9, SDD §14, AC-09). The plan's Phase 11 test list is covered as below.
+
+**Backend (xUnit)**
+- `AnalyticsRulesTests` (unit): the six-month window is whole MYT months ending with the current one, with its UTC bounds; the current month is the MYT month (16:30 UTC on 31 August is September); a window across New Year; the month count is bounded (1–24); missing months are zero and the series is oldest first; every priority (most urgent first) and every status (lifecycle order) is present; the headline tiles are derived from the series.
+- `AnalyticsTests` (integration, real SQL Server; **each operation over a small deterministic dataset with a known answer**, each test in its own scratch database with a fixed clock):
+  - **empty data** — every series complete and zero, no low-stock items, all tiles zero;
+  - `OpenRequestsByPriority` — only New and Approved count (Assigned, Rejected, Cancelled do not);
+  - `WorkOrdersByStatus` — per status with Cancelled included, and the active/awaiting/this-month tiles;
+  - `JobsCompletedPerMonth` — **month boundaries in MYT**: 23:59:59 and 00:00 MYT on either side of 1 September, the first instant of the window and the second before it, the first instant after it, a Completed (not yet approved) job counted, a Cancelled job with a timestamp not counted; and a trend across New Year;
+  - `LowStockSummary` — at-minimum counts, inactive never counts, out of stock, most urgent first, top-N, and the **same parts in the same order as `GET /parts/low-stock`** (AC-09);
+  - AC-09 through the API — a part created below its minimum raises the Manager's low-stock count by one and leads the list.
+- `DemoSeedingTests`: **the dashboard equals the hand-computed values of the seed** (priorities 1/2/2/0, statuses 0/1/1/1/1/9/1, four parts low with one out of stock, the tiles, and a monthly trend checked against the seeded jobs' own `CompletedAt` bucketed independently, spanning at least four months); the **latency sanity check** — the median of five warm summary calls on the seed is under 500 ms (NFR-03); the eight history jobs are approved, signed, reported and in lifecycle order; the earlier counts updated for them.
+- `EndpointAccessTests`: one new row — `GET /dashboard/summary` (Admin, Manager).
+
+**Frontend (Vitest)**
+- `Dashboard.test.tsx`: a Manager sees the server's tiles (linked to their lists) and the charts as labelled tables and a list of six months with readable values; the low-stock panel highlights the out-of-stock part; empty series read as sentences; a failed load shows an alert and **Refresh** recovers; ServiceStaff keep the simple counts and never call the endpoint.
+
+**Docker smoke**
+- The Manager's summary has every priority, every status and six months; its low-stock count equals `GET /parts/low-stock`; its statuses add up to every work order; its open requests equal the New plus Approved lists; the seeded history spans at least four months; ServiceStaff, a Technician and WarehouseStaff get 403.
 
 ## Running
 

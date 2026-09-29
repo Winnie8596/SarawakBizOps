@@ -320,4 +320,25 @@ api "$tech_token" POST "/work-orders/$job_id/resume" "$(job_rv)" | jq -e '.statu
   || fail "technician could not resume once the stock arrived"
 echo "  ok: added, refused over-stock, returned, paused for parts and resumed; the wrong roles were refused"
 
+# Phase 11 demo walk: the Manager's dashboard agrees with the lists it summarises (the database may carry earlier
+# smoke runs, so the checks are consistency checks, not fixed numbers — those are in DemoSeedingTests).
+echo "Manager dashboard: complete series that match the lists; other roles refused..."
+dashboard="$(api "$token" GET /dashboard/summary)"
+jq -e '(.openRequestsByPriority | length) == 4 and (.workOrdersByStatus | length) == 7 and (.jobsCompletedPerMonth | length) == 6' \
+  <<<"$dashboard" >/dev/null || fail "the dashboard must return every priority, every status and six months, got: $dashboard"
+[ "$(jq '.lowStock.count' <<<"$dashboard")" = "$(api "$token" GET /parts/low-stock | jq 'length')" ] \
+  || fail "the dashboard's low-stock count must equal GET /parts/low-stock (AC-09)"
+[ "$(jq '[.workOrdersByStatus[].count] | add' <<<"$dashboard")" = "$(api "$token" GET /work-orders | jq 'length')" ] \
+  || fail "the work-order statuses must add up to every work order"
+open_new="$(api "$token" GET "/service-requests?status=New" | jq 'length')"
+open_approved="$(api "$token" GET "/service-requests?status=Approved" | jq 'length')"
+[ "$(jq '[.openRequestsByPriority[].count] | add' <<<"$dashboard")" = "$((open_new + open_approved))" ] \
+  || fail "open requests must be the New and Approved ones"
+jq -e '([.jobsCompletedPerMonth[] | select(.count > 0)] | length) >= 4 and .kpis.lowStockParts == .lowStock.count' \
+  <<<"$dashboard" >/dev/null || fail "the seeded history must span several months, and the tiles must match the charts"
+for other in "$staff_token" "$tech_token" "$warehouse_token"; do
+  [ "$(status_of "$other" GET /dashboard/summary)" = 403 ] || fail "only a Manager or Admin may read the dashboard"
+done
+echo "  ok: $(jq -r '"\(.kpis.openRequests) open requests, \(.kpis.activeWorkOrders) active jobs, \(.lowStock.count) parts low"' <<<"$dashboard")"
+
 echo "Smoke test passed."
