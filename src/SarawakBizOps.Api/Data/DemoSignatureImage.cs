@@ -1,7 +1,3 @@
-using System.Buffers.Binary;
-using System.IO.Compression;
-using System.Text;
-
 namespace SarawakBizOps.Api.Data;
 
 /// <summary>
@@ -40,7 +36,7 @@ public static class DemoSignatureImage
 
         // An underline flourish.
         Line(pixels, 40, Height - 30, Width - 60, Height - 38);
-        return EncodePng(pixels);
+        return DemoPng.Encode(Width, Height, DemoPng.Greyscale, pixels);
     }
 
     private static void Line(byte[] pixels, double x0, double y0, double x1, double y1)
@@ -63,71 +59,5 @@ public static class DemoSignatureImage
                 }
             }
         }
-    }
-
-    private static byte[] EncodePng(byte[] pixels)
-    {
-        // Each scanline is prefixed with filter type 0 (None).
-        var raw = new byte[(Width + 1) * Height];
-        for (var y = 0; y < Height; y++)
-        {
-            Buffer.BlockCopy(pixels, y * Width, raw, y * (Width + 1) + 1, Width);
-        }
-
-        using var compressed = new MemoryStream();
-        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
-        {
-            zlib.Write(raw);
-        }
-
-        var header = new byte[13];
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(0), Width);
-        BinaryPrimitives.WriteUInt32BigEndian(header.AsSpan(4), Height);
-        header[8] = 8; // bit depth
-        header[9] = 0; // colour type: greyscale
-        // compression, filter and interlace methods all 0
-
-        using var png = new MemoryStream();
-        png.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
-        WriteChunk(png, "IHDR", header);
-        WriteChunk(png, "IDAT", compressed.ToArray());
-        WriteChunk(png, "IEND", Array.Empty<byte>());
-        return png.ToArray();
-    }
-
-    private static void WriteChunk(Stream png, string type, byte[] data)
-    {
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
-        png.Write(length);
-
-        var typeAndData = new byte[4 + data.Length];
-        Encoding.ASCII.GetBytes(type, typeAndData);
-        data.CopyTo(typeAndData, 4);
-        png.Write(typeAndData);
-
-        Span<byte> crc = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(typeAndData));
-        png.Write(crc);
-    }
-
-    private static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(n =>
-    {
-        var c = (uint)n;
-        for (var k = 0; k < 8; k++)
-        {
-            c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-        }
-        return c;
-    }).ToArray();
-
-    private static uint Crc32(byte[] bytes)
-    {
-        var c = 0xFFFFFFFFu;
-        foreach (var b in bytes)
-        {
-            c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
-        }
-        return c ^ 0xFFFFFFFFu;
     }
 }

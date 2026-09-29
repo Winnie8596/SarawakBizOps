@@ -34,6 +34,10 @@ public class WorkOrderDto
     public bool HasSignature { get; set; }
     public DateTime? SignedAt { get; set; }
 
+    // Phase 9: photos taken on the job, oldest first. Each image is served only by the authorized
+    // GET /api/work-orders/{id}/photos/{photoId}.
+    public List<WorkOrderPhotoDto> Photos { get; set; } = new();
+
     public string? CancelledByName { get; set; }
     public DateTime? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }

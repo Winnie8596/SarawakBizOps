@@ -254,6 +254,48 @@ public static class TestData
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
 
+    // ---- Phase 9: job photos, uploaded one per multipart request like the web app's queue ----
+
+    /// <summary>A valid photo PNG (the same generator the demo seed uses).</summary>
+    public static readonly byte[] PhotoPng = DemoPhotoImage.Create("test photo");
+
+    /// <summary>The smallest thing that passes as a JPEG: the SOI marker and a JFIF APP0 header.</summary>
+    public static readonly byte[] PhotoJpeg =
+        { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9 };
+
+    /// <summary>The smallest thing that passes as a WebP: a RIFF container whose form type is WEBP.</summary>
+    public static readonly byte[] PhotoWebp =
+        "RIFF"u8.ToArray().Concat(new byte[] { 0x1A, 0, 0, 0 }).Concat("WEBPVP8 "u8.ToArray()).Concat(new byte[18]).ToArray();
+
+    public static MultipartFormDataContent PhotoForm(
+        byte[]? file, string rowVersion, string fileName = "photo.jpg", string contentType = "image/jpeg")
+        => SignatureForm(file, rowVersion, fileName, contentType);
+
+    public static async Task<HttpResponseMessage> PostPhotoAsync(
+        HttpClient technician, int workOrderId, byte[]? image = null,
+        string fileName = "photo.png", string contentType = "image/png")
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        using var form = PhotoForm(image ?? PhotoPng, current?.RowVersion ?? DummyRowVersion, fileName, contentType);
+        return await technician.PostAsync($"/api/work-orders/{workOrderId}/photos", form);
+    }
+
+    public static async Task<WorkOrderDto> UploadPhotoAsync(HttpClient technician, int workOrderId, byte[]? image = null)
+    {
+        var response = await PostPhotoAsync(technician, workOrderId, image);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
+    public static async Task<HttpResponseMessage> DeletePhotoAsync(HttpClient technician, int workOrderId, int photoId)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/work-orders/{workOrderId}/photos/{photoId}")
+        {
+            Content = JsonContent.Create(new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion })
+        });
+    }
+
     public static async Task<HttpResponseMessage> PostCompleteAsync(HttpClient technician, int workOrderId)
     {
         var current = await GetWorkOrderAsync(technician, workOrderId);

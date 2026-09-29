@@ -98,6 +98,7 @@ public static class DemoSeeder
         await SeedWorkOrdersAsync(userManager, db, ct);
         await SeedPartsUsedAsync(userManager, db, ct);
         await SeedSignaturesAsync(userManager, db, services.GetRequiredService<IFileStorage>(), ct);
+        await SeedPhotosAsync(userManager, db, services.GetRequiredService<IFileStorage>(), ct);
     }
 
     // Phase 3 states: New, Approved and Rejected. Four of the Approved rows below are then carried
@@ -167,7 +168,7 @@ public static class DemoSeeder
         int? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
         string? Diagnosis = null, string? WorkPerformed = null,
         int? CancelledDaysAgo = null, string? CancellationReason = null,
-        DemoPartUsed[]? PartsUsed = null, DemoPendingParts? Pending = null);
+        DemoPartUsed[]? PartsUsed = null, DemoPendingParts? Pending = null, int Photos = 0);
 
     // Phase 7: parts the technician put on a job (each becomes a WorkOrderPart line plus one Issue ledger
     // row), and what a PendingParts job is waiting for.
@@ -189,14 +190,16 @@ public static class DemoSeeder
             WorkOrderStatus.InProgress, AssignedDaysAgo: 6, StartedDaysAgo: 5,
             Diagnosis: "Overload relay set point was too low for the compressor's duty cycle; contacts were also pitted.",
             WorkPerformed: "Replaced the overload relay, reset it to the compressor's rated current and ran a 30-minute load test.",
-            PartsUsed: new[] { new DemoPartUsed("REL-OVL-25A", 1, 5) }),
+            PartsUsed: new[] { new DemoPartUsed("REL-OVL-25A", 1, 5) },
+            Photos: 1),
 
         // Completed: the Manager's next action is to approve it.
         new("SBW-GEN-002",
             "Standby generator fails to reach rated voltage on load and the AVR indicator flashes.",
             WorkOrderStatus.Completed, AssignedDaysAgo: 10, StartedDaysAgo: 10, CompletedDaysAgo: 9,
             Diagnosis: "AVR sensing lead had a loose crimp, causing voltage regulation to hunt under load.",
-            WorkPerformed: "Re-terminated the AVR sensing lead, recalibrated the voltage set point and confirmed with a 3-hour load-bank test."),
+            WorkPerformed: "Re-terminated the AVR sensing lead, recalibrated the voltage set point and confirmed with a 3-hour load-bank test.",
+            Photos: 2),
 
         // Approved: the whole workflow closed, shown read-only.
         new("MOS-FLT-001",
@@ -204,7 +207,8 @@ public static class DemoSeeder
             WorkOrderStatus.Approved, AssignedDaysAgo: 16, StartedDaysAgo: 16, CompletedDaysAgo: 15, ApprovedDaysAgo: 14,
             Diagnosis: "Hydraulic pump inlet strainer was clogged and a lift-cylinder seal was worn, causing external leakage.",
             WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec.",
-            PartsUsed: new[] { new DemoPartUsed("SEAL-KIT-HYD", 1, 16), new DemoPartUsed("OIL-HYD-46", 12, 16) }),
+            PartsUsed: new[] { new DemoPartUsed("SEAL-KIT-HYD", 1, 16), new DemoPartUsed("OIL-HYD-46", 12, 16) },
+            Photos: 2),
 
         // PendingParts (Phase 7): the idler bearings were replaced from stock, but the torn belt needs 6 m of
         // belting and the store has none (the last roll was written off after the store-room leak). A
@@ -564,6 +568,56 @@ public static class DemoSeeder
             workOrder.SignatureBlobKey = key;
             workOrder.SignatureSizeBytes = png.Length;
             workOrder.SignedAt = workOrder.CompletedAt;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 9: the in-progress, completed and approved demo jobs carry generated, fictional site photos
+    // (DemoPhotoImage — no people, no real sites), uploaded through IFileStorage exactly as the API stores
+    // them, so the technician's Photos step and the office gallery both have something to show. Natural key:
+    // only a demo job with no photos yet gets them, so a re-run adds nothing.
+    private static async Task SeedPhotosAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, IFileStorage storage, CancellationToken ct)
+    {
+        var technician = await userManager.FindByEmailAsync("technician@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Technician account is missing.");
+
+        var withoutPhotos = await db.WorkOrders
+            .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
+            .Where(w => w.TechnicianId == technician.Id && !w.Photos.Any())
+            .ToListAsync(ct);
+
+        foreach (var demo in WorkOrders.Where(d => d.Photos > 0))
+        {
+            var workOrder = withoutPhotos.FirstOrDefault(w =>
+                w.ServiceRequest!.Equipment!.SerialNumber == demo.EquipmentSerial
+                && w.ServiceRequest.ProblemDescription == demo.Problem);
+            if (workOrder is null)
+            {
+                continue;
+            }
+
+            for (var i = 1; i <= demo.Photos; i++)
+            {
+                var png = DemoPhotoImage.Create($"{demo.EquipmentSerial} photo {i}");
+                var key = PhotoRules.NewKey(workOrder.Id, PhotoRules.Png);
+                using (var content = new MemoryStream(png, writable: false))
+                {
+                    await storage.SaveAsync(key, content, PhotoRules.Png, ct);
+                }
+
+                db.WorkOrderPhotos.Add(new WorkOrderPhoto
+                {
+                    WorkOrderId = workOrder.Id,
+                    BlobKey = key,
+                    ContentType = PhotoRules.Png,
+                    SizeBytes = png.Length,
+                    UploadedByUserId = technician.Id,
+                    // Taken while the job was being worked on, a few minutes apart.
+                    UploadedAt = (workOrder.StartedAt ?? DateTime.UtcNow).AddMinutes(20 * i)
+                });
+            }
         }
 
         await db.SaveChangesAsync(ct);

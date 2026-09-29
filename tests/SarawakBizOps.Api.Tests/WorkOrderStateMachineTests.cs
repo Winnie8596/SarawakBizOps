@@ -121,6 +121,13 @@ public class WorkOrderStateMachineTests
     }
 
     [Theory]
+    [MemberData(nameof(EveryStatus))]
+    public void Photos_are_added_or_removed_only_while_a_job_is_in_progress(WorkOrderStatus status)
+    {
+        Assert.Equal(status == WorkOrderStatus.InProgress, WorkOrderStateMachine.AcceptsPhotoChanges(status));
+    }
+
+    [Theory]
     [InlineData(WorkOrderStatus.Approved)]
     [InlineData(WorkOrderStatus.Cancelled)]
     public void Locked_states_are_exactly_Approved_and_Cancelled(WorkOrderStatus status)

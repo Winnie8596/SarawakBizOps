@@ -38,6 +38,10 @@ public static class WorkOrderStateMachine
     /// <summary>Parts are added to or returned from a job only while it is being worked on.</summary>
     public static bool AcceptsPartChanges(WorkOrderStatus status) => status == WorkOrderStatus.InProgress;
 
+    /// <summary>Photos are taken or removed only while the job is being worked on (Phase 9): once it is
+    /// completed they are part of the record the Manager approves, so they can no longer be removed.</summary>
+    public static bool AcceptsPhotoChanges(WorkOrderStatus status) => status == WorkOrderStatus.InProgress;
+
     /// <summary>A human-readable reason why the transition is refused, or null when it is allowed.</summary>
     public static string? Refusal(WorkOrderStatus from, WorkOrderStatus to)
     {

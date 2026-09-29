@@ -344,22 +344,7 @@ public class WorkOrderSignatureTests
         Assert.Equal(before.RowVersion, after.RowVersion);
     }
 
-    // A second host on the same database whose IFileStorage is the in-memory fake, so a test can see (or
-    // break) exactly what reaches storage — no production seam needed.
-    private WebApplicationFactory<Program> HostWith(InMemoryFileStorage storage)
-        => _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-        {
-            services.RemoveAll<IFileStorage>();
-            services.AddSingleton<IFileStorage>(storage);
-        }));
+    private WebApplicationFactory<Program> HostWith(InMemoryFileStorage storage) => _factory.WithFileStorage(storage);
 
-    private static async Task<HttpClient> SignInAsync(WebApplicationFactory<Program> factory, TestUser user)
-    {
-        var client = factory.CreateClient();
-        var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest { Email = user.Email, Password = user.Password });
-        login.EnsureSuccessStatusCode();
-        var token = (await login.Content.ReadFromJsonAsync<LoginResponse>())!.Token;
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        return client;
-    }
+    private static Task<HttpClient> SignInAsync(WebApplicationFactory<Program> factory, TestUser user) => factory.SignInAsync(user);
 }

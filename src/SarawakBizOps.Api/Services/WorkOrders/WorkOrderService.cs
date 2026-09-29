@@ -558,6 +558,7 @@ public class WorkOrderService : IWorkOrderService
         .Include(w => w.CancelledByUser)
         .Include(w => w.PendingPart)
         .Include(w => w.PartsUsed).ThenInclude(wp => wp.Part)
+        .Include(w => w.Photos).ThenInclude(p => p.UploadedByUser)
         .AsSplitQuery();
 
     private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
@@ -592,6 +593,18 @@ public class WorkOrderService : IWorkOrderService
         var dto = ToDtoWithoutParts(w);
         dto.Parts = parts;
         dto.PartsTotal = parts.Sum(p => p.LineTotal);
+        dto.Photos = w.Photos
+            .OrderBy(p => p.UploadedAt)
+            .ThenBy(p => p.Id)
+            .Select(p => new WorkOrderPhotoDto
+            {
+                Id = p.Id,
+                ContentType = p.ContentType,
+                SizeBytes = p.SizeBytes,
+                UploadedByName = p.UploadedByUser?.FullName ?? string.Empty,
+                UploadedAt = p.UploadedAt
+            })
+            .ToList();
         return dto;
     }
 

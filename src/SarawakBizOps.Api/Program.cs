@@ -91,7 +91,7 @@ builder.Services
 builder.Services.AddAuthorization();
 
 // ---------------------------------------------------------------------
-// File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures (and later photos and reports)
+// File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures, job photos (and later reports)
 // live in a private blob container behind IFileStorage; the database keeps only keys and metadata.
 // Development uses Azurite's well-known local account ("UseDevelopmentStorage=true"); docker-compose
 // points at its azurite container.
@@ -123,6 +123,7 @@ builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
 builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
 builder.Services.AddScoped<IWorkOrderPartService, WorkOrderPartService>();
 builder.Services.AddScoped<IWorkOrderSignatureService, WorkOrderSignatureService>();
+builder.Services.AddScoped<IWorkOrderPhotoService, WorkOrderPhotoService>();
 builder.Services.AddScoped<IPartService, PartService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 

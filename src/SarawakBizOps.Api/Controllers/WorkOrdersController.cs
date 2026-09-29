@@ -18,12 +18,15 @@ public class WorkOrdersController : ControllerBase
     private readonly IWorkOrderService _service;
     private readonly IWorkOrderPartService _parts;
     private readonly IWorkOrderSignatureService _signatures;
+    private readonly IWorkOrderPhotoService _photos;
 
-    public WorkOrdersController(IWorkOrderService service, IWorkOrderPartService parts, IWorkOrderSignatureService signatures)
+    public WorkOrdersController(
+        IWorkOrderService service, IWorkOrderPartService parts, IWorkOrderSignatureService signatures, IWorkOrderPhotoService photos)
     {
         _service = service;
         _parts = parts;
         _signatures = signatures;
+        _photos = photos;
     }
 
     [HttpGet]
@@ -181,6 +184,73 @@ public class WorkOrdersController : ControllerBase
         Response.Headers.CacheControl = "private, no-store";
         Response.Headers.XContentTypeOptions = "nosniff";
         return File(result.Value!.Content, SignatureRules.ContentType);
+    }
+
+    // ---- Phase 9: photos taken on the job (PRD §6.6) ----
+
+    // One photo per request (the web app uploads a queue one by one, each carrying the rowVersion the last
+    // one returned). The limit leaves room for the multipart framing; anything larger is refused unbuffered.
+    private const long PhotoRequestLimit = PhotoRules.MaxBytes + 64 * 1024;
+
+    [HttpPost("{id:int}/photos")]
+    [Authorize(Roles = "Technician")]
+    [RequestSizeLimit(PhotoRequestLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = PhotoRequestLimit)]
+    public async Task<IActionResult> UploadPhoto(int id, [FromForm] PhotoUploadRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        if (request.File is null || request.File.Length == 0)
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation,
+                "The photo is empty. Take or choose a photo, then upload it."));
+        }
+
+        if (request.File.Length > PhotoRules.MaxBytes)
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation,
+                $"The photo is too large (maximum {PhotoRules.MaxBytes / (1024 * 1024)} MB)."));
+        }
+
+        // The declared Content-Type and file name are ignored: PhotoRules decides the type from the bytes.
+        using var buffer = new MemoryStream((int)request.File.Length);
+        await request.File.CopyToAsync(buffer, ct);
+
+        var result = await _photos.AddAsync(id, ActingUserId, buffer.ToArray(), rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Before completion only; the body carries the job's rowVersion like every other mutating call.
+    [HttpDelete("{id:int}/photos/{photoId:int}")]
+    [Authorize(Roles = "Technician")]
+    public async Task<IActionResult> RemovePhoto(int id, int photoId, [FromBody] RowVersionRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _photos.RemoveAsync(id, photoId, ActingUserId, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Same audience as GET /{id} (and the signature): office roles see any job's photos; a Technician only
+    // their own. There is no public URL — this endpoint is the only way to the image.
+    [HttpGet("{id:int}/photos/{photoId:int}")]
+    public async Task<IActionResult> GetPhoto(int id, int photoId, CancellationToken ct)
+    {
+        var result = await _photos.OpenAsync(id, photoId, ActingUserId, User.IsInRole(AppRoles.Technician), ct);
+        if (!result.Succeeded)
+        {
+            return this.ToProblem(result);
+        }
+
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(result.Value!.Content, result.Value.ContentType);
     }
 
     [HttpPost("{id:int}/complete")]

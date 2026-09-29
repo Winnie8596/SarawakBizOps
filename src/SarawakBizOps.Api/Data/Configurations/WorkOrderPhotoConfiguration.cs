@@ -8,7 +8,8 @@ public class WorkOrderPhotoConfiguration : IEntityTypeConfiguration<WorkOrderPho
 {
     public void Configure(EntityTypeBuilder<WorkOrderPhoto> builder)
     {
-        builder.Property(p => p.FileUrl).IsRequired().HasMaxLength(500);
+        builder.Property(p => p.BlobKey).IsRequired().HasMaxLength(200);
+        builder.Property(p => p.ContentType).IsRequired().HasMaxLength(50);
         builder.Property(p => p.Description).HasMaxLength(300);
 
         builder.HasOne(p => p.WorkOrder)

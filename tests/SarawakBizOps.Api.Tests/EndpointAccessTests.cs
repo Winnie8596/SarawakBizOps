@@ -33,10 +33,11 @@ public class EndpointAccessTests
 
     /// <summary>Ids of the records an endpoint row's Path/Body can point at. RowVersion is the base64
     /// concurrency token of whichever record the row's Body posts back (Phase 5: required on every
-    /// mutating call), left blank for rows that do not need one. LineId is a part line on the job.</summary>
+    /// mutating call), left blank for rows that do not need one. LineId is a part line on the job; PhotoId a
+    /// photo on it.</summary>
     private record Fixture(
         int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId, string RowVersion = "",
-        PartDto? Part = null, int LineId = 0);
+        PartDto? Part = null, int LineId = 0, int PhotoId = 0);
 
     /// <summary>Clients set up once per test row, for Prepare functions to drive through real endpoints.</summary>
     private record PrepContext(HttpClient Admin, HttpClient Manager, HttpClient TechnicianClient, string TechnicianId);
@@ -295,8 +296,43 @@ public class EndpointAccessTests
                 var wo = await CreateCompletedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
                 return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
             },
+            OwnedByTechnician: true),
+
+        // ---- Phase 9: job photos — added and removed by the assigned technician while the job is in
+        // progress; read by whoever may read the job (another technician's job reads as 404, covered in
+        // WorkOrderPhotoTests) ----
+        new("POST /api/work-orders/{id}/photos", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/photos", _ => null,
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
+            },
+            OwnedByTechnician: true,
+            Content: f => PhotoForm(PhotoJpeg, f.RowVersion)),
+
+        new("DELETE /api/work-orders/{id}/photos/{photoId}", HttpMethod.Delete,
+            f => $"/api/work-orders/{f.WorkOrderId}/photos/{f.PhotoId}",
+            f => new RowVersionRequest { RowVersion = f.RowVersion },
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx => await PhotoFixtureAsync(ctx),
+            OwnedByTechnician: true),
+
+        new("GET /api/work-orders/{id}/photos/{photoId}", HttpMethod.Get,
+            f => $"/api/work-orders/{f.WorkOrderId}/photos/{f.PhotoId}", _ => null,
+            new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff, AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx => await PhotoFixtureAsync(ctx),
             OwnedByTechnician: true)
     };
+
+    // An InProgress job of the prepared technician with one photo on it.
+    private static async Task<Fixture> PhotoFixtureAsync(PrepContext ctx)
+    {
+        var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+        var withPhoto = await UploadPhotoAsync(ctx.TechnicianClient, wo.Id);
+        return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, withPhoto.RowVersion, PhotoId: withPhoto.Photos.Single().Id);
+    }
 
     private static async Task<Fixture> NewPartFixtureAsync(PrepContext ctx)
         => new(0, 0, 0, 0, ctx.TechnicianId, Part: await CreatePartAsync(ctx.Admin));

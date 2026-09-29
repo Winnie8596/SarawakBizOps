@@ -71,6 +71,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var before = await CountsAsync(db);
         var signaturesBefore = await SignatureKeysAsync(db);
+        var photosBefore = await db.WorkOrderPhotos.CountAsync();
 
         await DemoSeeder.SeedAsync(scope.ServiceProvider);
         await DbSeeder.SeedAsync(scope.ServiceProvider);
@@ -79,6 +80,8 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(before, after);
         Assert.Equal(signaturesBefore, await SignatureKeysAsync(db)); // no job is signed a second time
         Assert.Equal(2, signaturesBefore.Count);
+        Assert.Equal(5, photosBefore);
+        Assert.Equal(photosBefore, await db.WorkOrderPhotos.CountAsync()); // no job gets its photos twice
         Assert.Equal(5, after.Customers);
         Assert.Equal(11, after.Equipment);
         Assert.Equal(12, after.Requests);
@@ -208,6 +211,16 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         {
             var png = await manager.GetByteArrayAsync($"/api/work-orders/{signed.Id}/signature");
             Assert.Null(SarawakBizOps.Api.Services.WorkOrders.SignatureRules.Validate(png));
+        }
+        // Phase 9: the in-progress, completed and approved jobs carry fictional site photos, really in storage.
+        Assert.Equal((1, 2, 2), (inProgress.Photos.Count, completed.Photos.Count, approved.Photos.Count));
+        Assert.All(workOrders.Except(new[] { inProgress, completed, approved }), w => Assert.Empty(w.Photos));
+        foreach (var photo in approved.Photos)
+        {
+            Assert.Equal("image/png", photo.ContentType);
+            Assert.Equal("Ahmad Bujang", photo.UploadedByName);
+            var bytes = await manager.GetByteArrayAsync($"/api/work-orders/{approved.Id}/photos/{photo.Id}");
+            Assert.Equal((photo.ContentType, (string?)null), SarawakBizOps.Api.Services.WorkOrders.PhotoRules.Validate(bytes));
         }
         Assert.Equal(new[] { "SEAL-KIT-HYD", "OIL-HYD-46" }.Order(), approved.Parts.Select(p => p.PartNumber).Order());
         Assert.Equal(363.80m, approved.PartsTotal); // 1 × RM 185.00 + 12 L × RM 14.90
