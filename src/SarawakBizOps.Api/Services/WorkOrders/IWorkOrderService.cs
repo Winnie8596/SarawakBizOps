@@ -35,7 +35,8 @@ public interface IWorkOrderService
     /// Nothing is reserved: the stock can still be used elsewhere before this job adds it.</summary>
     Task<ServiceResult<WorkOrderDto>> ResumeAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
 
-    /// <summary>BR-03 (partial): requires a stored diagnosis and work-performed record (AC-05).</summary>
+    /// <summary>BR-03: requires a stored diagnosis and work-performed record (AC-05) and the customer's
+    /// signature (AC-06, Phase 8).</summary>
     Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
 
     /// <summary>Locks the work order (BR-06, AC-07, AC-08 — the central lock guard).</summary>

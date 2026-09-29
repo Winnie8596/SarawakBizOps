@@ -1,4 +1,6 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Customers;
 using SarawakBizOps.Api.DTOs.Equipment;
 using SarawakBizOps.Api.DTOs.Inventory;
@@ -207,12 +209,49 @@ public static class TestData
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
 
-    /// <summary>InProgress with diagnosis and work performed already saved: Complete will succeed next.</summary>
+    /// <summary>InProgress with diagnosis, work performed and the customer's signature (Phase 8, BR-03) already
+    /// saved: Complete will succeed next.</summary>
     public static async Task<WorkOrderDto> CreateReadyToCompleteWorkOrderAsync(
         HttpClient admin, HttpClient manager, HttpClient technician, string technicianId)
     {
         var inProgress = await CreateInProgressWorkOrderAsync(admin, manager, technician, technicianId);
-        return await SaveDiagnosisAsync(technician, inProgress.Id);
+        await SaveDiagnosisAsync(technician, inProgress.Id);
+        return await UploadSignatureAsync(technician, inProgress.Id);
+    }
+
+    // ---- Phase 8: the customer's signature, uploaded as multipart/form-data like the web app's canvas ----
+
+    /// <summary>A valid signature PNG (the same generator the demo seed uses).</summary>
+    public static readonly byte[] SignaturePng = DemoSignatureImage.Create("test signature");
+
+    public static MultipartFormDataContent SignatureForm(
+        byte[]? file, string rowVersion, string fileName = "signature.png", string contentType = "image/png")
+    {
+        var form = new MultipartFormDataContent();
+        if (file is not null)
+        {
+            var content = new ByteArrayContent(file);
+            content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            form.Add(content, "file", fileName);
+        }
+        form.Add(new StringContent(rowVersion), "rowVersion");
+        return form;
+    }
+
+    public static async Task<HttpResponseMessage> PostSignatureAsync(
+        HttpClient technician, int workOrderId, byte[]? png = null,
+        string fileName = "signature.png", string contentType = "image/png")
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        using var form = SignatureForm(png ?? SignaturePng, current?.RowVersion ?? DummyRowVersion, fileName, contentType);
+        return await technician.PostAsync($"/api/work-orders/{workOrderId}/signature", form);
+    }
+
+    public static async Task<WorkOrderDto> UploadSignatureAsync(HttpClient technician, int workOrderId, byte[]? png = null)
+    {
+        var response = await PostSignatureAsync(technician, workOrderId, png);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
 
     public static async Task<HttpResponseMessage> PostCompleteAsync(HttpClient technician, int workOrderId)

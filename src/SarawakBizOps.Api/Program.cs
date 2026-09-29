@@ -1,4 +1,5 @@
 using System.Text;
+using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -15,6 +16,7 @@ using SarawakBizOps.Api.Services.History;
 using SarawakBizOps.Api.Services.Inventory;
 using SarawakBizOps.Api.Services.Parts;
 using SarawakBizOps.Api.Services.ServiceRequests;
+using SarawakBizOps.Api.Services.Storage;
 using SarawakBizOps.Api.Services.Users;
 using SarawakBizOps.Api.Services.WorkOrders;
 
@@ -88,6 +90,24 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// ---------------------------------------------------------------------
+// File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures (and later photos and reports)
+// live in a private blob container behind IFileStorage; the database keeps only keys and metadata.
+// Development uses Azurite's well-known local account ("UseDevelopmentStorage=true"); docker-compose
+// points at its azurite container.
+// ---------------------------------------------------------------------
+var storageSection = builder.Configuration.GetSection("Storage");
+var storageConnectionString = storageSection["ConnectionString"];
+if (string.IsNullOrWhiteSpace(storageConnectionString))
+{
+    throw new InvalidOperationException(
+        "Storage:ConnectionString is not configured. For local development run Azurite " +
+        "(docker compose up -d azurite) and use \"UseDevelopmentStorage=true\".");
+}
+
+builder.Services.AddSingleton<IFileStorage>(new AzureBlobFileStorage(
+    new BlobContainerClient(storageConnectionString, storageSection["Container"] ?? "sarawakbizops-files")));
+
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
 
@@ -102,6 +122,7 @@ builder.Services.AddScoped<IServiceHistoryService, ServiceHistoryService>();
 builder.Services.AddScoped<IServiceRequestService, ServiceRequestService>();
 builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
 builder.Services.AddScoped<IWorkOrderPartService, WorkOrderPartService>();
+builder.Services.AddScoped<IWorkOrderSignatureService, WorkOrderSignatureService>();
 builder.Services.AddScoped<IPartService, PartService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 

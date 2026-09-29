@@ -27,7 +27,13 @@ public class WorkOrder
     public string? Diagnosis { get; set; }
     public string? WorkPerformed { get; set; }
     public string? Notes { get; set; }
-    public string? CustomerSignatureUrl { get; set; }
+
+    // The customer's signature (Phase 8, BR-03): required before completion. The image lives in blob
+    // storage (IFileStorage); the database keeps only its internal key and metadata, never the bytes or a
+    // public URL (SDD §15), so it can only be read back through the authorized API.
+    public string? SignatureBlobKey { get; set; }
+    public int? SignatureSizeBytes { get; set; }
+    public DateTime? SignedAt { get; set; }
 
     // Set together when a Manager cancels the job (Phase 5); the reason is mandatory. Cancelling
     // reverts the linked ServiceRequest to Approved (decided in Phase 5) so it can be reassigned.

@@ -569,10 +569,6 @@ namespace SarawakBizOps.Api.Migrations
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CustomerSignatureUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
                     b.Property<string>("Diagnosis")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
@@ -604,6 +600,16 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.Property<int>("ServiceRequestId")
                         .HasColumnType("int");
+
+                    b.Property<string>("SignatureBlobKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("SignatureSizeBytes")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("SignedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("datetime2");

@@ -70,12 +70,15 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var before = await CountsAsync(db);
+        var signaturesBefore = await SignatureKeysAsync(db);
 
         await DemoSeeder.SeedAsync(scope.ServiceProvider);
         await DbSeeder.SeedAsync(scope.ServiceProvider);
 
         var after = await CountsAsync(db);
         Assert.Equal(before, after);
+        Assert.Equal(signaturesBefore, await SignatureKeysAsync(db)); // no job is signed a second time
+        Assert.Equal(2, signaturesBefore.Count);
         Assert.Equal(5, after.Customers);
         Assert.Equal(11, after.Equipment);
         Assert.Equal(12, after.Requests);
@@ -89,6 +92,13 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         => (await db.Users.CountAsync(), await db.Customers.CountAsync(), await db.Equipment.CountAsync(),
             await db.ServiceRequests.CountAsync(), await db.WorkOrders.CountAsync(),
             await db.Parts.CountAsync(), await db.InventoryTransactions.CountAsync());
+
+    private static async Task<List<string>> SignatureKeysAsync(ApplicationDbContext db)
+        => await db.WorkOrders.AsNoTracking()
+            .Where(w => w.SignatureBlobKey != null)
+            .OrderBy(w => w.Id)
+            .Select(w => w.SignatureBlobKey!)
+            .ToListAsync();
 
     [Fact]
     public async Task Seeding_tolerates_service_requests_created_outside_the_seeder_that_share_a_natural_key()
@@ -188,6 +198,17 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Null(completed.ApprovedAt);
         var approved = Assert.Single(workOrders, w => w.Status == "Approved");
         Assert.NotNull(approved.ApprovedAt);
+
+        // Phase 8 (BR-03): exactly the Completed and Approved jobs carry the customer's signature, and it
+        // really is in storage — the Manager can download a valid PNG. The InProgress job is left for the
+        // demo technician to have signed.
+        Assert.Equal(new[] { completed.Id, approved.Id }.Order(), workOrders.Where(w => w.HasSignature).Select(w => w.Id).Order());
+        Assert.All(workOrders.Where(w => w.HasSignature), w => Assert.NotNull(w.SignedAt));
+        foreach (var signed in new[] { completed, approved })
+        {
+            var png = await manager.GetByteArrayAsync($"/api/work-orders/{signed.Id}/signature");
+            Assert.Null(SarawakBizOps.Api.Services.WorkOrders.SignatureRules.Validate(png));
+        }
         Assert.Equal(new[] { "SEAL-KIT-HYD", "OIL-HYD-46" }.Order(), approved.Parts.Select(p => p.PartNumber).Order());
         Assert.Equal(363.80m, approved.PartsTotal); // 1 × RM 185.00 + 12 L × RM 14.90
 

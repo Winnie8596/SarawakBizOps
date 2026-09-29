@@ -334,7 +334,7 @@ public class WorkOrderService : IWorkOrderService
     {
         var current = await _db.WorkOrders.AsNoTracking()
             .Where(w => w.Id == id)
-            .Select(w => new { w.Status, w.TechnicianId, w.Diagnosis, w.WorkPerformed })
+            .Select(w => new { w.Status, w.TechnicianId, w.Diagnosis, w.WorkPerformed, w.SignatureBlobKey })
             .FirstOrDefaultAsync(ct);
 
         if (current is null || current.TechnicianId != technicianId)
@@ -342,21 +342,32 @@ public class WorkOrderService : IWorkOrderService
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
         }
 
-        // BR-03 (partial), AC-05: checked ahead of the transition guard so a job that is otherwise
-        // ready to complete gets a message about the missing evidence, not about its status.
-        if (current.Status == WorkOrderStatus.InProgress &&
-            (string.IsNullOrWhiteSpace(current.Diagnosis) || string.IsNullOrWhiteSpace(current.WorkPerformed)))
+        // BR-03, AC-05/AC-06: checked ahead of the transition guard so a job that is otherwise ready to
+        // complete gets a message about the missing evidence, not about its status.
+        if (current.Status == WorkOrderStatus.InProgress)
         {
-            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
-                "Enter a diagnosis and the work performed before completing this job.");
+            if (string.IsNullOrWhiteSpace(current.Diagnosis) || string.IsNullOrWhiteSpace(current.WorkPerformed))
+            {
+                return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
+                    "Enter a diagnosis and the work performed before completing this job.");
+            }
+
+            if (current.SignatureBlobKey is null)
+            {
+                return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
+                    "Capture the customer's signature before completing this job.");
+            }
         }
 
         var now = DateTime.UtcNow;
         return await TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Completed),
             technicianId, rowVersion,
-            (rows, token) => rows.ExecuteUpdateAsync(s => s
-                .SetProperty(w => w.Status, WorkOrderStatus.Completed)
-                .SetProperty(w => w.CompletedAt, now), token),
+            // The signature is repeated in the WHERE so completion can never land on a row without one.
+            (rows, token) => rows
+                .Where(w => w.SignatureBlobKey != null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(w => w.Status, WorkOrderStatus.Completed)
+                    .SetProperty(w => w.CompletedAt, now), token),
             ct);
     }
 
@@ -605,6 +616,8 @@ public class WorkOrderService : IWorkOrderService
         Diagnosis = w.Diagnosis,
         WorkPerformed = w.WorkPerformed,
         Notes = w.Notes,
+        HasSignature = w.SignatureBlobKey != null,
+        SignedAt = w.SignedAt,
         CancelledByName = w.CancelledByUser?.FullName,
         CancelledAt = w.CancelledAt,
         CancellationReason = w.CancellationReason,

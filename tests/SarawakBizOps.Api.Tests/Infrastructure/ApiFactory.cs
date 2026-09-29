@@ -5,13 +5,15 @@ using SarawakBizOps.Api.Data;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using SarawakBizOps.Api.DTOs.Auth;
+using Testcontainers.Azurite;
 using Testcontainers.MsSql;
 
 namespace SarawakBizOps.Api.Tests.Infrastructure;
 
 /// <summary>
-/// Boots the real API against a throwaway SQL Server container (Testcontainers),
-/// so integration tests exercise real transactions and RowVersion behaviour.
+/// Boots the real API against a throwaway SQL Server container and an Azurite blob-storage container
+/// (Testcontainers), so integration tests exercise real transactions, RowVersion behaviour and real file
+/// storage (Phase 8).
 /// One instance is shared by every test class in the "Api" collection.
 /// </summary>
 public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
@@ -20,6 +22,15 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string AdminPassword = "TestAdmin123!";
 
     protected readonly MsSqlContainer Sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+
+    // Same pinned image as docker-compose.yml. --skipApiVersionCheck lets a newer Azure.Storage.Blobs SDK talk
+    // to the emulator (Azurite otherwise refuses REST API versions it does not know yet).
+    protected readonly AzuriteContainer Blob = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:3.36.0")
+        .WithInMemoryPersistence()
+        .WithCommand("--skipApiVersionCheck")
+        .Build();
+
+    public string StorageConnectionString => Blob.GetConnectionString();
 
     /// <summary>
     /// The default factory migrates the database itself before the host is built (Program does not
@@ -30,7 +41,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await Sql.StartAsync();
+        await Task.WhenAll(Sql.StartAsync(), Blob.StartAsync());
 
         if (!MigrateBeforeStartup)
         {
@@ -48,6 +59,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:DefaultConnection", Sql.GetConnectionString());
+        builder.UseSetting("Storage:ConnectionString", Blob.GetConnectionString());
         builder.UseSetting("Jwt:Key", "test-only-signing-key-that-is-long-enough-for-hmac-sha256");
         builder.UseSetting("Seed:AdminEmail", AdminEmail);
         builder.UseSetting("Seed:AdminPassword", AdminPassword);
@@ -55,7 +67,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     async Task IAsyncLifetime.DisposeAsync()
     {
-        await Sql.DisposeAsync();
+        await Task.WhenAll(Sql.DisposeAsync().AsTask(), Blob.DisposeAsync().AsTask());
     }
 }
 

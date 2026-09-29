@@ -12,7 +12,7 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
         builder.Property(wo => wo.Diagnosis).HasMaxLength(4000);
         builder.Property(wo => wo.WorkPerformed).HasMaxLength(4000);
         builder.Property(wo => wo.Notes).HasMaxLength(2000);
-        builder.Property(wo => wo.CustomerSignatureUrl).HasMaxLength(500);
+        builder.Property(wo => wo.SignatureBlobKey).HasMaxLength(200);
         builder.Property(wo => wo.CancellationReason).HasMaxLength(500);
         builder.Property(wo => wo.PendingPartsReason).HasMaxLength(500);
         builder.Property(wo => wo.PendingPartQuantity).HasColumnType("decimal(18,3)");

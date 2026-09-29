@@ -52,7 +52,9 @@ public class EndpointAccessTests
         // True when the endpoint's success case requires the caller to be the specific technician the
         // job is assigned to (BR-02): the Technician row then reuses PrepContext's technician client
         // instead of a freshly created, unrelated Technician.
-        bool OwnedByTechnician = false);
+        bool OwnedByTechnician = false,
+        // A non-JSON body (Phase 8's multipart signature upload); when set it is used instead of Body.
+        Func<Fixture, HttpContent>? Content = null);
 
     private static readonly Endpoint[] Endpoints =
     {
@@ -270,6 +272,29 @@ public class EndpointAccessTests
                 await ReceiveAsync(ctx.Admin, part.Id, 2); // the awaited stock has arrived
                 return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, pending.RowVersion, part);
             },
+            OwnedByTechnician: true),
+
+        // ---- Phase 8: the customer's signature — uploaded by the assigned technician; read by whoever may
+        // read the job (another technician's job reads as 404, covered in WorkOrderSignatureTests) ----
+        new("POST /api/work-orders/{id}/signature", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/signature", _ => null,
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
+            },
+            OwnedByTechnician: true,
+            Content: f => SignatureForm(SignaturePng, f.RowVersion)),
+
+        new("GET /api/work-orders/{id}/signature", HttpMethod.Get,
+            f => $"/api/work-orders/{f.WorkOrderId}/signature", _ => null,
+            new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff, AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateCompletedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+            },
             OwnedByTechnician: true)
     };
 
@@ -316,7 +341,11 @@ public class EndpointAccessTests
             : await _factory.ClientWithRoleAsync(role);
 
         var message = new HttpRequestMessage(endpoint.Method, endpoint.Path(fixture));
-        if (endpoint.Body(fixture) is { } body)
+        if (endpoint.Content is not null)
+        {
+            message.Content = endpoint.Content(fixture);
+        }
+        else if (endpoint.Body(fixture) is { } body)
         {
             message.Content = JsonContent.Create(body);
         }

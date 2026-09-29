@@ -17,11 +17,13 @@ public class WorkOrdersController : ControllerBase
 {
     private readonly IWorkOrderService _service;
     private readonly IWorkOrderPartService _parts;
+    private readonly IWorkOrderSignatureService _signatures;
 
-    public WorkOrdersController(IWorkOrderService service, IWorkOrderPartService parts)
+    public WorkOrdersController(IWorkOrderService service, IWorkOrderPartService parts, IWorkOrderSignatureService signatures)
     {
         _service = service;
         _parts = parts;
+        _signatures = signatures;
     }
 
     [HttpGet]
@@ -126,6 +128,59 @@ public class WorkOrdersController : ControllerBase
 
         var result = await _service.ResumeAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // ---- Phase 8: the customer's signature (BR-03, AC-06) ----
+
+    // Small on purpose: a canvas signature is tens of KB. The limit leaves room for the multipart framing, and
+    // anything larger is refused before the body is buffered.
+    private const long SignatureRequestLimit = SignatureRules.MaxBytes + 16 * 1024;
+
+    [HttpPost("{id:int}/signature")]
+    [Authorize(Roles = "Technician")]
+    [RequestSizeLimit(SignatureRequestLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = SignatureRequestLimit)]
+    public async Task<IActionResult> UploadSignature(int id, [FromForm] SignatureUploadRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        if (request.File is null || request.File.Length == 0)
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation,
+                "The signature is empty. Ask the customer to sign, then save it."));
+        }
+
+        if (request.File.Length > SignatureRules.MaxBytes)
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation,
+                $"The signature image is too large (maximum {SignatureRules.MaxBytes / 1024} KB)."));
+        }
+
+        // The declared Content-Type and file name are ignored: SignatureRules checks the bytes themselves.
+        using var buffer = new MemoryStream((int)request.File.Length);
+        await request.File.CopyToAsync(buffer, ct);
+
+        var result = await _signatures.SaveAsync(id, ActingUserId, buffer.ToArray(), rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Same audience as GET /{id}: office roles see any job's signature; a Technician only their own (another
+    // technician's job reads as 404). There is no public URL — this endpoint is the only way to the image.
+    [HttpGet("{id:int}/signature")]
+    public async Task<IActionResult> GetSignature(int id, CancellationToken ct)
+    {
+        var result = await _signatures.OpenAsync(id, ActingUserId, User.IsInRole(AppRoles.Technician), ct);
+        if (!result.Succeeded)
+        {
+            return this.ToProblem(result);
+        }
+
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(result.Value!.Content, SignatureRules.ContentType);
     }
 
     [HttpPost("{id:int}/complete")]

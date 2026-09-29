@@ -29,6 +29,11 @@ public class WorkOrderDto
     public string? WorkPerformed { get; set; }
     public string? Notes { get; set; }
 
+    // Phase 8: whether the customer has signed (BR-03). The image itself is only ever served by the
+    // authorized GET /api/work-orders/{id}/signature — no storage key or URL leaves the API.
+    public bool HasSignature { get; set; }
+    public DateTime? SignedAt { get; set; }
+
     public string? CancelledByName { get; set; }
     public DateTime? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }

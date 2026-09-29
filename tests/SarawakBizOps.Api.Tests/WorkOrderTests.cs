@@ -278,7 +278,7 @@ public class WorkOrderTests
     }
 
     [Fact]
-    public async Task Completing_with_both_fields_recorded_succeeds()
+    public async Task Completing_with_both_fields_and_the_signature_recorded_succeeds()
     {
         var admin = await _factory.AdminClientAsync();
         var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
@@ -289,6 +289,7 @@ public class WorkOrderTests
 
         Assert.Equal("Completed", completed.Status);
         Assert.NotNull(completed.CompletedAt);
+        Assert.True(completed.HasSignature); // Phase 8: BR-03 now includes the customer's signature (AC-06)
     }
 
     // ---- AC-07: Manager approval locks the work order ----
@@ -387,6 +388,9 @@ public class WorkOrderTests
         var diagnosed = await SaveDiagnosisAsync(
             technicianClient, workOrder.Id, "Impeller is unbalanced", "Replaced the impeller and rebalanced the shaft");
         Assert.Equal("Impeller is unbalanced", diagnosed.Diagnosis);
+
+        var signed = await UploadSignatureAsync(technicianClient, workOrder.Id);
+        Assert.True(signed.HasSignature);
 
         var completed = await CompleteWorkOrderAsync(technicianClient, workOrder.Id);
         Assert.Equal("Completed", completed.Status);

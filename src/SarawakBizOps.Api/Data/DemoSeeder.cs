@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Storage;
+using SarawakBizOps.Api.Services.WorkOrders;
 
 namespace SarawakBizOps.Api.Data;
 
@@ -95,6 +97,7 @@ public static class DemoSeeder
         await SeedPartsAsync(userManager, db, ct);
         await SeedWorkOrdersAsync(userManager, db, ct);
         await SeedPartsUsedAsync(userManager, db, ct);
+        await SeedSignaturesAsync(userManager, db, services.GetRequiredService<IFileStorage>(), ct);
     }
 
     // Phase 3 states: New, Approved and Rejected. Four of the Approved rows below are then carried
@@ -179,7 +182,8 @@ public static class DemoSeeder
             "Band saw blade tracking drifts after warm-up, with unusual vibration on the sawmill floor.",
             WorkOrderStatus.Assigned, AssignedDaysAgo: 7),
 
-        // In progress with the evidence already recorded: ready for the technician to tap Complete.
+        // In progress with the evidence already recorded. Since Phase 8 it is deliberately unsigned: the
+        // technician's remaining step is to have the customer sign, then tap Complete.
         new("KCC-CMP-002",
             "Air compressor short-cycles under load and trips its overload relay.",
             WorkOrderStatus.InProgress, AssignedDaysAgo: 6, StartedDaysAgo: 5,
@@ -520,6 +524,46 @@ public static class DemoSeeder
                     CreatedAt = at
                 });
             }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 8: BR-03 means every Completed or Approved job carries the customer's signature, so the seeded
+    // ones get a fictional scrawl (DemoSignatureImage) uploaded through IFileStorage, exactly as the API
+    // stores one. Natural key: only a demo job that has no signature yet gets one, so a re-run adds nothing.
+    private static async Task SeedSignaturesAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, IFileStorage storage, CancellationToken ct)
+    {
+        var technician = await userManager.FindByEmailAsync("technician@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Technician account is missing.");
+
+        var unsigned = await db.WorkOrders
+            .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
+            .Where(w => w.TechnicianId == technician.Id && w.SignatureBlobKey == null
+                && (w.Status == WorkOrderStatus.Completed || w.Status == WorkOrderStatus.Approved))
+            .ToListAsync(ct);
+
+        foreach (var demo in WorkOrders.Where(d => d.Status is WorkOrderStatus.Completed or WorkOrderStatus.Approved))
+        {
+            var workOrder = unsigned.FirstOrDefault(w =>
+                w.ServiceRequest!.Equipment!.SerialNumber == demo.EquipmentSerial
+                && w.ServiceRequest.ProblemDescription == demo.Problem);
+            if (workOrder is null)
+            {
+                continue;
+            }
+
+            var png = DemoSignatureImage.Create(demo.EquipmentSerial);
+            var key = SignatureRules.NewKey(workOrder.Id);
+            using (var content = new MemoryStream(png, writable: false))
+            {
+                await storage.SaveAsync(key, content, SignatureRules.ContentType, ct);
+            }
+
+            workOrder.SignatureBlobKey = key;
+            workOrder.SignatureSizeBytes = png.Length;
+            workOrder.SignedAt = workOrder.CompletedAt;
         }
 
         await db.SaveChangesAsync(ct);
