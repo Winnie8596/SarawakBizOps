@@ -37,7 +37,8 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 4 | The first job end to end: assign, technician works it, Manager approves | Done |
 | 5 | Workflow rules for real: cancellation, a central lock guard, RowVersion conflicts, status timeline | Done |
 | 6 | Parts and stock in: the warehouse runs the parts catalogue, receives and adjusts stock, sees low stock and the ledger | Done |
-| 7–10 | Parts used on a job, signature, photos, PDF report | Planned |
+| 7 | Parts used on a job: atomic, concurrency-safe stock issue; PendingParts and resume | Done |
+| 8–10 | Customer signature, photos, PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
 | 15 | Release polish and docs | Planned |
 
@@ -49,7 +50,8 @@ roles), **service requests** (raise, list with filters, approve, reject with a r
 reason), a **central lock guard** so a locked (Approved/Cancelled) record refuses every mutating call, a
 **RowVersion conflict token** required on every mutating call (409 "record changed — refresh" on a stale one),
 a **parts catalogue and immutable inventory ledger** (receive, adjust with a reason, low stock, filtered history;
-stock always equals the sum of its ledger rows), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
+stock always equals the sum of its ledger rows), **parts used on a job** (atomic issue and return, PendingParts),
+RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
 Users, Customers, Equipment, Service Requests, Work Orders, Inventory, detail pages with history, status timeline, a shared
 conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
 workflow.
@@ -88,26 +90,29 @@ Cancel from Approved: Manager only.
 5. Open **Customers → Rajang Timber Mills → View & history**: the requests appear with their status, dates in Malaysia time (UTC+8), and link to their detail page.
 6. As `warehouse@…` the Service Requests page is not offered and `/service-requests` bounces to the dashboard; as `technician@…` it bounces to **My Jobs** instead (see below).
 
-### Work orders (Phase 4, cancellation and the lock guard added in Phase 5)
+### Work orders (Phase 4, cancellation and the lock guard added in Phase 5, PendingParts in Phase 7)
 
 ```
 Approved ──assign──► Assigned ──start──► InProgress ──complete──► Completed ──approve──► Approved (locked)
- (request)            (atomic:         │  (technician)             (needs a                (Manager;
-                       BR-01/11/12/13) │                            diagnosis and            read-only after)
-                                       │                            work performed, AC-05)
-                        New ──────────►┤
-                                       └──cancel──► Cancelled (locked; Manager only)
-                                            │
-                                            └─► the linked request reverts to Approved,
-                                                 so it can be reassigned (BR-12's index
-                                                 now excludes Cancelled rows)
+ (request)            (atomic:         │   ▲    │  (technician)    (needs a                (Manager;
+                       BR-01/11/12/13) │   │    │                   diagnosis and            read-only after)
+                                       │ resume pending-parts       work performed, AC-05)
+                                       │ (stock │
+                                       │  back) ▼
+                                       │  PendingParts
+                        New ──────────►┤     │
+                                       └─────┴──cancel──► Cancelled (locked; Manager only)
+                                                  │
+                                                  └─► the linked request reverts to Approved,
+                                                       so it can be reassigned (BR-12's index
+                                                       now excludes Cancelled rows)
 ```
 
 | Who | Can |
 |---|---|
-| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`), cancel a New/Assigned/InProgress job (`POST /{id}/cancel`) |
-| Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`) |
-| Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), complete (`POST /{id}/complete`) |
+| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`), cancel a New/Assigned/InProgress/PendingParts job (`POST /{id}/cancel`) |
+| Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`), including its parts and RM total |
+| Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), add and return parts, pause for parts and resume (see *Parts used on a job* below), complete (`POST /{id}/complete`) |
 | WarehouseStaff | nothing here |
 
 - **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one **live** work order (a filtered unique index — excluding `Cancelled` rows — is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order; cancelling a job frees its request to be assigned again.
@@ -139,7 +144,7 @@ Receive     (+q, warehouse)          ┐   one database transaction:
 Adjustment  (±q, reason required)    ├─► 1. UPDATE Parts SET QuantityOnHand = QuantityOnHand + q
                                      │      WHERE Id = @id AND QuantityOnHand + q >= 0
 Issue/Return  only from work-order   ┘   2. INSERT exactly one immutable InventoryTransaction
-              parts (Phase 7)
+              parts (Phase 7, below)
 Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never below zero.
 ```
 
@@ -147,7 +152,8 @@ Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never be
 |---|---|
 | WarehouseStaff, Admin | create and edit parts (`POST /api/parts`, `PUT /api/parts/{id}`), receive and adjust stock (`POST /api/inventory-transactions`) |
 | WarehouseStaff, Admin, Manager | list/search parts (`GET /api/parts?search=&includeInactive=`), open one (`GET /{id}`), see low stock (`GET /api/parts/low-stock`), read the ledger (`GET /api/inventory-transactions`, filters `partId`, `type`, `workOrderId`, `from`, `to`) |
-| ServiceStaff, Technician | nothing here yet (a Technician gets parts on their own jobs in Phase 7) |
+| Technician | search the **active** parts list only (`GET /api/parts`; `includeInactive` is ignored), to pick parts for their job — no low stock, single part or ledger |
+| ServiceStaff | nothing here |
 
 - **BR-09, the ledger is the truth.** `QuantityOnHand` is a cached balance that only the inventory service moves, always in the same database transaction as exactly one new ledger row. There is **no PUT, PATCH or DELETE** for ledger rows (a test enumerates the app's routes to prove it); a mistake is fixed with an offsetting Adjustment. Editing a part never touches its stock, and a new part starts at zero — its first delivery is a Receive.
 - **Adjustments need a reason** (`400` without one) and can go either way; a Receive must be positive. Issue and Return are refused here (`400`): they only ever come from adding or returning parts on a work order.
@@ -165,6 +171,44 @@ Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never be
 5. Open **History** on that row (or **Inventory → transaction history**): the receive and the adjustment, newest first, signed, with who did them and why. Filter by type or by a date range in Malaysia time. There is nothing to edit or delete.
 6. As `manager@…` the Inventory pages are read-only (no New part, Receive, Adjust or Edit). As `staff@…` they are not offered and `/inventory` bounces to the dashboard; a technician lands on **My Jobs**.
 
+### Parts used on a job (Phase 7)
+
+```
+POST /api/work-orders/{id}/parts  { partId, quantity, rowVersion }      — no price: it is snapshotted server-side
+one database transaction:
+  1. claim the job:  UPDATE WorkOrders SET Status = Status
+                     WHERE Id = @id AND TechnicianId = @me AND Status = 'InProgress' AND RowVersion = @rv
+  2. issue stock:    UPDATE Parts SET QuantityOnHand = QuantityOnHand - @q
+                     WHERE Id = @part AND IsActive = 1 AND QuantityOnHand - @q >= 0     (0 rows → 409, AC-04)
+  3. INSERT WorkOrderPart (UnitPrice = Part.UnitCost read under the row lock)
+     INSERT exactly one Issue ledger row (-q, WorkOrderId = @id)                         (AC-03, BR-05)
+DELETE /api/work-orders/{id}/parts/{lineId}  { rowVersion }  — the same claim, then the line is removed,
+  the stock goes back up and exactly one Return ledger row (+q, WorkOrderId) is written.
+```
+
+| Who | Can |
+|---|---|
+| Technician (their own job, InProgress only) | add a part (`POST /api/work-orders/{id}/parts`), return a whole line (`DELETE /{id}/parts/{lineId}`), pause the job for parts (`POST /{id}/pending-parts` with a reason, the part and the quantity needed) |
+| Technician (their own job, PendingParts) | resume it (`POST /{id}/resume`) once the awaited part has the awaited quantity on hand |
+| Office roles | see the parts, RM line totals and job total on the work-order page, and the job's Issue/Return rows in the ledger (`?workOrderId=`) |
+
+- **AC-03, atomic.** The line, exactly one Issue row and the stock decrease commit together or not at all. A test makes the database fail part-way (before the rows are written, and after they are written but before commit) and checks that stock, lines, ledger and even the job's `rowVersion` are exactly as before.
+- **AC-04, BR-04.** Asking for more than is on hand is a `409` — *"Not enough stock: only 2 pcs of … on hand"* — and nothing changes.
+- **Concurrency-safe (Open Question 8).** Issuing uses the same single conditional `UPDATE` as the warehouse: the database serialises everyone on the part's row and re-checks `QuantityOnHand - @q >= 0`, so N technicians racing for the last units get exactly as many successes as there is stock, never a negative balance, with no retry loop. The flagship test runs that race in five rounds (e.g. 8 technicians for 3 units, 8 for 2.5 units in 0.5s) and reconciles the ledger after each.
+- **The job's `rowVersion` guards the job, not the stock.** Adding or returning a part carries the job's `rowVersion` (the Phase 5 rule) and bumps it. The claim holds the job row's lock until commit, so a Manager's cancel or the technician's own Complete cannot interleave, and a double-tap from the same screen adds the part once.
+- **Price snapshot.** `UnitPrice` is copied from the catalogue at the moment of use; the client cannot send one, and a later price change never rewrites an existing line. Line totals are rounded to sen, and the job total is the sum of its lines.
+- **Return** removes a whole line (to use fewer, return it and add the right amount). Parts can be added and returned only while the job is **InProgress**; an Approved or Cancelled job refuses with the central lock message. A job cancelled with parts on it keeps them: the ledger already shows them issued to that job, and the warehouse books any unused units back with an Adjustment.
+- **PendingParts.** The technician names the part and quantity they are waiting for and why. That is refused when the part is already in stock (add it instead). **Resume is guarded by stock:** the status change and the stock check are one conditional `UPDATE`, so it succeeds only when the awaited part has at least the awaited quantity on hand. Nothing is reserved (V2): the stock can still be used on another job before this one adds it. `start` and `resume` are separate actions — `start` cannot be used to skip the stock guard.
+
+**Try it (demo script).** Sign in at <http://localhost:8080>:
+
+1. As `technician@sarawakbizops.local` (a narrow window works best): open the in-progress **Air Compressor** job. **Parts used** already shows the overload relay (1 × RM 145.00). Tap **Add a part**, type `filter`, tap the *Air filter element*, use **+** to make it 2 and tap **Add to job**: the line and the new RM total appear.
+2. Tap **Add a part** again, pick the *Automatic voltage regulator* (1 in stock) and press **+** to ask for 2: the picker says *Not enough stock: only 1 pcs on hand* and offers **Wait for this part…** instead of Add. (The API refuses the same thing with a `409`, and stock is unchanged.)
+3. **Return** the air filter line: it disappears and the filters go back into stock.
+4. Open the **Bottle Filling Line B** job — it is **Waiting for parts**: 6 m of conveyor belt, none in stock. Tap **Resume job**: it is refused with *Still waiting for parts: 6 m … needed, 0 on hand*.
+5. As `warehouse@…`, **Inventory → Conveyor belt, 600 mm → Receive** 10 m. Back as the technician, **Resume job** now works; add the 6 m of belt and complete the job.
+6. As `manager@…`, open any of these work orders: the parts table shows each line and the RM total, and the timeline shows *Waiting for parts* and *Resumed*. **Inventory → transaction history**, filtered by type *Issue*, shows each part used, linked to its job.
+
 ```
 src/
 ├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity (+ Dockerfile)
@@ -174,7 +218,7 @@ tests/
 docs/
 └── test-plan.md                Acceptance-criteria map: which test proves which AC
 scripts/
-└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end, and parts and stock (used by CI)
+└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end, parts and stock, and parts on a job (used by CI)
 docker-compose.yml              sqlserver + api + web, one command
 ```
 
@@ -204,12 +248,12 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 pieces of equipment and 11 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 4 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 5 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only) and Cancelled (its request reverted to Approved, ready to be reassigned). The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 15 ledger rows — deliveries plus two reasoned adjustments — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 pieces of equipment and 12 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 5 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 6 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded and a relay used), PendingParts (waiting for 6 m of conveyor belt that is out of stock), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only, with its parts and RM total) and Cancelled (its request reverted to Approved, ready to be reassigned). The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 19 ledger rows — deliveries, two reasoned adjustments and four parts issued to jobs — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
 
 | Command | What it does |
 |---|---|
 | `docker compose down` | Stop, keeping the database |
-| `docker compose down -v` | Stop **and wipe the database**; the next `up` re-seeds from scratch |
+| `docker compose down -v` | Stop **and wipe the database and the stored files**; the next `up` re-seeds from scratch |
 | `docker compose logs -f api` | Follow the API log |
 
 **How it fits together**
@@ -222,7 +266,7 @@ The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 10 piec
 
 **Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
 
-**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete, approve, then the approved job locks against further technician action), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock). It needs `curl` and `jq`, and CI runs it on every push. It adds a couple of requests and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete, approve, then the approved job locks against further technician action), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock), and walks parts on a job (a fresh job for the demo technician: the technician can search parts but not read the ledger, the warehouse cannot add parts to a job, add a part at the snapshotted price, over-stock is a 409 and changes nothing, return it, one Issue and one Return on the job's ledger, pause for parts, resume refused while short, receive, resume). It needs `curl` and `jq`, and CI runs it on every push. It adds a few requests, a job and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
 
 ---
 
@@ -323,7 +367,7 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 ### Design decisions carried from the SDD
 
 - **No custom password/role fields.** Identity owns all of that.
-- **Stock is moved by one conditional `UPDATE`, not read-modify-write** (Phase 6): `QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`. The database serialises concurrent updates to the row and re-checks the predicate, so warehouse movements need no retry loop. Phase 7 decides how issuing parts to a job (which also has to snapshot price and create a `WorkOrderPart`) builds on this (Open Question 8).
+- **Stock is moved by one conditional `UPDATE`, not read-modify-write** (Phase 6): `QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`. The database serialises concurrent updates to the row and re-checks the predicate, so warehouse movements need no retry loop. **Phase 7 (Open Question 8) uses the same statement to issue parts to a job**, rather than the plan's original default of a bounded `RowVersion` retry or an explicit `UPDLOCK` read: the conditional `UPDATE` already takes the row's update lock and re-checks the predicate, so it is race-free in one round trip; a retry loop could still fail under heavy contention and an `UPDLOCK` read needs raw SQL for no gain. The price snapshot is read after the `UPDATE`, inside the same transaction, while the row is locked. The work order's own `RowVersion` still guards the *job* (see *Parts used on a job*).
 - **`RowVersion` concurrency tokens** on `ServiceRequest`, `WorkOrder` and `Part`, checked by hand rather
   than via EF's `DbUpdateConcurrencyException`: every mutating call extends the same conditional
   `UPDATE … WHERE Status = @from` guard already used for status races with `AND RowVersion = @rowVersion`,
@@ -341,9 +385,10 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 - Customers, Equipment, Service Requests (raise, approve, reject, cancel) and the work-order lifecycle (assign,
   start, diagnose, complete, approve, cancel) are implemented so far, with a RowVersion conflict token on every
   mutating call and a shared conflict banner in the UI, plus the parts catalogue and inventory ledger (receive,
-  adjust, low stock, history); parts used on jobs, files/PDF, dashboard analytics and AI features are planned in
-  [`plan.md`](./plan.md). Parts/photos/signature are not part of completing a job yet (Phase 7 onward), and low
-  stock is an Inventory-page list until the Phase 11 dashboard. Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
+  adjust, low stock, history) and parts used on jobs (atomic issue and return, PendingParts/resume); files/PDF,
+  dashboard analytics and AI features are planned in [`plan.md`](./plan.md). Photos and the signature are not part
+  of completing a job yet (Phases 8–9), and low stock is an Inventory-page list until the Phase 11 dashboard.
+  Stock is not reserved for a job waiting for parts (V2). A returned part goes back as a whole line. Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
   no separate audit-log table (D-05). List endpoints are not paginated yet (Phase 15 sweep).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
   no forced change-on-first-login. Admin-set passwords are shared out of band.

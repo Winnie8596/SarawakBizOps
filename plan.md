@@ -60,7 +60,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 4 | **First job, end to end:** assign → technician starts and completes → Manager approves | 25–30 | ✅ Done (`phase-4-done`) |
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | ✅ Done |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | ✅ Done |
-| 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | |
+| 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | ✅ Done |
 | 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | |
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | |
 | 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | |
@@ -288,7 +288,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 7 — Parts used on a job
+## ✅ Phase 7 — Parts used on a job
 
 **Goal:** the hardest rule in the product, delivered as one slice: a technician consumes stock from a work order **atomically and concurrency-safely**.
 **Demo:** a technician adds two parts to an in-progress job; stock drops and the order shows parts with an RM total. Adding more than is in stock is refused. Two technicians racing for the last unit: exactly one wins. A job is paused as *Pending parts* and resumed when stock exists.
@@ -303,9 +303,27 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | **AC-03** (one `WorkOrderPart` + one `Issue` row + stock decreased, atomically — simulate a mid-way failure and assert nothing persisted); **AC-04** (insufficient stock → rejected, stock unchanged, no rows); **the concurrent-issue test** (N parallel requests for the last unit(s): exactly the available amount succeeds, stock never negative, reconciliation holds — real SQL Server, **run repeatedly**); return path; resume guard; access rows. |
 | Ops & docs | README design decision: chosen concurrency strategy and why; test-plan AC-03/04. |
 
+**Decisions taken (grilled before building)**
+
+| Topic | Decision |
+|---|---|
+| Concurrency strategy (Open Question 8) | **Phase 6's conditional `UPDATE`**, not the plan's original default (bounded `RowVersion` retry) or `UPDLOCK`: `UPDATE Parts SET QuantityOnHand = QuantityOnHand - @q WHERE Id = @id AND IsActive = 1 AND QuantityOnHand - @q >= 0`, in one transaction with the `WorkOrderPart` insert and the single `Issue` ledger row. The database serialises contenders on the part row and re-checks the predicate, so there is no retry loop and nothing to go negative. The price snapshot is read after the `UPDATE`, under the row lock; the client never sends a price. |
+| Job conflict token | Adding/returning a part **carries the job's `rowVersion` and bumps it** (the Phase 5 rule for every mutating call). The first statement in the transaction is a no-op `UPDATE WorkOrders SET Status = Status WHERE Id AND TechnicianId AND Status = 'InProgress' AND RowVersion = @rv`, which holds the job row's lock until commit: a Manager's cancel or the technician's own Complete cannot interleave, and a same-screen double tap adds the part once. |
+| PendingParts shape | Body: reason + **part + quantity** being waited for. Migration `WorkOrderPendingParts` adds `PendingPartsReason`, `PendingPartId` (FK, restrict), `PendingPartQuantity`, `PendingPartsAt`, `ResumedAt` to `WorkOrder` (all nullable, additive). Pausing is refused when the part already has enough stock (add it instead). **Resume** is one conditional `UPDATE` whose `WHERE` includes "the awaited part has at least the awaited quantity on hand". No reservation (V2). The fields are kept after a resume as the record of the wait (the timeline shows *Waiting for parts* and *Resumed*). |
+| Start vs resume | Both reach `InProgress`, so the state machine names each action's single source state (`StartRefusal`: Assigned only; `ResumeRefusal`: PendingParts only) — `start` can never skip the resume stock guard. |
+| Return | `DELETE /api/work-orders/{id}/parts/{lineId}` returns a **whole line** (the route id is the `WorkOrderPart` line, since a part can be on a job twice). One `Return` ledger row (+q, linked to the job) in the same transaction. Partial returns: return and re-add. |
+| Which states | Parts change only while **InProgress** (`WorkOrderStateMachine.AcceptsPartChanges`); a PendingParts job must be resumed first. `PendingParts → Cancelled` is allowed (Manager). A job cancelled with parts on it keeps them — the warehouse books unused units back with an Adjustment. |
+| Technician catalogue access | `GET /api/parts` opens to the Technician, **active parts only** (`includeInactive` ignored). Low stock, `GET /parts/{id}` and the ledger stay office/warehouse only. |
+| Inactive parts | Cannot be added or waited for (400 "Choose a part from the catalogue"); a returned line still goes back into stock. |
+| Mid-way failure test | A second test host on the same database whose `DbContext` has a `SaveChangesInterceptor` that throws before, or after, the line and Issue rows are written (after the stock `UPDATE` and job claim) — no production seam needed. |
+| UI | The Parts step reuses one picker: type to filter the active catalogue (loaded once), tap a part, −/+ stepper (48 px). When the quantity exceeds stock, *Add* becomes **Wait for this part…** (reason → pause). PendingParts shows what is awaited and a sticky **Resume job**. The office detail page gets a parts table with RM totals. |
+| Demo seed | Parts used on the InProgress (relay), Approved (seal kit + 12 L oil) and a new **PendingParts** job (a new *Filling Line B*, SBW-FIL-003: bearings used, waiting for 6 m of belt at 0 stock). Four `Issue` rows by the technician; the seed still reconciles. Seeding parts moved before work orders. |
+| Git | Branch `phase-7-parts-on-jobs` from the Phase 6 commit (one branch per phase, as for Phases 5–6); commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] The concurrent-issue test is stable across repeated runs (this is the flagship test — do not merge it flaky).
-- [ ] Stock reconciles with the ledger.
+- [x] The concurrent-issue test is stable across repeated runs (this is the flagship test — do not merge it flaky). *(`WorkOrderPartsTests.Technicians_racing_for_the_last_units_never_take_more_than_there_is`, five rounds per run: passed 5/5 isolated repeats and four consecutive full-suite runs with nothing else touching the tree. One earlier full-suite failure happened while another process was rewriting the working tree mid-run and did not recur.)*
+- [x] Stock reconciles with the ledger. *(`LedgerReconciliation` runs after every stock-moving test in `WorkOrderPartsTests`, including each race round and the injected mid-way failures, and on the demo seed.)*
+- [x] Demo script works in Docker. *(`scripts/compose-smoke.sh`'s parts-on-a-job walk passed twice in a row on a fresh, isolated `docker compose` stack. The UI click-through in the README was not executed by hand in a browser in this session.)*
 
 ---
 
@@ -540,5 +558,5 @@ Because every phase is a working slice, cutting never leaves the app broken. Dro
 | 5 | React Native | End of Phase 15 | Move to V2 |
 | 6 | Dashboard charts approach | Start of Phase 11 | Hand-rolled SVG/CSS |
 | 7 | SDD v1.2 vs PRD-as-amendment | Phase 15 | PRD-as-amendment + `docs/decisions.md` |
-| 8 | Concurrency strategy for stock (RowVersion retry vs `UPDLOCK`) | Start of Phase 7 | Bounded `RowVersion` retry (matches the existing schema) |
+| 8 | Concurrency strategy for stock (RowVersion retry vs `UPDLOCK`) | Start of Phase 7 | **Decided (Phase 7):** neither — the Phase 6 single conditional `UPDATE` (see Phase 7 decisions) |
 | 9 | Conflict token transport (`If-Match` vs body field) | Start of Phase 5 | Body field `rowVersion` (simplest for a hand-rolled client) |

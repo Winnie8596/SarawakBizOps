@@ -12,8 +12,8 @@ and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
 | Integration | `tests/SarawakBizOps.Api.Tests` | The real API against a real SQL Server container (Testcontainers): business rules, validation, concurrency, seed data |
 | Authorization | `EndpointAccessTests` | Every endpoint × (anonymous + all five roles) → exactly 401, 403 or the success status (AC-11) |
 | Frontend | `src/SarawakBizOps.Web/src/test` (Vitest + React Testing Library) | The UI honours role gating and shows the API's messages; `fetch` is stubbed, the components are real |
-| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job, parts and stock |
-| Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` ends with it, and `DemoSeedingTests` runs it on the seed |
+| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job, parts and stock, parts on a job |
+| Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` and `WorkOrderPartsTests` ends with it, and `DemoSeedingTests` runs it on the seed |
 
 Conventions: each integration test creates its own uniquely named customers/users, so tests never depend on run order;
 the `Api` collection shares one SQL Server container per test run.
@@ -24,15 +24,15 @@ the `Api` collection shares one SQL Server container per test run.
 |---|---|---|---|---|
 | AC-01 | Assign creates exactly one WorkOrder; request marked assigned | 4 | `WorkOrderTests.Assigning_an_approved_request_creates_one_work_order_and_marks_it_assigned`, `Assigning_the_same_request_twice_fails_on_the_second_attempt`, `Two_managers_racing_to_assign_the_same_request_have_exactly_one_winner` | **Done** |
 | AC-02 | Technician sees customer, equipment, problem, priority, status | 4 | `WorkOrderTests.The_assigned_technician_sees_full_job_context_and_it_appears_in_their_job_list`, `Another_technician_cannot_read_or_act_on_someone_elses_job` | **Done** |
-| AC-03 | Add part → one WorkOrderPart + one Issue transaction, atomically | 7 | | Not yet implemented |
-| AC-04 | Insufficient stock rejected, stock unchanged | 7 | | Not yet implemented |
+| AC-03 | Add part → one WorkOrderPart + one Issue transaction, atomically | 7 | `WorkOrderPartsTests.Adding_a_part_creates_one_line_and_exactly_one_issue_row_and_lowers_stock`, `A_failure_part_way_through_adding_a_part_leaves_nothing_behind` (failure injected before and after the rows are written: stock, lines, ledger and the job's `rowVersion` all unchanged), `The_price_is_snapshotted_from_the_catalogue_and_a_client_price_is_ignored`; UI: `TechnicianView.test.tsx` › `adds a part picked from the catalogue…` | **Done** |
+| AC-04 | Insufficient stock rejected, stock unchanged | 7 | `WorkOrderPartsTests.Adding_more_than_is_in_stock_is_refused_and_changes_nothing`, `Technicians_racing_for_the_last_units_never_take_more_than_there_is` (the concurrent-issue test, five rounds); UI: `shows the server’s not-enough-stock refusal…`, `pauses the job for a part that is out of stock…` | **Done** |
 | AC-05 | Completion rejected without diagnosis / work performed | 4 | `WorkOrderTests.Completing_without_diagnosis_or_work_performed_is_rejected`, `Saving_a_diagnosis_with_a_blank_field_is_rejected_and_the_job_still_cannot_complete` | **Done** |
 | AC-06 | Completion rejected without a signature | 8 | | Not yet implemented |
 | AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -46,17 +46,21 @@ the `Api` collection shares one SQL Server container per test run.
 | Two simultaneous decisions have one winner | `ServiceRequestTests.Concurrent_decisions_on_one_request_have_exactly_one_winner` (6 racing calls: 1 × 200, 5 × 409; run repeatedly before merge) |
 | Creator comes from the token | `ServiceRequestTests.The_creator_comes_from_the_token_not_from_the_request_body` |
 | Timestamps stored in UTC, shown in MYT | UI: `shows dates in Malaysia time (UTC+8)…` |
-| Demo data is consistent and idempotent | `DemoSeedingTests` (11 requests and 5 work orders in the right states, including one Cancelled of each, BR-10 holds for every seeded row, re-seeding changes nothing) |
+| Demo data is consistent and idempotent | `DemoSeedingTests` (12 requests and 6 work orders in the right states, including one Cancelled of each and a PendingParts job, parts used on three jobs, BR-10 holds for every seeded row, re-seeding changes nothing) |
 | BR-01 (assignment half), BR-13 request follows the job | `WorkOrderTests` full-workflow test; `ServiceRequestStateMachineTests`/`WorkOrderTests` cover the two halves separately since assignment moves the *request*, not the work order |
 | BR-02 a technician acts only on their own job | `WorkOrderTests.Another_technician_cannot_read_or_act_on_someone_elses_job` (get, start and `mine` all checked); ownership is reported as 404, not 403, so a technician cannot even confirm another's job exists |
 | BR-11 only an active Technician can be assigned | `WorkOrderTests.Assigning_to_a_non_technician_or_inactive_technician_is_rejected` |
 | BR-12 one *live* WorkOrder per request | `WorkOrderTests.Assigning_the_same_request_twice_fails_on_the_second_attempt`, `Two_managers_racing_to_assign_the_same_request_have_exactly_one_winner`; `WorkflowCancellationTests.A_manager_cancels_an_assigned_job_and_the_request_becomes_reassignable` (the filtered unique index on `WorkOrder.ServiceRequestId`, excluding `Cancelled` rows, is the final guard both ways) |
-| Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs, including the three new Cancel targets); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
+| Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs, including the Cancel targets and InProgress ⇄ PendingParts; start only from Assigned, resume only from PendingParts); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
 | BR-06/AC-08 central lock guard (Phase 5) | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (a locked job refuses a non-transition edit, not just a status change, via `WorkOrderStateMachine.IsLocked`) |
 | Cancellation (Phase 5) | `WorkflowCancellationTests` — request cancel by creator-side roles (New only) and by a Manager (New or Approved); work-order cancel by a Manager (New/Assigned/InProgress) with the request-revert side effect; both require a reason |
 | BR-09 immutable ledger, stock == SUM(ledger) (Phase 6) | `InventoryTests.Receiving_stock_writes_exactly_one_ledger_row_and_raises_the_stock_in_step`, `Editing_a_part_changes_the_catalogue_fields_but_never_the_stock`, `No_route_can_edit_or_delete_a_ledger_row` (enumerates the app's routes: only `GET`/`POST` on the collection), plus `LedgerReconciliation` after every stock-moving test |
 | Adjustment requires a reason; Issue/Return only from work orders (Phase 6) | `StockMovementRulesTests`; `InventoryTests.An_adjustment_without_a_reason_is_rejected_and_changes_nothing`, `Issue_and_return_cannot_be_created_through_the_inventory_endpoint`; UI: `will not submit an adjustment until a reason is given…` |
 | BR-04 groundwork: stock never below zero (Phase 6) | `InventoryTests.An_adjustment_that_would_take_stock_below_zero_is_a_409_and_changes_nothing`, `Concurrent_write_offs_of_the_last_units_never_take_stock_below_zero` (8 racing write-offs for 3 units: exactly 3 win), `Concurrent_receives_all_land_and_the_total_is_exact`; a `CHECK (QuantityOnHand >= 0)` constraint backs it in the database |
+| BR-04 stock never below zero when used on a job; concurrency (Phase 7) | `WorkOrderPartsTests.Technicians_racing_for_the_last_units_never_take_more_than_there_is` — per round, N technicians each with their own job race for the last units of one part (8 for 3, 6 for 1, 8 for 2.5 in 0.5s, repeated): exactly `stock / quantity` succeed, the rest are 409, stock ends at exactly 0, one Issue per winner, one line per winning job, and the whole database reconciles. Also `A_double_tap_on_the_same_job_view_adds_the_part_once` (the job's `rowVersion` claim) |
+| BR-05 each part used writes exactly one Issue linked to the job; returns write one Return (Phase 7) | `WorkOrderPartsTests.Adding_a_part_creates_one_line_and_exactly_one_issue_row_and_lowers_stock`, `Returning_a_line_puts_its_stock_back_with_one_return_row` (and a second return is a 404), `A_line_can_only_be_returned_through_its_own_job`, `The_office_sees_the_parts_and_the_ledger_can_be_filtered_by_job` |
+| Parts only on your own job, only while InProgress (Phase 7) | `WorkOrderPartsTests.Another_technician_cannot_see_or_change_parts_on_my_job` (404), `Parts_can_only_change_while_the_job_is_in_progress` (Assigned/Completed 409, Approved → the central lock message), `A_stale_row_version_is_a_409_and_a_missing_one_is_a_400`, `An_invalid_quantity_is_a_400`, `Unknown_and_inactive_parts_cannot_be_used`, `A_technician_can_search_only_the_active_catalogue` |
+| PendingParts and the resume stock guard (Phase 7) | `WorkOrderPartsTests.A_job_waits_for_parts_and_resumes_only_once_they_are_in_stock` (no parts or Complete while paused, resume refused while short, allowed once received, `StartedAt` kept), `Waiting_for_a_part_that_is_already_in_stock_is_refused`, `Pending_parts_needs_a_reason_and_a_job_in_progress`, `Start_cannot_be_used_to_skip_the_resume_stock_guard`, `A_manager_can_cancel_a_job_that_is_waiting_for_parts`, `A_job_waiting_for_parts_still_counts_as_open_work_for_its_technician` |
 | RowVersion conflict token (Phase 5) | `WorkflowCancellationTests.Two_diagnosis_edits_against_the_same_stale_RowVersion_have_exactly_one_winner` (closes the lost-update gap a pure status guard cannot: two edits to the same field, same status), `Approving_a_request_with_a_stale_RowVersion_is_a_409`, `A_missing_or_malformed_RowVersion_is_a_400` |
 
 ## Phase 3 test inventory
@@ -106,10 +110,26 @@ the `Api` collection shares one SQL Server container per test run.
 **Docker smoke**
 - Seeded low stock visible to the warehouse; ServiceStaff cannot read or change inventory and a Technician cannot receive (403); create a part, duplicate number (409), receive, adjustment without a reason (400), adjust with one, going below zero (409), Issue refused (400); the part's ledger sums to its stock and a Manager can read it. (Phase 6 also fixed the earlier walks to send each record's `rowVersion`, which Phase 5 made mandatory.)
 
+## Phase 7 test inventory
+
+**Backend (xUnit)**
+- `StockMovementRulesTests` (unit): job quantities must be positive with at most 3 decimals and a sane size; a line total is quantity × snapshot price rounded half away from zero to sen.
+- `WorkOrderStateMachineTests` (unit): InProgress ⇄ PendingParts and PendingParts → Cancelled added to the independently written table; start allowed only from Assigned and resume only from PendingParts, for every status; parts change only while InProgress.
+- `WorkOrderPartsTests` (integration, real SQL Server): AC-03 and its injected mid-way failures, AC-04, the price snapshot, the concurrent-issue race (five rounds) and the same-screen double tap, return (and returning twice or through another job), ownership, status and lock guards, stale/missing `rowVersion`, invalid quantities, inactive/unknown parts, the technician's active-only catalogue, the office view and the ledger's `workOrderId` filter, and PendingParts/resume. Every stock-moving test ends with a whole-database reconciliation.
+- `EndpointAccessTests`: four new rows (`POST /work-orders/{id}/parts`, `DELETE /work-orders/{id}/parts/{lineId}`, `pending-parts`, `resume`) — Technician only, and the fixture's own technician; `GET /parts` now allows a Technician too.
+- `DemoSeedingTests`: 6 work orders including the PendingParts belt job; parts on the InProgress, PendingParts and Approved jobs (RM 363.80 on the Approved one); 19 ledger rows — 15 warehouse movements plus 4 Issues by the technician, each linked to its job; the seed still reconciles.
+
+**Frontend (Vitest)**
+- `TechnicianView.test.tsx`: pick a part by typing, set quantity with the stepper, add (exact body, no price) and see the RM total; the server's not-enough-stock 409 is shown and the picker stays open; an out-of-stock part offers *Wait for this part…*, which pauses the job (exact body) and shows what it is waiting for with **Resume job**; a refused resume explains why; returning a line sends the job's `rowVersion`; a completed job's parts are read-only.
+- `WorkOrders.test.tsx`: the office parts table with RM line totals and job total; a paused job shows what it waits for and can still be cancelled by a Manager.
+
+**Docker smoke**
+- A fresh job for the demo technician: the technician can search parts (200) but not read the ledger (403); WarehouseStaff cannot add parts to a job (403); add 2 at the snapshotted price (stock 7 → 5); over-stock is a 409 and changes nothing; return the line (stock back to 7); the job's ledger holds exactly one Issue and one Return; pause for 10; resume refused while short (409); the warehouse receives 3; resume succeeds.
+
 ## Running
 
 ```bash
 dotnet test                              # backend: unit + integration + authorization (needs Docker)
 cd src/SarawakBizOps.Web && npm test     # frontend
-docker compose up -d --build --wait && bash scripts/compose-smoke.sh   # smoke (needs curl and jq)
+docker compose up -d --build --wait && bash scripts/compose-smoke.sh   # smoke (needs curl, jq, base64, cmp, od)
 ```

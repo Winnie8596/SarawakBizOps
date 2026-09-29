@@ -64,12 +64,12 @@ other_customer_id="$(curl -fsS "$BASE_URL/api/customers" -H "Authorization: Bear
 # Content-Length: 0. (curl -X POST with no -d sends no length at all, which Kestrel rejects with a bare 400.)
 api() { # $1 = token, $2 = method, $3 = path, $4 = optional JSON body -> prints the response body (4xx is not an error here)
   local body=()
-  if [ "$2" = POST ] || [ "$2" = PATCH ]; then body=(-d "${4:-}"); fi
+  if [ "$2" = POST ] || [ "$2" = PATCH ] || [ -n "${4:-}" ]; then body=(-d "${4:-}"); fi
   curl -sS -X "$2" "$BASE_URL/api$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${body[@]+"${body[@]}"}
 }
 status_of() { # same arguments as api -> prints only the HTTP status code
   local body=()
-  if [ "$2" = POST ] || [ "$2" = PATCH ]; then body=(-d "${4:-}"); fi
+  if [ "$2" = POST ] || [ "$2" = PATCH ] || [ -n "${4:-}" ]; then body=(-d "${4:-}"); fi
   curl -sS -o /dev/null -w '%{http_code}' -X "$2" "$BASE_URL/api$3" -H "Authorization: Bearer $1" -H 'Content-Type: application/json' ${body[@]+"${body[@]}"}
 }
 # Phase 5 made a RowVersion conflict token mandatory on every workflow mutation. with_rv reads the record's
@@ -166,5 +166,50 @@ history="$(api "$warehouse_token" GET "/inventory-transactions?partId=$part_id")
 jq -e 'length == 2 and (map(.quantity) | add) == 7' <<<"$history" >/dev/null   || fail "the ledger must hold exactly the two movements and sum to the stock on hand, got: $history"
 api "$token" GET "/parts/$part_id" | jq -e '.quantityOnHand == 7' >/dev/null || fail "Manager must be able to read the part"
 echo "  ok: created, received, adjusted with a reason; the ledger reconciles and the wrong roles were refused"
+
+# Phase 7 demo walk: a technician uses the smoke part (7 on hand) on a fresh job of their own. Like the
+# Phase 3 walk it adds a request and a job per run; `docker compose down -v` resets them.
+echo "Parts on a job: add, refuse over-stock, return, pause for parts, resume; wrong roles refused..."
+stock_is() { api "$warehouse_token" GET "/parts/$part_id" | jq -e --argjson n "$1" '.quantityOnHand == $n' >/dev/null; }
+job_request_id="$(api "$staff_token" POST /service-requests "$(new_body "$customer_id" 'Smoke test: parts on a job')" | jq -er '.id')" \
+  || fail "staff could not raise the parts-job request"
+api "$token" POST "/service-requests/$job_request_id/approve" "$(with_rv "$token" "/service-requests/$job_request_id")" >/dev/null
+job_id="$(api "$token" POST "/service-requests/$job_request_id/assign" \
+  "$(with_rv "$token" "/service-requests/$job_request_id" "$(jq -nc --arg t "$technician_id" '{technicianId:$t}')")" | jq -er '.id')" \
+  || fail "manager could not assign the parts job"
+job_rv() { with_rv "$tech_token" "/work-orders/$job_id" "${1:-}"; }
+api "$tech_token" POST "/work-orders/$job_id/start" "$(job_rv)" | jq -e '.status == "InProgress"' >/dev/null \
+  || fail "technician could not start the parts job"
+
+[ "$(status_of "$tech_token" GET /parts)" = 200 ] || fail "Technician must be able to search the parts catalogue"
+[ "$(status_of "$tech_token" GET /inventory-transactions)" = 403 ] || fail "Technician must not read the ledger"
+[ "$(status_of "$warehouse_token" POST "/work-orders/$job_id/parts" "$(jq -nc --argjson p "$part_id" '{partId:$p, quantity:1, rowVersion:"AAAAAAAAAAA="}')")" = 403 ] \
+  || fail "WarehouseStaff must not add parts to a job"
+
+api "$tech_token" POST "/work-orders/$job_id/parts" "$(job_rv "$(jq -nc --argjson p "$part_id" '{partId:$p, quantity:2}')")" \
+  | jq -e '(.parts | length) == 1 and .parts[0].unitPrice == 12.5 and .partsTotal == 25' >/dev/null \
+  || fail "technician could not add a part (AC-03)"
+stock_is 5 || fail "adding 2 must leave 5 on hand"
+[ "$(status_of "$tech_token" POST "/work-orders/$job_id/parts" "$(job_rv "$(jq -nc --argjson p "$part_id" '{partId:$p, quantity:100}')")")" = 409 ] \
+  || fail "using more than is in stock must be a 409 (AC-04)"
+stock_is 5 || fail "a refused issue must not change the stock"
+
+line_id="$(api "$tech_token" GET "/work-orders/$job_id" | jq -er '.parts[0].id')"
+api "$tech_token" DELETE "/work-orders/$job_id/parts/$line_id" "$(job_rv)" | jq -e '(.parts | length) == 0' >/dev/null \
+  || fail "technician could not return the part"
+stock_is 7 || fail "returning the line must restore the stock"
+api "$warehouse_token" GET "/inventory-transactions?workOrderId=$job_id" \
+  | jq -e 'length == 2 and (map(.transactionType) | sort) == ["Issue", "Return"]' >/dev/null \
+  || fail "the job's ledger must hold exactly one Issue and one Return"
+
+api "$tech_token" POST "/work-orders/$job_id/pending-parts" \
+  "$(job_rv "$(jq -nc --argjson p "$part_id" '{reason:"Smoke: waiting for stock", partId:$p, quantity:10}')")" \
+  | jq -e '.status == "PendingParts"' >/dev/null || fail "technician could not pause the job for parts"
+[ "$(status_of "$tech_token" POST "/work-orders/$job_id/resume" "$(job_rv)")" = 409 ] \
+  || fail "resume must be refused while the part is short"
+api "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Receive", quantity:3, notes:"Smoke top-up"}')" >/dev/null
+api "$tech_token" POST "/work-orders/$job_id/resume" "$(job_rv)" | jq -e '.status == "InProgress" and .resumedAt != null' >/dev/null \
+  || fail "technician could not resume once the stock arrived"
+echo "  ok: added, refused over-stock, returned, paused for parts and resumed; the wrong roles were refused"
 
 echo "Smoke test passed."
