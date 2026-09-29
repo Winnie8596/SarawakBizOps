@@ -4,7 +4,8 @@ using SarawakBizOps.Api.Services.Analytics;
 
 namespace SarawakBizOps.Api.Tests;
 
-/// <summary>Phase 11: the dashboard's Malaysia-time month windows, zero-filling and headline tiles, without a database.</summary>
+/// <summary>Phase 11: the dashboard's Malaysia-time month windows, zero-filling and headline tiles, without a database.
+/// Phase 12: the period, duration rounding and which dashboard each role gets.</summary>
 public class AnalyticsRulesTests
 {
     private static DateTime Utc(int y, int mo, int d, int h = 0, int mi = 0, int s = 0)
@@ -96,5 +97,55 @@ public class AnalyticsRulesTests
         Assert.Equal(4, kpis.AwaitingApproval);
         Assert.Equal(2, kpis.CompletedThisMonth); // the last month of the trend
         Assert.Equal(3, kpis.LowStockParts);
+    }
+
+    [Fact]
+    public void The_period_names_the_first_and_last_month_of_the_window()
+    {
+        var period = AnalyticsRules.Period(AnalyticsRules.MonthsEnding(Utc(2027, 1, 5), 6));
+
+        Assert.Equal(("2026-08", "2027-01"), (period.FromMonth, period.ToMonth));
+        Assert.Equal((Utc(2026, 7, 31, 16), Utc(2027, 1, 31, 16)), (period.FromUtc, period.ToUtc));
+    }
+
+    [Theory]
+    [InlineData(171_874.3, 3, 47.74)] // seconds → hours, two decimals
+    [InlineData(82_080.0, 10, 22.8)]
+    [InlineData(0.0, 1, 0.0)]         // measured, and instant: zero, not "nothing"
+    public void An_average_in_seconds_is_reported_in_hours(double seconds, int count, double hours)
+    {
+        var duration = AnalyticsRules.Duration(seconds, count);
+
+        Assert.Equal(hours, duration.AverageHours);
+        Assert.Equal(count, duration.Count);
+    }
+
+    [Fact]
+    public void Nothing_measured_is_no_average_at_all()
+    {
+        Assert.Null(AnalyticsRules.Duration(null, 0).AverageHours);
+        Assert.Equal(0, AnalyticsRules.Duration(null, 0).Count);
+    }
+
+    [Theory]
+    [InlineData(new[] { AppRoles.Manager }, DashboardViews.Manager)]
+    [InlineData(new[] { AppRoles.Admin }, DashboardViews.Manager)]
+    [InlineData(new[] { AppRoles.WarehouseStaff }, DashboardViews.Warehouse)]
+    [InlineData(new[] { AppRoles.ServiceStaff }, DashboardViews.ServiceQueue)]
+    [InlineData(new[] { AppRoles.ServiceStaff, AppRoles.WarehouseStaff }, DashboardViews.Warehouse)] // the broader view
+    [InlineData(new[] { AppRoles.WarehouseStaff, AppRoles.Manager }, DashboardViews.Manager)]
+    [InlineData(new[] { AppRoles.Technician }, null)]
+    [InlineData(new string[0], null)]
+    public void Each_role_gets_its_own_dashboard(string[] roles, string? view)
+    {
+        Assert.Equal(view, AnalyticsRules.ViewFor(roles.Contains));
+    }
+
+    [Fact]
+    public void Cancelled_and_rejected_requests_are_not_fault_reports()
+    {
+        Assert.Equal(
+            new[] { ServiceRequestStatus.New, ServiceRequestStatus.Approved, ServiceRequestStatus.Assigned },
+            AnalyticsRules.FaultReportStatuses);
     }
 }

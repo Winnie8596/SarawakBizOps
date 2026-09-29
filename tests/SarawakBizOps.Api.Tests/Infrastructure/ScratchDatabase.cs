@@ -98,6 +98,53 @@ public sealed class ScratchDatabase : IAsyncDisposable
         CreatedByUserId = UserId
     };
 
+    // ---- Phase 12: rows with every timestamp chosen by the test ----
+
+    /// <summary>Another piece of equipment of the scratch customer.</summary>
+    public async Task<int> AddEquipmentAsync(string serialNumber)
+    {
+        await using var db = NewContext();
+        var equipment = new Equipment { CustomerId = CustomerId, SerialNumber = serialNumber, EquipmentType = "Pump" };
+        db.Equipment.Add(equipment);
+        await db.SaveChangesAsync();
+        return equipment.Id;
+    }
+
+    /// <summary>A request raised at <paramref name="createdAtUtc"/>, on the default equipment unless another is given.</summary>
+    public ServiceRequest Request(
+        ServiceRequestStatus status, DateTime createdAtUtc, int? equipmentId = null,
+        RequestPriority priority = RequestPriority.Medium) => new()
+    {
+        CustomerId = CustomerId,
+        EquipmentId = equipmentId ?? EquipmentId,
+        ProblemDescription = "Scratch problem",
+        Priority = priority,
+        Status = status,
+        CreatedByUserId = UserId,
+        CreatedAt = createdAtUtc
+    };
+
+    /// <summary>A job of the scratch technician on its own (Assigned) request raised at <paramref name="raisedAtUtc"/>.</summary>
+    public WorkOrder Job(
+        WorkOrderStatus status, DateTime raisedAtUtc, DateTime? assignedAtUtc = null,
+        DateTime? startedAtUtc = null, DateTime? completedAtUtc = null) => new()
+    {
+        ServiceRequest = Request(ServiceRequestStatus.Assigned, raisedAtUtc),
+        TechnicianId = UserId,
+        Status = status,
+        AssignedAt = assignedAtUtc,
+        StartedAt = startedAtUtc,
+        CompletedAt = completedAtUtc
+    };
+
+    /// <summary>Saves whatever entities a test built, in one go.</summary>
+    public async Task AddAsync(params object[] entities)
+    {
+        await using var db = NewContext();
+        db.AddRange(entities);
+        await db.SaveChangesAsync();
+    }
+
     public async ValueTask DisposeAsync()
     {
         await using var db = NewContext();

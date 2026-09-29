@@ -351,9 +351,11 @@ public class EndpointAccessTests
             _ => "/api/reports", _ => null, Office, HttpStatusCode.OK,
             Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
 
-        // ---- Phase 11: the Manager dashboard (Admin too; the other roles' dashboards arrive in Phase 12) ----
+        // ---- Phase 11: the Manager dashboard. Phase 12: every office role and the warehouse get their own view
+        // from the same endpoint (role-shaped payloads, DashboardTests); a Technician has My Jobs instead. ----
         new("GET /api/dashboard/summary", HttpMethod.Get,
-            _ => "/api/dashboard/summary", _ => null, new[] { AppRoles.Admin, AppRoles.Manager }, HttpStatusCode.OK,
+            _ => "/api/dashboard/summary", _ => null,
+            new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff, AppRoles.WarehouseStaff }, HttpStatusCode.OK,
             Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId))
     };
 

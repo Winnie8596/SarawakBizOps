@@ -109,50 +109,58 @@ public static class DemoSeeder
     // weeks ago, and a job issuing stock before it was ever received would break the ledger's history. The pump
     // fails twice on purpose — Phase 12's repeated-failures metric has something to find. Every CompletedDaysAgo
     // is at most 140, so all of them fall inside the dashboard's six-month window whatever today's date is.
+    // Phase 12: each job has its own wait for assignment (request raised → assigned, reviewed halfway through)
+    // and time on the job (started → completed; the job was started a day after assignment), so the turnaround
+    // averages have something to average. The earliest request is raised about 138 days ago — still inside the window.
     private record DemoHistory(
         string EquipmentSerial, string Problem, RequestPriority Priority, int CompletedDaysAgo,
-        string Diagnosis, string WorkPerformed);
+        double DaysToAssign, double DaysOnJob, string Diagnosis, string WorkPerformed)
+    {
+        public double StartedDaysAgo => CompletedDaysAgo + DaysOnJob;
+        public double AssignedDaysAgo => StartedDaysAgo + 1;
+        public double CreatedDaysAgo => AssignedDaysAgo + DaysToAssign;
+    }
 
     private static readonly DemoHistory[] History =
     {
         new("KCC-CHL-001",
             "Chiller condenser fan motor is noisy and the unit trips on high head pressure in the afternoons.",
-            RequestPriority.High, 24,
+            RequestPriority.High, 24, 0.5, 0.25,
             "Condenser fan motor bearings worn; condenser coil fouled with dust, raising head pressure.",
             "Replaced the fan motor bearings, cleaned the condenser coil and verified head pressure through a full afternoon cycle."),
         new("SPO-BLR-001",
             "Boiler feed-water pump loses prime after the overnight shutdown.",
-            RequestPriority.Urgent, 38,
+            RequestPriority.Urgent, 38, 0.1, 0.5,
             "Foot valve on the feed-water suction line was not seating, letting the line drain overnight.",
             "Cleaned and re-seated the foot valve, replaced its spring and confirmed the pump held prime over two shutdowns."),
         new("RTM-DRY-002",
             "Timber drying kiln circulation fan vibrates badly at full speed.",
-            RequestPriority.Medium, 52,
+            RequestPriority.Medium, 52, 2, 1,
             "Fan impeller out of balance from resin build-up on two blades.",
             "Cleaned the impeller, balanced it on site and checked vibration was back within limits at full speed."),
         new("SPO-PMP-002",
             "Centrifugal pump bearing housing is running hot and the pump is noisier than usual.",
-            RequestPriority.High, 66,
+            RequestPriority.High, 66, 1, 0.5,
             "Bearing grease had broken down from over-temperature; coupling slightly misaligned.",
             "Flushed and re-greased the bearings, laser-aligned the coupling and monitored housing temperature for an hour."),
         new("MOS-FLT-001",
             "Forklift will not start on cold mornings; the starter clicks but does not turn.",
-            RequestPriority.Medium, 85,
+            RequestPriority.Medium, 85, 1.5, 2,
             "Corroded battery terminals and a weak starter solenoid contact.",
             "Cleaned and protected the battery terminals, replaced the solenoid contact set and load-tested the battery."),
         new("SBW-FIL-001",
             "Filling line A capping head leaves caps loose on about one bottle in twenty.",
-            RequestPriority.Medium, 101,
+            RequestPriority.Medium, 101, 3, 1,
             "Capping head torque clutch worn and set below the cap specification.",
             "Rebuilt the torque clutch, set it to the cap specification and checked 200 bottles with a torque meter."),
         new("KCC-CMP-002",
             "Air compressor oil carry-over into the air lines; the separator element looks saturated.",
-            RequestPriority.Low, 118,
+            RequestPriority.Low, 118, 4, 0.75,
             "Oil separator element saturated and the scavenge line orifice partly blocked.",
             "Replaced the separator element, cleared the scavenge orifice and drained oil from the downstream air lines."),
         new("SPO-PMP-002",
             "Centrifugal pump flow has dropped and the discharge pressure gauge reads low.",
-            RequestPriority.High, 135,
+            RequestPriority.High, 135, 0.75, 1.5,
             "Impeller eye partly blocked with fibre from the clarification tank; wear ring clearance at the limit.",
             "Cleared the impeller, replaced the wear ring and confirmed flow and discharge pressure against the pump curve.")
     };
@@ -165,7 +173,7 @@ public static class DemoSeeder
     // undo their own mistake), one cancelled by the Manager after being Approved.
     private record DemoRequest(
         string EquipmentSerial, string Problem, RequestPriority Priority, ServiceRequestStatus Status,
-        int CreatedDaysAgo, int? ReviewedDaysAgo = null, string? RejectionReason = null,
+        double CreatedDaysAgo, double? ReviewedDaysAgo = null, string? RejectionReason = null,
         int? CancelledDaysAgo = null, string? CancellationReason = null, bool CancelledByCreator = false);
 
     private static readonly DemoRequest[] Requests = new DemoRequest[]
@@ -212,7 +220,7 @@ public static class DemoSeeder
             "Filling line B infeed conveyor stops intermittently and the belt has torn at the splice.",
             RequestPriority.High, ServiceRequestStatus.Approved, CreatedDaysAgo: 4, ReviewedDaysAgo: 4)
     }.Concat(History.Select(h => new DemoRequest(h.EquipmentSerial, h.Problem, h.Priority, ServiceRequestStatus.Approved,
-        CreatedDaysAgo: h.CompletedDaysAgo + 4, ReviewedDaysAgo: h.CompletedDaysAgo + 3))).ToArray();
+        CreatedDaysAgo: h.CreatedDaysAgo, ReviewedDaysAgo: h.CreatedDaysAgo - h.DaysToAssign / 2))).ToArray();
 
     // Phase 4 states: one job at each of Assigned, InProgress, Completed and Approved, all worked by
     // the demo Technician, so every status the UI can show — and both the technician's and the
@@ -221,8 +229,8 @@ public static class DemoSeeder
     // index then lets it be reassigned) — the seeded proof that the revert-and-reassign path works.
     // Phase 7 adds parts used on three jobs and one job paused as PendingParts.
     private record DemoWorkOrder(
-        string EquipmentSerial, string Problem, WorkOrderStatus Status, int AssignedDaysAgo,
-        int? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
+        string EquipmentSerial, string Problem, WorkOrderStatus Status, double AssignedDaysAgo,
+        double? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
         string? Diagnosis = null, string? WorkPerformed = null,
         int? CancelledDaysAgo = null, string? CancellationReason = null,
         DemoPartUsed[]? PartsUsed = null, DemoPendingParts? Pending = null, int Photos = 0);
@@ -288,7 +296,7 @@ public static class DemoSeeder
             CancellationReason: "The parts supplier could not confirm a belt in stock; cancelled so the job can be " +
                                  "reassigned once stock arrives.")
     }.Concat(History.Select(h => new DemoWorkOrder(h.EquipmentSerial, h.Problem, WorkOrderStatus.Approved,
-        AssignedDaysAgo: h.CompletedDaysAgo + 3, StartedDaysAgo: h.CompletedDaysAgo + 1,
+        AssignedDaysAgo: h.AssignedDaysAgo, StartedDaysAgo: h.StartedDaysAgo,
         CompletedDaysAgo: h.CompletedDaysAgo, ApprovedDaysAgo: h.CompletedDaysAgo - 1,
         Diagnosis: h.Diagnosis, WorkPerformed: h.WorkPerformed))).ToArray();
 

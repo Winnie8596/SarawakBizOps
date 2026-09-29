@@ -7,7 +7,8 @@ namespace SarawakBizOps.Api.Services.Analytics;
 /// <summary>
 /// The dashboard's shaping rules (Phase 11, PRD §6.9, SDD §14) as a pure class, unit-testable without a database:
 /// which Malaysia-time months a trend covers, how the grouped counts the database returns become complete,
-/// zero-filled series in a fixed order, and how the headline tiles are derived from them.
+/// zero-filled series in a fixed order, and how the headline tiles are derived from them. Phase 12 adds the
+/// definitions of the turnaround, repeated-failure and parts-usage metrics and which dashboard each role gets.
 /// </summary>
 public static class AnalyticsRules
 {
@@ -18,6 +19,28 @@ public static class AnalyticsRules
 
     /// <summary>How many of the most urgent low-stock parts the summary lists by name.</summary>
     public const int LowStockItems = 5;
+
+    /// <summary>Phase 12: a piece of equipment has repeated failures with at least this many fault reports in the
+    /// period (six months by default): a fault once a quarter or more often is worth a Manager's look.</summary>
+    public const int DefaultRepeatedFailureThreshold = 3;
+
+    /// <summary>How many rows each Phase 12 list shows on the Manager's dashboard.</summary>
+    public const int ManagerListItems = 5;
+
+    /// <summary>The warehouse view lists more of the low-stock parts and waiting jobs: they are its work queue.</summary>
+    public const int WarehouseListItems = 10;
+
+    /// <summary>The service queue lists this many oldest open and recently rejected requests.</summary>
+    public const int QueueListItems = 5;
+
+    /// <summary>"Recently rejected" on the service queue: within this many days.</summary>
+    public const int RecentRejectionDays = 30;
+
+    /// <summary>A service request is a fault report unless it was withdrawn (Cancelled — raised by mistake or
+    /// resolved before review) or turned down (Rejected — e.g. equipment not worth repairing). New, Approved and
+    /// Assigned requests all count, whatever became of their job.</summary>
+    public static readonly ServiceRequestStatus[] FaultReportStatuses =
+        { ServiceRequestStatus.New, ServiceRequestStatus.Approved, ServiceRequestStatus.Assigned };
 
     /// <summary>A request is open while someone still has to act on it before a job exists: awaiting review
     /// (New) or approved and awaiting assignment (Approved — including one whose job was cancelled, which reverts
@@ -69,6 +92,36 @@ public static class AnalyticsRules
             list.Select(m => (m.Year, m.Month)).ToList(),
             DateTime.SpecifyKind(first - ReportRules.MytOffset, DateTimeKind.Utc),
             DateTime.SpecifyKind(current.AddMonths(1) - ReportRules.MytOffset, DateTimeKind.Utc));
+    }
+
+    /// <summary>The period a window covers, as the payload shows it.</summary>
+    public static AnalyticsPeriodDto Period(MonthWindow window) => new()
+    {
+        FromMonth = MonthKey(window.Months[0].Year, window.Months[0].Month),
+        ToMonth = MonthKey(window.Months[^1].Year, window.Months[^1].Month),
+        FromUtc = window.FromUtc,
+        ToUtc = window.ToUtc
+    };
+
+    /// <summary>An average the database computed in seconds, as hours rounded to two decimals; null when there was
+    /// nothing to average.</summary>
+    public static DurationStatDto Duration(double? averageSeconds, int count) => new()
+    {
+        AverageHours = count == 0 || averageSeconds is null ? null : Math.Round(averageSeconds.Value / 3600, 2),
+        Count = count
+    };
+
+    /// <summary>
+    /// Which dashboard a caller gets (PRD §5): Admin and Manager the full one; WarehouseStaff the stock view;
+    /// ServiceStaff the request queue. Someone holding several roles gets the broadest of them, in that order. A
+    /// Technician (only) gets none — their home is My Jobs — so null.
+    /// </summary>
+    public static string? ViewFor(Func<string, bool> isInRole)
+    {
+        if (isInRole(AppRoles.Admin) || isInRole(AppRoles.Manager)) return DashboardViews.Manager;
+        if (isInRole(AppRoles.WarehouseStaff)) return DashboardViews.Warehouse;
+        if (isInRole(AppRoles.ServiceStaff)) return DashboardViews.ServiceQueue;
+        return null;
     }
 
     /// <summary>"2026-09": sortable, and trivially formatted by the UI.</summary>

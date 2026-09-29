@@ -355,6 +355,74 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
     }
 
     [Fact]
+    public async Task Phase_12_metrics_equal_the_hand_computed_values_of_the_seed()
+    {
+        // Phase 12 exit criterion. Counted by hand from the arrays in DemoSeeder; every seeded timestamp lies inside
+        // the six-month period (the earliest, a request raised about 138 days ago).
+        var manager = await _factory.CreateAuthenticatedClientAsync(
+            "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        var summary = (await manager.GetFromJsonAsync<DashboardSummaryDto>("/api/dashboard/summary"))!;
+
+        // Time to assignment, all 14 jobs: the eight earlier ones waited DaysToAssign = 0.5 + 0.1 + 2 + 1 + 1.5 + 3 +
+        // 4 + 0.75 = 12.85 days; the live ones 2 (band saw) + 2 (compressor) + 2 (generator) + 2 (forklift) + 1
+        // (filling line B) + 6 (the cancelled filling line A job) = 15 days. 27.85 days × 24 / 14 = 47.74 h.
+        Assert.Equal(14, summary.AverageTimeToAssignment.Count);
+        Assert.Equal(47.74, summary.AverageTimeToAssignment.AverageHours!.Value, 0.011);
+
+        // Completion duration, the 10 completed jobs: DaysOnJob = 0.25 + 0.5 + 1 + 0.5 + 2 + 1 + 0.75 + 1.5 = 7.5
+        // days, plus a day each for the generator and the forklift. 9.5 days × 24 / 10 = 22.8 h.
+        Assert.Equal((22.8, 10), (summary.AverageCompletionDuration.AverageHours!.Value, summary.AverageCompletionDuration.Count));
+
+        // Three or more fault reports: filling line A (capping head, bottle rejects, fraying belt — the last raised
+        // 2 days ago) and the pump (hot bearings, low flow, the leaking seal — 14 days ago). The kiln's second
+        // request was cancelled, so it is not a fault; every other piece of equipment has at most two.
+        Assert.Equal((3, 2), (summary.RepeatedFailures.MinimumRequests, summary.RepeatedFailures.EquipmentCount));
+        Assert.Equal(new[] { ("SBW-FIL-001", 3), ("SPO-PMP-002", 3) },
+            summary.RepeatedFailures.Items.Select(i => (i.SerialNumber, i.RequestCount)));
+        Assert.Equal("Santubong Bottling Works Sdn Bhd", summary.RepeatedFailures.Items[0].CustomerName);
+
+        // Parts on jobs: seal kit 1 × 185.00, hydraulic oil 12 × 14.90, overload relay 1 × 145.00, bearings 2 × 18.40.
+        Assert.Equal(
+            new[] { ("SEAL-KIT-HYD", 1m, 185.00m), ("OIL-HYD-46", 12m, 178.80m), ("REL-OVL-25A", 1m, 145.00m), ("BRG-6205-2RS", 2m, 36.80m) },
+            summary.TopPartsByUsage.Select(p => (p.PartNumber, p.Quantity, p.Cost)));
+        Assert.All(summary.TopPartsByUsage, p => Assert.Equal(1, p.JobCount));
+
+        // Warehouse: 11 active parts (the fuse is discontinued), the four low, the belt out; filling line B waits for
+        // 6 m of belting with none on hand.
+        var warehouse = await _factory.CreateAuthenticatedClientAsync(
+            "warehouse@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        var stock = (await warehouse.GetFromJsonAsync<WarehouseDashboardDto>("/api/dashboard/summary"))!;
+        Assert.Equal("Warehouse", stock.View);
+        Assert.Equal((11, 4, 1, 1),
+            (stock.Kpis.ActiveParts, stock.Kpis.LowStockParts, stock.Kpis.OutOfStockParts, stock.Kpis.JobsWaitingForParts));
+        Assert.Equal(4, stock.LowStock.Items.Count);
+        var wait = Assert.Single(stock.JobsWaitingForParts.Items);
+        Assert.Equal(("BLT-CNV-600", 6m, 0m, false), (wait.PartNumber, wait.QuantityNeeded, wait.QuantityOnHand, wait.InStock));
+        Assert.Equal(0, stock.JobsWaitingForParts.ReadyToResume);
+        Assert.Equal(summary.TopPartsByUsage.Select(p => p.PartNumber), stock.TopPartsByUsage.Select(p => p.PartNumber));
+
+        // Service queue: New — chiller (1 day), bottle rejects (2), boiler (3); Approved — pump seal (14), filling
+        // line A belt (11, its job cancelled). The conveyor was rejected 19 days ago.
+        var staff = await _factory.CreateAuthenticatedClientAsync(
+            "staff@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        var queue = (await staff.GetFromJsonAsync<ServiceQueueDashboardDto>("/api/dashboard/summary"))!;
+        Assert.Equal("ServiceQueue", queue.View);
+        Assert.Equal((3, 2, 1), (queue.Kpis.AwaitingReview, queue.Kpis.AwaitingAssignment, queue.Kpis.RejectedRecently));
+        Assert.Equal(new[] { "SPO-PMP-002", "SBW-FIL-001", "SPO-BLR-001", "SBW-FIL-001", "KCC-CHL-001" },
+            queue.Queue.OldestOpen.Select(r => r.EquipmentSerialNumber));
+        Assert.Equal("RTM-CNV-003", Assert.Single(queue.Queue.RecentlyRejected).EquipmentSerialNumber);
+
+        // Cross-check the averages from the raw rows, independently of the SQL that computed them.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var jobs = await db.WorkOrders.AsNoTracking().Include(w => w.ServiceRequest).ToListAsync();
+        Assert.Equal(jobs.Average(w => (w.AssignedAt!.Value - w.ServiceRequest!.CreatedAt).TotalHours),
+            summary.AverageTimeToAssignment.AverageHours!.Value, 0.01);
+        Assert.Equal(jobs.Where(w => w.CompletedAt is not null).Average(w => (w.CompletedAt! - w.StartedAt!).Value.TotalHours),
+            summary.AverageCompletionDuration.AverageHours!.Value, 0.01);
+    }
+
+    [Fact]
     public async Task The_dashboard_summary_answers_well_under_half_a_second_on_the_seed()
     {
         // NFR-03 sanity check (< 500 ms target), not a benchmark: the median of five warm, in-process calls.
