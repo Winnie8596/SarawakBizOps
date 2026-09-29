@@ -22,6 +22,8 @@ namespace SarawakBizOps.Api.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.HasSequence("ServiceReportNumbers");
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
                 {
                     b.Property<string>("Id")
@@ -430,22 +432,37 @@ namespace SarawakBizOps.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("FileUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
+                    b.Property<string>("BlobKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTime>("GeneratedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("GeneratedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("ReportNumber")
                         .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("nvarchar(60)");
 
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SizeBytes")
+                        .HasColumnType("int");
+
                     b.Property<int>("WorkOrderId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("GeneratedAt");
+
+                    b.HasIndex("GeneratedByUserId");
 
                     b.HasIndex("ReportNumber")
                         .IsUnique();
@@ -807,11 +824,19 @@ namespace SarawakBizOps.Api.Migrations
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.ServiceReport", b =>
                 {
+                    b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "GeneratedByUser")
+                        .WithMany()
+                        .HasForeignKey("GeneratedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("SarawakBizOps.Api.Models.Entities.WorkOrder", "WorkOrder")
                         .WithOne("ServiceReport")
                         .HasForeignKey("SarawakBizOps.Api.Models.Entities.ServiceReport", "WorkOrderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("GeneratedByUser");
 
                     b.Navigation("WorkOrder");
                 });

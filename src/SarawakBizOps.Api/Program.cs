@@ -15,6 +15,7 @@ using SarawakBizOps.Api.Services.Equipment;
 using SarawakBizOps.Api.Services.History;
 using SarawakBizOps.Api.Services.Inventory;
 using SarawakBizOps.Api.Services.Parts;
+using SarawakBizOps.Api.Services.Reports;
 using SarawakBizOps.Api.Services.ServiceRequests;
 using SarawakBizOps.Api.Services.Storage;
 using SarawakBizOps.Api.Services.Users;
@@ -91,7 +92,7 @@ builder.Services
 builder.Services.AddAuthorization();
 
 // ---------------------------------------------------------------------
-// File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures, job photos (and later reports)
+// File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures, job photos and service reports
 // live in a private blob container behind IFileStorage; the database keeps only keys and metadata.
 // Development uses Azurite's well-known local account ("UseDevelopmentStorage=true"); docker-compose
 // points at its azurite container.
@@ -124,6 +125,7 @@ builder.Services.AddScoped<IWorkOrderService, WorkOrderService>();
 builder.Services.AddScoped<IWorkOrderPartService, WorkOrderPartService>();
 builder.Services.AddScoped<IWorkOrderSignatureService, WorkOrderSignatureService>();
 builder.Services.AddScoped<IWorkOrderPhotoService, WorkOrderPhotoService>();
+builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IPartService, PartService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 

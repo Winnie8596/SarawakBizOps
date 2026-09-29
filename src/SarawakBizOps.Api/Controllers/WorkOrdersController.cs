@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
+using SarawakBizOps.Api.Services.Reports;
 using SarawakBizOps.Api.Services.WorkOrders;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -19,14 +20,17 @@ public class WorkOrdersController : ControllerBase
     private readonly IWorkOrderPartService _parts;
     private readonly IWorkOrderSignatureService _signatures;
     private readonly IWorkOrderPhotoService _photos;
+    private readonly IReportService _reports;
 
     public WorkOrdersController(
-        IWorkOrderService service, IWorkOrderPartService parts, IWorkOrderSignatureService signatures, IWorkOrderPhotoService photos)
+        IWorkOrderService service, IWorkOrderPartService parts, IWorkOrderSignatureService signatures,
+        IWorkOrderPhotoService photos, IReportService reports)
     {
         _service = service;
         _parts = parts;
         _signatures = signatures;
         _photos = photos;
+        _reports = reports;
     }
 
     [HttpGet]
@@ -251,6 +255,35 @@ public class WorkOrdersController : ControllerBase
         Response.Headers.CacheControl = "private, no-store";
         Response.Headers.XContentTypeOptions = "nosniff";
         return File(result.Value!.Content, result.Value.ContentType);
+    }
+
+    // ---- Phase 10: the service report PDF (PRD §6.7, BR-14 per D-05) ----
+
+    // No rowVersion: generating documents the job without changing it. The service re-checks the job's state under
+    // its row lock, so a report can never be written after the job was approved with one.
+    [HttpPost("{id:int}/generate-report")]
+    [Authorize(Roles = "Manager")]
+    public async Task<IActionResult> GenerateReport(int id, CancellationToken ct)
+    {
+        var result = await _reports.GenerateAsync(id, ActingUserId, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // Same audience as GET /{id}: office roles see any job's report; a Technician only their own (another
+    // technician's job reads as 404). There is no public URL — this endpoint is the only way to the PDF.
+    [HttpGet("{id:int}/report")]
+    public async Task<IActionResult> GetReport(int id, CancellationToken ct)
+    {
+        var result = await _reports.OpenAsync(id, ActingUserId, User.IsInRole(AppRoles.Technician), ct);
+        if (!result.Succeeded)
+        {
+            return this.ToProblem(result);
+        }
+
+        var (file, reportNumber) = result.Value;
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(file.Content, ReportRules.ContentType, $"{reportNumber}.pdf");
     }
 
     [HttpPost("{id:int}/complete")]

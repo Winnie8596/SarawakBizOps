@@ -345,6 +345,19 @@ public static class TestData
         return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
     }
 
+    // ---- Phase 10: the service report (Manager generates; no rowVersion — it documents the job without
+    // changing it) ----
+
+    public static Task<HttpResponseMessage> PostGenerateReportAsync(HttpClient manager, int workOrderId)
+        => manager.PostAsync($"/api/work-orders/{workOrderId}/generate-report", null);
+
+    public static async Task<WorkOrderDto> GenerateReportAsync(HttpClient manager, int workOrderId)
+    {
+        var response = await PostGenerateReportAsync(manager, workOrderId);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
     // ---- Phase 6: parts and the stock ledger ----
 
     public static async Task<HttpResponseMessage> PostPartAsync(

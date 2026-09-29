@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs.Reports;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
@@ -559,6 +560,7 @@ public class WorkOrderService : IWorkOrderService
         .Include(w => w.PendingPart)
         .Include(w => w.PartsUsed).ThenInclude(wp => wp.Part)
         .Include(w => w.Photos).ThenInclude(p => p.UploadedByUser)
+        .Include(w => w.ServiceReport!).ThenInclude(r => r.GeneratedByUser)
         .AsSplitQuery();
 
     private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
@@ -631,6 +633,17 @@ public class WorkOrderService : IWorkOrderService
         Notes = w.Notes,
         HasSignature = w.SignatureBlobKey != null,
         SignedAt = w.SignedAt,
+        Report = w.ServiceReport is { } report
+            ? new ServiceReportSummaryDto
+            {
+                ReportNumber = report.ReportNumber,
+                Revision = report.Revision,
+                GeneratedAt = report.GeneratedAt,
+                GeneratedByName = report.GeneratedByUser?.FullName ?? string.Empty,
+                SizeBytes = report.SizeBytes,
+                IsLocked = WorkOrderStateMachine.IsLocked(w.Status)
+            }
+            : null,
         CancelledByName = w.CancelledByUser?.FullName,
         CancelledAt = w.CancelledAt,
         CancellationReason = w.CancellationReason,

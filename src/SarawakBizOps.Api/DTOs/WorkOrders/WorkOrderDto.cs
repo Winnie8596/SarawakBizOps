@@ -1,3 +1,5 @@
+using SarawakBizOps.Api.DTOs.Reports;
+
 namespace SarawakBizOps.Api.DTOs.WorkOrders;
 
 public class WorkOrderDto
@@ -37,6 +39,10 @@ public class WorkOrderDto
     // Phase 9: photos taken on the job, oldest first. Each image is served only by the authorized
     // GET /api/work-orders/{id}/photos/{photoId}.
     public List<WorkOrderPhotoDto> Photos { get; set; } = new();
+
+    // Phase 10: the service report, once a Manager has generated it; null before. The PDF is served only by
+    // the authorized GET /api/work-orders/{id}/report.
+    public ServiceReportSummaryDto? Report { get; set; }
 
     public string? CancelledByName { get; set; }
     public DateTime? CancelledAt { get; set; }

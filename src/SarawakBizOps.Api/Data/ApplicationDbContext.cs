@@ -40,5 +40,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         builder.ApplyConfiguration(new InventoryTransactionConfiguration());
         builder.ApplyConfiguration(new WorkOrderPhotoConfiguration());
         builder.ApplyConfiguration(new ServiceReportConfiguration());
+
+        builder.HasSequence<long>(ServiceReportConfiguration.NumberSequence).StartsAt(1).IncrementsBy(1);
     }
 }
