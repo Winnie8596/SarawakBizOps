@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { approveWorkOrder, cancelWorkOrder, getWorkOrder } from '../api/workOrders'
+import { generateReport } from '../api/reports'
 import { ApiError } from '../api/client'
 import type { WorkOrder } from '../types'
 import { PriorityBadge } from '../components/PriorityBadge'
@@ -10,6 +11,7 @@ import { ConflictBanner } from '../components/ConflictBanner'
 import { StatusTimeline } from '../components/StatusTimeline'
 import { SignatureImage } from '../components/SignatureImage'
 import { JobPhotoGallery } from '../components/JobPhotoGallery'
+import { ServiceReportPanel } from '../components/ServiceReportPanel'
 import { useGuardedAction } from '../hooks/useGuardedAction'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
@@ -21,6 +23,7 @@ export function WorkOrderDetailPage() {
   const workOrderId = Number(id)
   const canApprove = hasRole('Manager')
   const canCancelJob = hasRole('Manager')
+  const canGenerateReport = hasRole('Manager')
 
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,6 +31,7 @@ export function WorkOrderDetailPage() {
 
   const [cancelling, setCancelling] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
+  const [generating, setGenerating] = useState(false)
 
   const reload = () => getWorkOrder(auth!.token, workOrderId)
   const { busy, error: actionError, run } = useGuardedAction(reload)
@@ -61,6 +65,18 @@ export function WorkOrderDetailPage() {
       updated => setWorkOrder(updated),
       'Could not approve this work order.'
     )
+  }
+
+  // Returns the job with its report; a 409 (e.g. approved meanwhile, report locked) reloads it.
+  async function handleGenerateReport() {
+    if (!auth) return
+    setGenerating(true)
+    await run(
+      () => generateReport(auth.token, workOrderId),
+      updated => setWorkOrder(updated),
+      'Could not generate the service report.'
+    )
+    setGenerating(false)
   }
 
   function handleCancel(event: FormEvent) {
@@ -208,6 +224,16 @@ export function WorkOrderDetailPage() {
         </div>
       )}
 
+      {(workOrder.status === 'Completed' || workOrder.status === 'Approved' || workOrder.report) && (
+        <ServiceReportPanel
+          workOrder={workOrder}
+          canGenerate={canGenerateReport}
+          generating={generating}
+          busy={busy}
+          onGenerate={() => void handleGenerateReport()}
+        />
+      )}
+
       <StatusTimeline
         entries={[
           { label: 'Assigned', at: workOrder.assignedAt },
@@ -231,7 +257,7 @@ export function WorkOrderDetailPage() {
       {workOrder.status === 'Completed' && canApprove && (
         <div className="panel-actions">
           <button className="btn btn-primary" onClick={handleApprove} disabled={busy}>
-            {busy ? 'Approving…' : 'Approve'}
+            {busy && !generating ? 'Approving…' : 'Approve'}
           </button>
         </div>
       )}

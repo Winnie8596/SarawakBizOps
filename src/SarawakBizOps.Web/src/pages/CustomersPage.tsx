@@ -6,6 +6,19 @@ import { ApiError } from '../api/client'
 import type { Customer, CustomerInput } from '../types'
 import { EmptyState } from '../components/EmptyState'
 
+// The form keeps every optional field as '' so inputs stay controlled, but the API treats an
+// empty string differently from an omitted field (an empty Email fails [EmailAddress]
+// validation, where a missing one passes). Blank out to undefined right before sending.
+function toPayload(form: CustomerInput): CustomerInput {
+  return {
+    companyName: form.companyName,
+    contactPerson: form.contactPerson?.trim() || undefined,
+    phone: form.phone?.trim() || undefined,
+    email: form.email?.trim() || undefined,
+    address: form.address?.trim() || undefined
+  }
+}
+
 const emptyForm: CustomerInput = {
   companyName: '',
   contactPerson: '',
@@ -77,10 +90,11 @@ export function CustomersPage() {
     setFormError(null)
 
     try {
+      const payload = toPayload(form)
       if (editingId === 'new') {
-        await createCustomer(auth.token, form)
+        await createCustomer(auth.token, payload)
       } else {
-        await updateCustomer(auth.token, editingId, form)
+        await updateCustomer(auth.token, editingId, payload)
       }
       closeForm()
       await loadCustomers()

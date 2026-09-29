@@ -179,6 +179,8 @@ export interface WorkOrder {
   signedAt?: string | null
   /** Phase 9: photos taken on the job, oldest first. Each image is fetched from /work-orders/{id}/photos/{photoId}. */
   photos: WorkOrderPhoto[]
+  /** Phase 10: the service report once a Manager has generated it. The PDF is fetched from /work-orders/{id}/report. */
+  report?: ServiceReportSummary | null
   cancelledByName?: string | null
   cancelledAt?: string | null
   cancellationReason?: string | null
@@ -217,6 +219,29 @@ export interface WorkOrderPhoto {
   sizeBytes: number
   uploadedByName: string
   uploadedAt: string
+}
+
+/** Phase 10: a job's service report. One per job; regenerating keeps the number and bumps the revision. */
+export interface ServiceReportSummary {
+  reportNumber: string
+  revision: number
+  generatedAt: string
+  generatedByName: string
+  sizeBytes: number
+  /** True once the job is Approved: the report can no longer be regenerated (BR-14). */
+  isLocked: boolean
+}
+
+/** One row of the Reports page. */
+export interface ServiceReport extends ServiceReportSummary {
+  id: number
+  workOrderId: number
+  workOrderStatus: WorkOrderStatus
+  customerName: string
+  equipmentSerialNumber: string
+  equipmentType: string
+  technicianName: string
+  completedAt?: string | null
 }
 
 export interface PendingPartsInput {

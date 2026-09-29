@@ -13,7 +13,8 @@ const quiet = () => stubApi({
   'GET /work-orders': { body: [] },
   'GET /work-orders/mine': { body: [] },
   'GET /parts': { body: [] },
-  'GET /inventory-transactions': { body: [] }
+  'GET /inventory-transactions': { body: [] },
+  'GET /reports': { body: [] }
 })
 
 const sidebarLinks = () => within(screen.getByRole('navigation')).getAllByRole('link').map(a => a.textContent)
@@ -76,9 +77,9 @@ describe('Protected routes', () => {
 
 describe('Sidebar', () => {
   it.each([
-    ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Inventory', 'Users']],
-    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Inventory']],
-    ['ServiceStaff', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders']],
+    ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory', 'Users']],
+    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory']],
+    ['ServiceStaff', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports']],
     ['WarehouseStaff', ['Dashboard', 'Inventory']]
   ])('offers %s only the pages that role can open', async (role, expected) => {
     signInAs(role)

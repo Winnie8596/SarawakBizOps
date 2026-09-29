@@ -14,6 +14,7 @@ import { ServiceRequestsPage } from './pages/ServiceRequestsPage'
 import { ServiceRequestDetailPage } from './pages/ServiceRequestDetailPage'
 import { WorkOrdersPage } from './pages/WorkOrdersPage'
 import { WorkOrderDetailPage } from './pages/WorkOrderDetailPage'
+import { ReportsPage } from './pages/ReportsPage'
 import { TechnicianJobsPage } from './pages/tech/TechnicianJobsPage'
 import { TechnicianJobDetailPage } from './pages/tech/TechnicianJobDetailPage'
 import { InventoryPage } from './pages/InventoryPage'
@@ -57,6 +58,7 @@ export default function App() {
               <Route path="/service-requests/:id" element={<ServiceRequestDetailPage />} />
               <Route path="/work-orders" element={<WorkOrdersPage />} />
               <Route path="/work-orders/:id" element={<WorkOrderDetailPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={[...INVENTORY_ROLES]} />}>

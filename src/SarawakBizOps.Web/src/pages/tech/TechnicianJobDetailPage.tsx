@@ -24,6 +24,7 @@ import { SignaturePad } from '../../components/SignaturePad'
 import { SignatureImage } from '../../components/SignatureImage'
 import { JobPartsSection } from './JobPartsSection'
 import { JobPhotosSection } from './JobPhotosSection'
+import { JobReportButton } from './JobReportButton'
 
 // One screen, few taps (NFR-04): Start; add parts; take photos; type the diagnosis and work performed; the
 // customer signs; Complete. The sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
@@ -355,6 +356,7 @@ export function TechnicianJobDetailPage() {
               <SignatureImage workOrderId={job.id} signedAt={job.signedAt} />
             </>
           )}
+          <JobReportButton job={job} />
         </div>
       )}
 

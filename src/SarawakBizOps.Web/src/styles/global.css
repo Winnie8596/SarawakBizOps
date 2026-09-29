@@ -978,3 +978,13 @@ a.btn {
     transform: translateX(-50%);
   }
 }
+
+/* Read by screen readers, not shown (e.g. the header of an actions column). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

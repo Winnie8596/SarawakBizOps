@@ -34,3 +34,10 @@ export function mytDayStartUtc(isoDate: string, addDays = 0): string {
   const [year, month, day] = isoDate.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day + addDays) - 8 * 60 * 60 * 1000).toISOString()
 }
+
+// File sizes as people read them: "812 B", "24 KB", "1.2 MB".
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toLocaleString('en-MY', { maximumFractionDigits: 1 })} MB`
+}
