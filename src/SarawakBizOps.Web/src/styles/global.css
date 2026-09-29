@@ -708,6 +708,121 @@ a.btn {
   font-size: 15px;
 }
 
+/* A full-width secondary action inside a panel (e.g. "Add a part"), still a comfortable thumb target. */
+.tech-secondary-btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+/* ---------- Phase 7: parts on a job ---------- */
+.job-part-list {
+  list-style: none;
+  margin: 0 0 8px 0;
+  padding: 0;
+}
+
+.job-part-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.job-part-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.job-part-cost {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+.job-part-return {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+.job-part-total {
+  text-align: right;
+  margin: 8px 0 12px 0;
+}
+
+.part-picker {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.part-picker-results {
+  list-style: none;
+  margin: 0 0 8px 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.part-picker-option {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--paper);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: inherit;
+}
+
+.part-picker-option:hover,
+.part-picker-option:focus-visible {
+  background: var(--steel-100);
+}
+
+.part-picker-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.part-picker-selected {
+  margin: 0 0 12px 0;
+}
+
+.stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.stepper input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.stepper-btn {
+  min-width: 48px;
+  min-height: 48px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.data-table tfoot th,
+.data-table tfoot td {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
 @media (min-width: 520px) {
   .tech-action-bar {
     max-width: 480px;

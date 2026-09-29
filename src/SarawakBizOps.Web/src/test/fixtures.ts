@@ -1,4 +1,6 @@
-import type { Customer, Equipment, InventoryTransaction, Part, ServiceRequest, Technician, WorkOrder } from '../types'
+import type {
+  Customer, Equipment, InventoryTransaction, Part, ServiceRequest, Technician, WorkOrder, WorkOrderPart
+} from '../types'
 
 export const customers: Customer[] = [
   { id: 1, companyName: 'Kuching Cold Chain Sdn Bhd', createdAt: '2026-09-01T00:00:00' },
@@ -68,7 +70,24 @@ export function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     cancelledByName: null,
     cancelledAt: null,
     cancellationReason: null,
+    parts: [],
+    partsTotal: 0,
     rowVersion: 'AAAAAAAAB9E=',
+    ...overrides
+  }
+}
+
+export function workOrderPart(overrides: Partial<WorkOrderPart> = {}): WorkOrderPart {
+  return {
+    id: 501,
+    partId: 301,
+    partNumber: 'REL-OVL-25A',
+    partName: 'Thermal overload relay 18–25 A',
+    unit: 'pcs',
+    quantity: 2,
+    unitPrice: 1450.5,
+    lineTotal: 2901,
+    createdAt: '2026-09-21T01:30:00',
     ...overrides
   }
 }

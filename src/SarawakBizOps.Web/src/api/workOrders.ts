@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { DiagnosisInput, WorkOrder, WorkOrderFilters } from '../types'
+import type { DiagnosisInput, PendingPartsInput, WorkOrder, WorkOrderFilters } from '../types'
 
 export function getWorkOrders(token: string, filters: WorkOrderFilters = {}): Promise<WorkOrder[]> {
   const params = new URLSearchParams()
@@ -43,6 +43,45 @@ export function completeWorkOrder(token: string, id: number, rowVersion: string)
 
 export function approveWorkOrder(token: string, id: number, rowVersion: string): Promise<WorkOrder> {
   return apiFetch<WorkOrder>(`/work-orders/${id}/approve`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
+}
+
+// ---- Phase 7: parts on a job (assigned technician, InProgress only) and PendingParts ----
+
+// No price is sent: the server snapshots the catalogue price (the client is never trusted with it).
+export function addWorkOrderPart(
+  token: string, id: number, partId: number, quantity: number, rowVersion: string
+): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/parts`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ partId, quantity, rowVersion })
+  })
+}
+
+// Returns the whole line to stock.
+export function returnWorkOrderPart(token: string, id: number, lineId: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/parts/${lineId}`, {
+    method: 'DELETE',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
+}
+
+export function markPendingParts(token: string, id: number, input: PendingPartsInput): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/pending-parts`, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(input)
+  })
+}
+
+// Refused (409) until the awaited part has the awaited quantity on hand.
+export function resumeWorkOrder(token: string, id: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/resume`, {
     method: 'POST',
     token,
     body: JSON.stringify({ rowVersion })

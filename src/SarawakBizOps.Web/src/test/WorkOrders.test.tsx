@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { serviceRequest, technicians, workOrder } from './fixtures'
+import { serviceRequest, technicians, workOrder, workOrderPart } from './fixtures'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
 describe('Work orders list (office)', () => {
@@ -176,5 +176,53 @@ describe('Cancelling a work order', () => {
 
     await screen.findByText('Work order #41')
     expect(screen.queryByRole('button', { name: 'Cancel job…' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Parts on a work order (office)', () => {
+  it('lists the parts used with RM line totals and the job total', async () => {
+    signInAs('Manager')
+    stubApi({
+      'GET /work-orders/41': {
+        body: workOrder({
+          status: 'Completed',
+          parts: [
+            workOrderPart(),
+            workOrderPart({ id: 502, partNumber: 'OIL-HYD-46', partName: 'Hydraulic oil', unit: 'L', quantity: 12, unitPrice: 14.9, lineTotal: 178.8 })
+          ],
+          partsTotal: 3079.8
+        })
+      }
+    })
+    renderApp('/work-orders/41')
+
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('12 L')).toBeInTheDocument()
+    expect(within(table).getByText('RM 178.80')).toBeInTheDocument()
+    expect(within(table).getByText('RM 3,079.80')).toBeInTheDocument()
+  })
+
+  it('shows what a paused job is waiting for and lets a Manager cancel it', async () => {
+    signInAs('Manager')
+    stubApi({
+      'GET /work-orders/41': {
+        body: workOrder({
+          status: 'PendingParts',
+          startedAt: '2026-09-21T01:00:00',
+          pendingPartsReason: 'Need 6 m of belting',
+          pendingPartNumber: 'BLT-CNV-600',
+          pendingPartName: 'Conveyor belt, 600 mm',
+          pendingPartUnit: 'm',
+          pendingPartQuantity: 6,
+          pendingPartsAt: '2026-09-21T02:00:00'
+        })
+      }
+    })
+    renderApp('/work-orders/41')
+
+    expect(await screen.findByRole('heading', { name: 'Waiting for parts' })).toBeInTheDocument()
+    expect(screen.getByText('BLT-CNV-600')).toBeInTheDocument()
+    expect(screen.getByText('No parts used on this job.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel job…' })).toBeInTheDocument()
   })
 })

@@ -1,17 +1,27 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { completeWorkOrder, getWorkOrder, saveDiagnosis, startWorkOrder } from '../../api/workOrders'
+import {
+  addWorkOrderPart,
+  completeWorkOrder,
+  getWorkOrder,
+  markPendingParts,
+  resumeWorkOrder,
+  returnWorkOrderPart,
+  saveDiagnosis,
+  startWorkOrder
+} from '../../api/workOrders'
 import { ApiError } from '../../api/client'
-import type { WorkOrder } from '../../types'
+import type { WorkOrder, WorkOrderPart } from '../../types'
 import { PriorityBadge } from '../../components/PriorityBadge'
 import { StatusBadge } from '../../components/StatusBadge'
 import { ConflictBanner } from '../../components/ConflictBanner'
 import { useGuardedAction } from '../../hooks/useGuardedAction'
-import { formatDateTime } from '../../utils/format'
+import { formatDateTime, formatQuantity } from '../../utils/format'
+import { JobPartsSection } from './JobPartsSection'
 
-// One screen, few taps (NFR-04): Start; type the diagnosis and work performed; Complete. The sticky
-// bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
+// One screen, few taps (NFR-04): Start; add parts; type the diagnosis and work performed; Complete. The
+// sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
 export function TechnicianJobDetailPage() {
   const { auth } = useAuth()
   const { id } = useParams()
@@ -60,6 +70,52 @@ export function TechnicianJobDetailPage() {
       () => startWorkOrder(auth.token, jobId, job.rowVersion),
       updated => setJob(updated),
       'Could not start this job.'
+    )
+  }
+
+  // Resolves true only when the API call itself succeeded (not when a 409 merely reloaded the job), so the
+  // part picker stays open after a refusal and the technician can pick again or choose to wait.
+  async function runSucceeded(action: () => Promise<WorkOrder>, fallbackMessage: string): Promise<boolean> {
+    let succeeded = false
+    await run(
+      async () => {
+        const updated = await action()
+        succeeded = true
+        return updated
+      },
+      updated => setJob(updated),
+      fallbackMessage
+    )
+    return succeeded
+  }
+
+  function handleAddPart(partId: number, quantity: number) {
+    return runSucceeded(
+      () => addWorkOrderPart(auth!.token, jobId, partId, quantity, job!.rowVersion),
+      'Could not add this part.'
+    )
+  }
+
+  function handleReturnPart(line: WorkOrderPart) {
+    void runSucceeded(
+      () => returnWorkOrderPart(auth!.token, jobId, line.id, job!.rowVersion),
+      'Could not return this part.'
+    )
+  }
+
+  function handleWaitForPart(partId: number, quantity: number, reason: string) {
+    return runSucceeded(
+      () => markPendingParts(auth!.token, jobId, { reason, partId, quantity, rowVersion: job!.rowVersion }),
+      'Could not pause this job.'
+    )
+  }
+
+  function handleResume() {
+    if (!auth || !job) return
+    void run(
+      () => resumeWorkOrder(auth.token, jobId, job.rowVersion),
+      updated => setJob(updated),
+      'Could not resume this job.'
     )
   }
 
@@ -118,6 +174,45 @@ export function TechnicianJobDetailPage() {
             {busy ? 'Starting…' : 'Start job'}
           </button>
         </div>
+      )}
+
+      {job.status === 'PendingParts' && (
+        <>
+          <div className="panel">
+            <h2 className="panel-title">Waiting for parts</h2>
+            <dl className="detail-list">
+              {job.pendingPartNumber && (
+                <div>
+                  <dt>Needs</dt>
+                  <dd>
+                    {formatQuantity(job.pendingPartQuantity ?? 0)} {job.pendingPartUnit} ·{' '}
+                    <span className="mono">{job.pendingPartNumber}</span> {job.pendingPartName}
+                  </dd>
+                </div>
+              )}
+              {job.pendingPartsReason && <div><dt>Reason</dt><dd className="prose">{job.pendingPartsReason}</dd></div>}
+              {job.pendingPartsAt && <div><dt>Since</dt><dd>{formatDateTime(job.pendingPartsAt)}</dd></div>}
+            </dl>
+            <p className="form-hint">Resume once the store has received the part.</p>
+          </div>
+          <div className="tech-action-bar">
+            <button className="btn btn-primary tech-primary-btn" onClick={handleResume} disabled={busy}>
+              {busy ? 'Resuming…' : 'Resume job'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {job.status !== 'Assigned' && (
+        <JobPartsSection
+          parts={job.parts}
+          partsTotal={job.partsTotal}
+          editable={job.status === 'InProgress'}
+          busy={busy}
+          onAdd={handleAddPart}
+          onReturn={handleReturnPart}
+          onWait={handleWaitForPart}
+        />
       )}
 
       {job.status === 'InProgress' && (

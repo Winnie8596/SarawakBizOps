@@ -9,8 +9,9 @@ import { StatusBadge } from '../components/StatusBadge'
 import { ConflictBanner } from '../components/ConflictBanner'
 import { StatusTimeline } from '../components/StatusTimeline'
 import { useGuardedAction } from '../hooks/useGuardedAction'
+import { formatMoney, formatQuantity } from '../utils/format'
 
-const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress']
+const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress', 'PendingParts']
 
 export function WorkOrderDetailPage() {
   const { auth, hasRole } = useAuth()
@@ -129,10 +130,65 @@ export function WorkOrderDetailPage() {
         </dl>
       )}
 
+      {workOrder.status === 'PendingParts' && (
+        <div className="panel">
+          <h2 className="panel-title">Waiting for parts</h2>
+          <dl className="detail-list">
+            <div>
+              <dt>Needs</dt>
+              <dd>
+                {formatQuantity(workOrder.pendingPartQuantity ?? 0)} {workOrder.pendingPartUnit} ·{' '}
+                <span className="mono">{workOrder.pendingPartNumber}</span> {workOrder.pendingPartName}
+              </dd>
+            </div>
+            {workOrder.pendingPartsReason && (
+              <div><dt>Reason</dt><dd className="prose">{workOrder.pendingPartsReason}</dd></div>
+            )}
+          </dl>
+          <p className="form-hint">The technician can resume once the part has been received into stock.</p>
+        </div>
+      )}
+
+      <div className="panel">
+        <h2 className="panel-title">Parts used</h2>
+        {workOrder.parts.length === 0 ? (
+          <p className="form-hint">No parts used on this job.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Part</th>
+                <th className="num">Quantity</th>
+                <th className="num">Unit price</th>
+                <th className="num">Line total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {workOrder.parts.map(line => (
+                <tr key={line.id}>
+                  <td><span className="mono">{line.partNumber}</span> {line.partName}</td>
+                  <td className="num">{formatQuantity(line.quantity)} {line.unit}</td>
+                  <td className="num">{formatMoney(line.unitPrice)}</td>
+                  <td className="num">{formatMoney(line.lineTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colSpan={3}>Parts total</th>
+                <td className="num"><strong>{formatMoney(workOrder.partsTotal)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </div>
+
       <StatusTimeline
         entries={[
           { label: 'Assigned', at: workOrder.assignedAt },
           { label: 'Started', at: workOrder.startedAt },
+          { label: 'Waiting for parts', at: workOrder.pendingPartsAt, detail: workOrder.pendingPartsReason },
+          { label: 'Resumed', at: workOrder.resumedAt },
           { label: 'Completed', at: workOrder.completedAt },
           { label: 'Approved', at: workOrder.approvedAt },
           {

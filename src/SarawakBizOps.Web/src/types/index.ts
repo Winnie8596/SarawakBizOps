@@ -177,6 +177,38 @@ export interface WorkOrder {
   cancelledByName?: string | null
   cancelledAt?: string | null
   cancellationReason?: string | null
+  /** Phase 7: parts used, oldest first, with their RM total. */
+  parts: WorkOrderPart[]
+  partsTotal: number
+  /** The last PendingParts wait (kept after a resume as its record). */
+  pendingPartsReason?: string | null
+  pendingPartId?: number | null
+  pendingPartNumber?: string | null
+  pendingPartName?: string | null
+  pendingPartUnit?: string | null
+  pendingPartQuantity?: number | null
+  pendingPartsAt?: string | null
+  resumedAt?: string | null
+  rowVersion: string
+}
+
+/** One part line on a job; `id` is the line id used to return it. Prices are snapshotted server-side. */
+export interface WorkOrderPart {
+  id: number
+  partId: number
+  partNumber: string
+  partName: string
+  unit: string
+  quantity: number
+  unitPrice: number
+  lineTotal: number
+  createdAt: string
+}
+
+export interface PendingPartsInput {
+  reason: string
+  partId: number
+  quantity: number
   rowVersion: string
 }
 
@@ -237,7 +269,7 @@ export interface PartFilters {
 export const TRANSACTION_TYPES = ['Receive', 'Issue', 'Return', 'Adjustment'] as const
 export type InventoryTransactionType = (typeof TRANSACTION_TYPES)[number]
 
-/** What the warehouse may raise directly; Issue/Return come only from work-order parts (Phase 7). */
+/** What the warehouse may raise directly; Issue/Return come only from work-order parts. */
 export type StockMovementType = Extract<InventoryTransactionType, 'Receive' | 'Adjustment'>
 
 export interface StockMovementInput {
