@@ -62,7 +62,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | ✅ Done |
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | ✅ Done |
 | 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | ✅ Done |
-| 9 | **Job photos:** capture, upload, gallery | 12–16 | |
+| 9 | **Job photos:** capture, upload, gallery | 12–16 | ✅ Done |
 | 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | |
 | 11 | **Manager dashboard (core metrics)** | 15–18 | |
 | 12 | **Analytics depth:** remaining metrics, role-specific dashboards | 12–16 | |
@@ -382,8 +382,23 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | Type and size validation; ownership (another technician cannot upload or read); removal blocked after completion; access rows; UI test for the step. |
 | Ops & docs | README storage section; seed photos are small fictional images (no personal data). |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Schema (migration `WorkOrderPhotoStorage`) | The never-written `FileUrl` placeholder is replaced by `BlobKey` (200), `ContentType` (50, detected from the bytes) and `SizeBytes` — the same "key and metadata, never a URL" shape as the signature. `Description` stays (unused: no captions in this slice). |
+| What is accepted | JPEG (`FF D8 FF`), PNG (signature + `IHDR`) or WebP (`RIFF…WEBP`), decided from the bytes; Content-Type and file name ignored. ≤ 8 MB; the request is capped just above that. No server-side dimension check or re-encoding (no imaging dependency, D-06). At most **20 photos per job**. |
+| One photo per request | Every upload **carries and bumps the job's `rowVersion`** (the Phase 5 rule, like parts): upload the file under a fresh key, then one transaction claims the job (no-op `UPDATE … WHERE owner AND InProgress AND RowVersion AND fewer than 20 photos`, holding the row lock) and inserts the row. A lost claim deletes the new file (409). The web app therefore uploads a queue sequentially, each request using the `rowVersion` the previous one returned. |
+| Which states | Add and remove only while **InProgress** (`WorkOrderStateMachine.AcceptsPhotoChanges`), so "remove before completion" and "blocked after completion" are one rule; PendingParts must resume first (as for parts). Photos are optional for Complete; Cancel keeps them. Reading: the job's audience (office roles, the owning technician; another technician 404). |
+| Remove | `DELETE /{id}/photos/{photoId}` with the `rowVersion` body; the same claim, delete the row, commit, then delete the file (best-effort, logged). |
+| Serving | `GET /{id}/photos/{photoId}` with the content type recorded at upload, `no-store`, `nosniff`. Full-size only; the gallery scales in the browser (no thumbnails service). |
+| Upload progress | `fetch` cannot report upload progress, so `apiUpload` (in `api/client.ts`) uses `XMLHttpRequest` for this one call and maps errors to the same `ApiError`. UI test stubs `XMLHttpRequest` with a fake. |
+| UI | **Take photo** (`capture="environment"`) and **Choose photos** (`multiple`); queue tiles with a local preview, progress bar, *Waiting…*, and **Retry**/**Discard** on failure (409 reloads the job); the page holds Complete/parts/Remove while the queue runs. A photo over 8 MB, or of a type the browser can decode but the API does not take, is redrawn as a ≤ 2048 px JPEG before upload. Office detail gets a **Photos** gallery; thumbnails open full size in a new tab. `useProtectedImage` is shared with the signature image. |
+| Demo seed | `DemoPhotoImage` draws a fictional machine (RGB PNG, 320×240) via the shared `DemoPng` writer (extracted from the signature generator); 1 photo on the InProgress job, 2 each on the Completed and Approved jobs; natural key "job has no photos yet". |
+| Git | Branch `phase-9-photos` from the Phase 8 commit; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] A technician at 360 px uploads photos and completes the job; the Manager views them.
+- [x] A technician at 360 px uploads photos and completes the job; the Manager views them. *(Covered end to end by `Photos.test.tsx` (queue, progress, Retry/Discard, Remove, read-only after completion, the Manager's gallery fetched with the token), `WorkOrderPhotoTests` and the compose smoke walk (upload two, remove one, complete, approve, removal refused, the Manager downloads the bytes), which passed twice in a row on a fresh, isolated `docker compose` stack. Not clicked through by hand in a real browser at 360 px in this session.)*
 
 ---
 

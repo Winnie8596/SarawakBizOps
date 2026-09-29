@@ -13,7 +13,7 @@ and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
 | Authorization | `EndpointAccessTests` | Every endpoint × (anonymous + all five roles) → exactly 401, 403 or the success status (AC-11) |
 | Frontend | `src/SarawakBizOps.Web/src/test` (Vitest + React Testing Library) | The UI honours role gating and shows the API's messages; `fetch` is stubbed, the components are real |
 | Storage contract | `FileStorageContractTests` | One set of `IFileStorage` expectations, run against the in-memory fake (unit) and `AzureBlobFileStorage` on an Azurite container (integration), so the fake can stand in for real storage |
-| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job (with the signature stored in Azurite), parts and stock, parts on a job |
+| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job (with photos and the signature stored in Azurite), parts and stock, parts on a job |
 | Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` and `WorkOrderPartsTests` ends with it, and `DemoSeedingTests` runs it on the seed |
 
 Conventions: each integration test creates its own uniquely named customers/users, so tests never depend on run order;
@@ -33,7 +33,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -143,6 +143,28 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 
 **Docker smoke**
 - Completing without a signature is a 400; WarehouseStaff cannot upload (403); a non-PNG file declared as `image/png` is a 400; an unsigned job has nothing to download (404); the technician signs (multipart, 200) and the job shows `hasSignature`; complete and approve; the Manager downloads the exact bytes back from Azurite through nginx; WarehouseStaff cannot read it (403); a seeded Completed job's signature downloads as a PNG.
+
+## Phase 9 test inventory
+
+Job photos (PRD §6.6, SDD §15). There is no numbered AC for photos; the plan's Phase 9 test list is covered as below.
+
+**Backend (xUnit)**
+- `PhotoRulesTests` (unit, no database or storage): JPEG, PNG and WebP are accepted and typed from their bytes; empty and over 8 MB are refused (exactly 8 MB accepted); SVG-with-script, HTML, GIF, PDF, a non-WebP RIFF (WAV), a PNG signature without IHDR, and a bare JPEG marker are refused; every upload gets a fresh key under its work order with the extension of its detected type.
+- `WorkOrderStateMachineTests.Photos_are_added_or_removed_only_while_a_job_is_in_progress` (every status).
+- `WorkOrderPhotoTests` (integration, SQL Server + Azurite):
+  - **type and size validation** — non-images are refused whatever they claim to be, before anything reaches storage (in-memory fake); a real JPEG labelled `application/octet-stream` / `.HEIC` is accepted and served as `image/jpeg`; over the limit (400/413) and far over it (cut off before buffering); no file (400);
+  - **round trip** — JPEG, PNG and WebP round-trip byte for byte with their detected type, `nosniff` and `no-store` for the technician and every office role; the DTO lists them (type, size, uploader) and never contains a storage key; each upload bumps the `rowVersion`;
+  - **ownership** — another technician gets 404 on upload, download and remove, and the job is unchanged; a photo is reachable only through its own job;
+  - **removal blocked after completion** — removing deletes the row and the file while InProgress; after Complete it is a 409, after Approve the central lock message, and the photo is still downloadable; photos are not required to complete;
+  - **state and conflicts** — Assigned, PendingParts and Completed are 409 (*in progress*), Approved and Cancelled get the lock message; at most 20 photos per job; with the in-memory fake: a stale `rowVersion` is a 409 and the uploaded file is deleted again, a storage outage is a 500 without internals, a double tap has exactly one winner and one stored file.
+- `EndpointAccessTests`: three new rows — `POST /work-orders/{id}/photos` and `DELETE /work-orders/{id}/photos/{photoId}` (the job's own Technician only) and `GET /work-orders/{id}/photos/{photoId}` (Admin, Manager, ServiceStaff and the job's own Technician; WarehouseStaff 403).
+- `DemoSeedingTests`: the seeded InProgress job has one photo and the Completed and Approved jobs two each, all real PNGs in storage; re-running the seeder adds none.
+
+**Frontend (Vitest)**
+- `Photos.test.tsx` (the **UI test for the step**; `XMLHttpRequest` replaced by a fake that reports progress): two photos picked together upload one by one — progress bar and percentage, the second *Waiting…*, Complete held as *Uploading photos…* — each with the `rowVersion` the previous upload returned and the bearer token; thumbnails appear. A refused upload shows the reason, **Retry** uploads it again. A 409 reloads the job (here: Cancelled, pickers gone, Retry disabled) and **Discard** drops the failed photo. **Remove** sends the job's `rowVersion`. A completed job shows photos read-only. The office page shows the gallery (images fetched with the token, links to full size, no Remove), *No photos taken on this job*, and a failed image load's message.
+
+**Docker smoke**
+- WarehouseStaff cannot upload a photo (403); a shell script declared as `image/jpeg` is a 400; the technician uploads two photos and removes one; after complete and approve, removing it is a 409; the Manager downloads the exact bytes back through nginx and WarehouseStaff cannot (403); a seeded Completed job's two photos are listed and download as PNGs.
 
 ## Running
 

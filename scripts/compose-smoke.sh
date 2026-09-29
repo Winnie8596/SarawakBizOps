@@ -92,6 +92,13 @@ sign_status() { # $1 = token, $2 = work order id, $3 = file, $4 = declared type 
     -H "Authorization: Bearer $1" -F "file=@-;filename=signature.png;type=$4" -F "rowVersion=$rv" < "$3"
   # The file goes in on stdin: bash opens the path, so a native Windows curl (Git Bash) never has to.
 }
+# Phase 9: a job photo is the same kind of upload, one photo per request.
+photo_status() { # $1 = token, $2 = work order id, $3 = file, $4 = declared type -> prints the HTTP status
+  local rv
+  rv="$(api "$1" GET "/work-orders/$2" | jq -r '.rowVersion // "AAAAAAAAAAA="')"
+  curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/work-orders/$2/photos" \
+    -H "Authorization: Bearer $1" -F "file=@-;filename=photo.png;type=$4" -F "rowVersion=$rv" < "$3"
+}
 
 new_body() { jq -nc --argjson c "$1" --argjson e "$equipment_id" --arg p "$2" \
   '{customerId:$c, equipmentId:$e, problemDescription:$p, priority:"High"}'; }
@@ -162,6 +169,22 @@ api "$tech_token" PATCH "/work-orders/$work_order_id/diagnosis" \
 api "$tech_token" GET "/work-orders/$work_order_id" | jq -e '.hasSignature == true and .signedAt != null' >/dev/null \
   || fail "the job must show that the customer signed"
 
+# Phase 9: photos go up one per request with the job's rowVersion; only JPEG, PNG or WebP bytes are accepted,
+# and a photo can be removed until the job is completed. (The 1x1 PNG stands in for a camera photo.)
+[ "$(photo_status "$warehouse_token" "$work_order_id" "$signature_png" image/png)" = 403 ] \
+  || fail "WarehouseStaff must not be able to upload a photo"
+[ "$(photo_status "$tech_token" "$work_order_id" "${BASH_SOURCE[0]}" image/jpeg)" = 400 ] \
+  || fail "a file that is not a JPEG, PNG or WebP must be refused, whatever it claims to be"
+[ "$(photo_status "$tech_token" "$work_order_id" "$signature_png" image/png)" = 200 ] \
+  || fail "technician could not upload a photo"
+[ "$(photo_status "$tech_token" "$work_order_id" "$signature_png" image/png)" = 200 ] \
+  || fail "technician could not upload a second photo"
+removed_photo_id="$(api "$tech_token" GET "/work-orders/$work_order_id" | jq -er '.photos | select(length == 2) | .[0].id')" \
+  || fail "the job must list both photos"
+api "$tech_token" DELETE "/work-orders/$work_order_id/photos/$removed_photo_id" "$(wo_rv)" | jq -e '(.photos | length) == 1' >/dev/null \
+  || fail "technician could not remove a photo before completion"
+photo_id="$(api "$tech_token" GET "/work-orders/$work_order_id" | jq -er '.photos[0].id')"
+
 api "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)" | jq -e '.status == "Completed"' >/dev/null \
   || fail "technician could not complete the job"
 
@@ -174,14 +197,24 @@ curl -fsS "$BASE_URL/api/work-orders/$work_order_id/signature" -H "Authorization
   | cmp -s - "$signature_png" || fail "the Manager must be able to download the stored signature byte for byte"
 [ "$(status_of "$warehouse_token" GET "/work-orders/$work_order_id/signature")" = 403 ] \
   || fail "WarehouseStaff must not be able to read a signature"
-echo "  ok: assigned, started, diagnosed, signed, completed and approved; wrong roles and invalid moves were refused"
+[ "$(status_of "$tech_token" DELETE "/work-orders/$work_order_id/photos/$photo_id" "$(wo_rv)")" = 409 ] \
+  || fail "a photo must not be removable once the job is completed and approved"
+curl -fsS "$BASE_URL/api/work-orders/$work_order_id/photos/$photo_id" -H "Authorization: Bearer $token" \
+  | cmp -s - "$signature_png" || fail "the Manager must be able to download the stored photo byte for byte"
+[ "$(status_of "$warehouse_token" GET "/work-orders/$work_order_id/photos/$photo_id")" = 403 ] \
+  || fail "WarehouseStaff must not be able to read a photo"
+echo "  ok: assigned, started, diagnosed, photographed, signed, completed and approved; wrong roles and invalid moves were refused"
 
-echo "Seeded completed jobs carry a stored signature..."
+echo "Seeded completed jobs carry a stored signature and photos..."
 seeded_signed="$(api "$token" GET "/work-orders?status=Completed" | jq -er 'map(select(.hasSignature))[0].id')" \
   || fail "the seeded Completed job must be signed (BR-03)"
 curl -fsS "$BASE_URL/api/work-orders/$seeded_signed/signature" -H "Authorization: Bearer $token" | head -c 8 | od -An -tx1 \
   | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || fail "the seeded signature must download as a PNG"
-echo "  ok: work order #$seeded_signed's signature downloads as a PNG"
+seeded_photo="$(api "$token" GET "/work-orders/$seeded_signed" | jq -er '.photos | select(length == 2) | .[0].id')" \
+  || fail "the seeded Completed job must carry two photos"
+curl -fsS "$BASE_URL/api/work-orders/$seeded_signed/photos/$seeded_photo" -H "Authorization: Bearer $token" | head -c 8 | od -An -tx1 \
+  | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || fail "the seeded photo must download as a PNG"
+echo "  ok: work order #$seeded_signed's signature and photos download as PNGs"
 
 # Phase 6 demo walk: the warehouse runs the parts catalogue and the stock ledger; other roles cannot.
 echo "Parts and stock: warehouse adds a part, receives, adjusts; low stock and history; wrong roles refused..."

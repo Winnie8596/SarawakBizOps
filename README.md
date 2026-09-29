@@ -39,7 +39,8 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 6 | Parts and stock in: the warehouse runs the parts catalogue, receives and adjusts stock, sees low stock and the ledger | Done |
 | 7 | Parts used on a job: atomic, concurrency-safe stock issue; PendingParts and resume | Done |
 | 8 | Customer signature: drawn on the phone, stored in blob storage (Azurite), required to complete | Done |
-| 9–10 | Photos, PDF report | Planned |
+| 9 | Job photos: taken or picked on the phone, uploaded with progress, removable until completion, gallery on the office page | Done |
+| 10 | PDF report | Planned |
 | 11–14 | Dashboard and analytics, AI assistants | Planned |
 | 15 | Release polish and docs | Planned |
 
@@ -53,7 +54,8 @@ reason), a **central lock guard** so a locked (Approved/Cancelled) record refuse
 a **parts catalogue and immutable inventory ledger** (receive, adjust with a reason, low stock, filtered history;
 stock always equals the sum of its ledger rows), **parts used on a job** (atomic issue and return, PendingParts),
 the **customer signature** drawn on the technician's phone and kept in blob storage behind `IFileStorage` (required to
-complete a job), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
+complete a job), **job photos** (JPEG/PNG/WebP typed from their bytes, same storage path, removable until the
+job is completed, a gallery for the office), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
 Users, Customers, Equipment, Service Requests, Work Orders, Inventory, detail pages with history, status timeline, a shared
 conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
 workflow.
@@ -247,6 +249,45 @@ POST /api/work-orders/{id}/complete    → 400 until diagnosis, work performed A
 3. Tap **Complete job**.
 4. As `manager@…`, open that work order: **Customer signature** shows the image, the timeline shows *Customer signed*, and **Approve** is available. The seeded Completed (generator) and Approved (forklift) jobs carry a (fictional) signature too.
 
+### Job photos (Phase 9)
+
+The second file through the stack reuses the signature's storage path — `IFileStorage`, a fresh key per upload,
+upload-then-record, authorized download — for a richer artifact that a job can have many of.
+
+```
+POST   /api/work-orders/{id}/photos            multipart/form-data: file = one photo, rowVersion
+  1. the bytes must be a JPEG (FF D8 FF), PNG (signature + IHDR) or WebP (RIFF…WEBP); Content-Type and file
+     name are ignored; at most 8 MB                                                          (else 400)
+  2. owner + InProgress + not locked, fewer than 20 photos                         (else 404 / 409)
+  3. upload to blob storage under a NEW key:  work-orders/{id}/photo-{guid}.{jpg|png|webp}
+  4. one transaction: claim the job (no-op UPDATE … WHERE owner AND InProgress AND RowVersion = @rv
+     AND fewer than 20 photos — holds the job row's lock, bumps rowVersion), INSERT WorkOrderPhotos
+       claim lost → delete the file just uploaded, 409
+DELETE /api/work-orders/{id}/photos/{photoId}  body: rowVersion — same claim, DELETE the row, then the file
+GET    /api/work-orders/{id}/photos/{photoId}  → the image with the type recorded at upload (no-store, nosniff)
+```
+
+| Who | Can |
+|---|---|
+| Technician (their own job, InProgress only) | take or pick photos (`POST /{id}/photos`), remove them (`DELETE /{id}/photos/{photoId}`), see them |
+| Technician (their own job, any later state) | see them — once the job is Completed its photos are part of the record and cannot be removed |
+| Admin, Manager, ServiceStaff | see the gallery on the work-order page (`GET /{id}/photos/{photoId}`) |
+| Another technician | nothing — the job and its photos read as 404 |
+| WarehouseStaff | nothing (403) |
+
+- **One photo per request, one after another.** Every upload carries and bumps the job's `rowVersion` (the Phase 5 rule), so the Photos step queues what the technician picked and sends it in order, each upload using the `rowVersion` the previous one returned; the page holds its other actions (Complete, parts, Remove) until the queue is done. A same-screen double tap has exactly one winner.
+- **Upload progress** needs `XMLHttpRequest` (`fetch` cannot report upload progress): `apiUpload` in `api/client.ts` is the one call that uses it, and it turns failures into the same `ApiError` as every other call. A failed photo stays in the queue with the reason and **Retry** / **Discard**; a `409` reloads the job.
+- **Camera or gallery.** **Take photo** is a file input with `capture="environment"` (opens the rear camera on a phone); **Choose photos** picks several from the gallery. A photo over 8 MB, or in a type the API does not take but the browser can decode, is redrawn in the browser as a JPEG of at most 2048 px a side before upload; otherwise photos go up untouched.
+- **Removal is only before completion** (`WorkOrderStateMachine.AcceptsPhotoChanges`: InProgress only). A PendingParts job keeps its photos but must be resumed to change them, like parts. Photos are **not** required to complete a job (the signature is the rule-bearing evidence); cancelling keeps them.
+- **Served as what the bytes are.** The download uses the content type detected at upload, with `nosniff`, so nothing uploaded can come back as HTML or script.
+
+**Try it (demo script).** Sign in at <http://localhost:8080>:
+
+1. As `technician@sarawakbizops.local` in a phone-sized window: open the in-progress **Air Compressor** job. **Photos** already shows one (fictional) site photo.
+2. Tap **Choose photos** and pick two images (or **Take photo** on a phone): each shows a progress bar, then joins the thumbnails. Try a text file renamed to `.jpg`: it is refused with *A photo must be a JPEG, PNG or WebP image.* — **Retry** or **Discard** it.
+3. **Remove** one photo. Have the customer sign and tap **Complete job**: the photos stay, and the Remove buttons are gone.
+4. As `manager@…`, open that work order: **Photos** shows the gallery; tap a thumbnail to open it full size. The seeded Completed (generator) and Approved (forklift) jobs carry two photos each.
+
 ```
 src/
 ├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity (+ Dockerfile)
@@ -256,7 +297,7 @@ tests/
 docs/
 └── test-plan.md                Acceptance-criteria map: which test proves which AC
 scripts/
-└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with the signature), parts and stock, and parts on a job (used by CI)
+└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with photos and the signature), parts and stock, and parts on a job (used by CI)
 docker-compose.yml              sqlserver + azurite + api + web, one command
 ```
 
@@ -286,7 +327,7 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 pieces of equipment and 12 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 5 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 6 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded and a relay used), PendingParts (waiting for 6 m of conveyor belt that is out of stock), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only, with its parts and RM total; like the Completed one it carries a fictional customer signature, generated at seed time and stored in Azurite) and Cancelled (its request reverted to Approved, ready to be reassigned). The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 19 ledger rows — deliveries, two reasoned adjustments and four parts issued to jobs — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
+The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 pieces of equipment and 12 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 5 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 6 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded and a relay used), PendingParts (waiting for 6 m of conveyor belt that is out of stock), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only, with its parts and RM total; like the Completed one it carries a fictional customer signature, generated at seed time and stored in Azurite) and Cancelled (its request reverted to Approved, ready to be reassigned). The InProgress job carries one job photo and the Completed and Approved jobs two each — generated drawings of a machine (no people, no real sites), stored in Azurite like the signatures. The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 19 ledger rows — deliveries, two reasoned adjustments and four parts issued to jobs — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
 
 | Command | What it does |
 |---|---|
@@ -300,12 +341,12 @@ The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 piec
 - `Database__MigrateOnStartup=true` makes the API apply EF migrations at startup, retrying while SQL Server warms up. The flag is **off by default** everywhere else, so a normal run never changes a schema on its own.
 - The API is healthy (`/health/ready`) only once migrations and seeding are done, because it does its startup work before it starts listening. `/health` is a plain liveness check. Both are unauthenticated and return no data.
 - The seeding is idempotent: every row is inserted only if its key (email, company name, serial number) is missing, so restarting is safe.
-- Files (the customer signature) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
+- Files (the customer signature and job photos) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
 - SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
 
 **Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
 
-**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete-without-signature is a 400, WarehouseStaff cannot upload a signature, a non-PNG is a 400, sign, complete, approve, the Manager downloads the exact signature bytes and WarehouseStaff cannot, then the approved job locks against further technician action; a seeded Completed job's signature downloads as a PNG), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock), and walks parts on a job (a fresh job for the demo technician: the technician can search parts but not read the ledger, the warehouse cannot add parts to a job, add a part at the snapshotted price, over-stock is a 409 and changes nothing, return it, one Issue and one Return on the job's ledger, pause for parts, resume refused while short, receive, resume). It needs `curl` and `jq`, and CI runs it on every push. It adds a few requests, a job and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete-without-signature is a 400, WarehouseStaff cannot upload a signature, a non-PNG is a 400, sign, WarehouseStaff cannot upload a photo, a non-image is a 400, upload two photos and remove one, complete, approve, the Manager downloads the exact signature and photo bytes and WarehouseStaff cannot, the approved job locks against further technician action and its photo can no longer be removed; a seeded Completed job's signature and photos download as PNGs), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock), and walks parts on a job (a fresh job for the demo technician: the technician can search parts but not read the ledger, the warehouse cannot add parts to a job, add a part at the snapshotted price, over-stock is a 409 and changes nothing, return it, one Issue and one Return on the job's ledger, pause for parts, resume refused while short, receive, resume). It needs `curl` and `jq`, and CI runs it on every push. It adds a few requests, a job and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
 
 ---
 
@@ -428,10 +469,12 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
   start, diagnose, complete, approve, cancel) are implemented so far, with a RowVersion conflict token on every
   mutating call and a shared conflict banner in the UI, plus the parts catalogue and inventory ledger (receive,
   adjust, low stock, history), parts used on jobs (atomic issue and return, PendingParts/resume) and the customer
-  signature (required to complete); photos, the PDF report, dashboard analytics and AI features are planned in
-  [`plan.md`](./plan.md). Photos are not part of completing a job yet (Phase 9), and low stock is an Inventory-page
-  list until the Phase 11 dashboard. The signature records *that* the customer signed, not their printed name. A
-  signature file whose cleanup delete fails is left orphaned in storage (logged; there is no sweeper yet).
+  signature (required to complete) and job photos; the PDF report, dashboard analytics and AI features are planned in
+  [`plan.md`](./plan.md). Photos are optional evidence, not required to complete a job, and low stock is an
+  Inventory-page list until the Phase 11 dashboard. The signature records *that* the customer signed, not their
+  printed name; photos have no captions yet. A signature or photo file whose cleanup delete fails is left orphaned
+  in storage (logged; there is no sweeper yet). Photo dimensions are not checked server-side (only type and size),
+  and photos are served at full size — the gallery scales them down in the browser (no server-side thumbnails).
   Stock is not reserved for a job waiting for parts (V2). A returned part goes back as a whole line. Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
   no separate audit-log table (D-05). List endpoints are not paginated yet (Phase 15 sweep).
 - There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
