@@ -47,7 +47,7 @@ public class PartService : IPartService
     {
         // Most urgent first: the part furthest below its minimum leads the list.
         var parts = await _db.Parts.AsNoTracking()
-            .Where(p => p.IsActive && p.QuantityOnHand <= p.MinimumStockLevel)
+            .Where(StockLevels.IsLow)
             .OrderBy(p => p.QuantityOnHand - p.MinimumStockLevel)
             .ThenBy(p => p.PartNumber)
             .ToListAsync(ct);

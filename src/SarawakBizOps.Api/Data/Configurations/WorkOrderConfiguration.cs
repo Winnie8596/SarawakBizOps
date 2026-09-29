@@ -17,6 +17,12 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
         builder.Property(wo => wo.PendingPartsReason).HasMaxLength(500);
         builder.Property(wo => wo.PendingPartQuantity).HasColumnType("decimal(18,3)");
 
+        // Phase 11 dashboard (SDD §14): WorkOrdersByStatus is an index-only count over Status, and
+        // JobsCompletedPerMonth a range seek on CompletedAt that reads Status from the index to keep only
+        // Completed/Approved jobs. Both also serve the work-order list's status filter and future date filters.
+        builder.HasIndex(wo => wo.Status);
+        builder.HasIndex(wo => wo.CompletedAt).IncludeProperties(wo => wo.Status);
+
         builder.HasOne(wo => wo.PendingPart)
             .WithMany()
             .HasForeignKey(wo => wo.PendingPartId)

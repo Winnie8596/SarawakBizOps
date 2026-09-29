@@ -9,6 +9,7 @@ using Microsoft.OpenApi.Models;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.Middleware;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.Services.Analytics;
 using SarawakBizOps.Api.Services.Auth;
 using SarawakBizOps.Api.Services.Customers;
 using SarawakBizOps.Api.Services.Equipment;
@@ -128,6 +129,9 @@ builder.Services.AddScoped<IWorkOrderPhotoService, WorkOrderPhotoService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IPartService, PartService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
+builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+// "Now" for the dashboard's current-month metrics; tests substitute a fixed clock.
+builder.Services.AddSingleton(TimeProvider.System);
 
 // ---------------------------------------------------------------------
 // CORS — allow the future React web app and Expo dev server to call this API.

@@ -349,6 +349,11 @@ public class EndpointAccessTests
 
         new("GET /api/reports", HttpMethod.Get,
             _ => "/api/reports", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        // ---- Phase 11: the Manager dashboard (Admin too; the other roles' dashboards arrive in Phase 12) ----
+        new("GET /api/dashboard/summary", HttpMethod.Get,
+            _ => "/api/dashboard/summary", _ => null, new[] { AppRoles.Admin, AppRoles.Manager }, HttpStatusCode.OK,
             Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId))
     };
 

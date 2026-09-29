@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Auth;
+using SarawakBizOps.Api.DTOs.Dashboard;
 using SarawakBizOps.Api.DTOs.Equipment;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
@@ -80,15 +81,15 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var after = await CountsAsync(db);
         Assert.Equal(before, after);
         Assert.Equal(signaturesBefore, await SignatureKeysAsync(db)); // no job is signed a second time
-        Assert.Equal(2, signaturesBefore.Count);
+        Assert.Equal(10, signaturesBefore.Count); // the live Completed and Approved jobs, plus eight from the history
         Assert.Equal(5, photosBefore);
         Assert.Equal(photosBefore, await db.WorkOrderPhotos.CountAsync()); // no job gets its photos twice
-        Assert.Single(reportsBefore);
+        Assert.Equal(9, reportsBefore.Count); // every Approved job
         Assert.Equal(reportsBefore, await db.ServiceReports.AsNoTracking().Select(r => new { r.ReportNumber, r.Revision }).ToListAsync());
         Assert.Equal(5, after.Customers);
         Assert.Equal(11, after.Equipment);
-        Assert.Equal(12, after.Requests);
-        Assert.Equal(6, after.WorkOrders);
+        Assert.Equal(20, after.Requests); // 12 live + 8 behind the Phase 11 history
+        Assert.Equal(14, after.WorkOrders); // 6 live + 8 approved in earlier months
         Assert.Equal(12, after.Parts);
         Assert.Equal(19, after.Transactions); // 15 warehouse movements + 4 parts issued to jobs
     }
@@ -156,13 +157,14 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var requests = await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests");
 
-        Assert.Equal(12, requests!.Count);
+        Assert.Equal(20, requests!.Count);
         Assert.Equal(3, requests.Count(r => r.Status == "New"));
         // One request is left Approved-but-unassigned so a reviewer always has one to assign by hand;
         // a second is Approved because its work order was cancelled (BR-12's revert-to-Approved); the
-        // other five Approved requests were carried into a WorkOrder and are now Assigned.
+        // other Approved requests (five live, eight from the Phase 11 history) were carried into a WorkOrder and
+        // are now Assigned.
         Assert.Equal(2, requests.Count(r => r.Status == "Approved"));
-        Assert.Equal(5, requests.Count(r => r.Status == "Assigned"));
+        Assert.Equal(13, requests.Count(r => r.Status == "Assigned"));
         var rejected = Assert.Single(requests, r => r.Status == "Rejected");
         Assert.False(string.IsNullOrWhiteSpace(rejected.RejectionReason));
         Assert.NotNull(rejected.RejectedByName);
@@ -189,8 +191,15 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var workOrders = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
 
-        Assert.Equal(6, workOrders!.Count);
+        Assert.Equal(14, workOrders!.Count);
         Assert.All(workOrders, w => Assert.Equal("Ahmad Bujang", w.TechnicianName));
+        // Phase 11: eight jobs from earlier months, all approved, complete and signed, with no parts or photos.
+        var history = workOrders.Where(w => w.CompletedAt < DateTime.UtcNow.AddDays(-20)).ToList();
+        Assert.Equal(8, history.Count);
+        Assert.All(history, w => Assert.Equal("Approved", w.Status));
+        Assert.All(history, w => Assert.True(w.HasSignature && w.Diagnosis is not null && w.WorkPerformed is not null));
+        Assert.All(history, w => Assert.True(w.AssignedAt < w.StartedAt && w.StartedAt < w.CompletedAt && w.CompletedAt < w.ApprovedAt));
+        Assert.All(history, w => Assert.Empty(w.Parts));
         var assigned = Assert.Single(workOrders, w => w.Status == "Assigned");
         Assert.Null(assigned.Diagnosis);
         Assert.Empty(assigned.Parts);
@@ -202,13 +211,17 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var completed = Assert.Single(workOrders, w => w.Status == "Completed");
         Assert.NotNull(completed.CompletedAt);
         Assert.Null(completed.ApprovedAt);
-        var approved = Assert.Single(workOrders, w => w.Status == "Approved");
+        // The live Approved job, shown off with parts and photos; the others are the Phase 11 history.
+        var approved = Assert.Single(workOrders, w => w.Status == "Approved" && w.EquipmentSerialNumber == "MOS-FLT-001"
+            && w.ProblemDescription.StartsWith("Forklift hydraulic lift"));
         Assert.NotNull(approved.ApprovedAt);
 
         // Phase 8 (BR-03): exactly the Completed and Approved jobs carry the customer's signature, and it
         // really is in storage — the Manager can download a valid PNG. The InProgress job is left for the
         // demo technician to have signed.
-        Assert.Equal(new[] { completed.Id, approved.Id }.Order(), workOrders.Where(w => w.HasSignature).Select(w => w.Id).Order());
+        Assert.Equal(
+            workOrders.Where(w => w.Status is "Completed" or "Approved").Select(w => w.Id).Order(),
+            workOrders.Where(w => w.HasSignature).Select(w => w.Id).Order());
         Assert.All(workOrders.Where(w => w.HasSignature), w => Assert.NotNull(w.SignedAt));
         foreach (var signed in new[] { completed, approved })
         {
@@ -225,10 +238,11 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
             var bytes = await manager.GetByteArrayAsync($"/api/work-orders/{approved.Id}/photos/{photo.Id}");
             Assert.Equal((photo.ContentType, (string?)null), SarawakBizOps.Api.Services.WorkOrders.PhotoRules.Validate(bytes));
         }
-        // Phase 10: the Approved job has its service report (locked by the approval), generated by the demo Manager
-        // and really in storage; the Completed job is left for the demo Manager to generate one by hand.
+        // Phase 10: every Approved job has its service report (locked by the approval), generated by the demo
+        // Manager and really in storage; the Completed job is left for the demo Manager to generate one by hand.
         Assert.Null(completed.Report);
-        Assert.All(workOrders.Where(w => w.Id != approved.Id), w => Assert.Null(w.Report));
+        Assert.All(workOrders.Where(w => w.Status != "Approved"), w => Assert.Null(w.Report));
+        Assert.All(workOrders.Where(w => w.Status == "Approved"), w => Assert.True(w.Report is { IsLocked: true }));
         Assert.Matches(@"^SR-\d{4}-\d{6}$", approved.Report!.ReportNumber);
         Assert.Equal((1, true, "Jenny Lau"), (approved.Report.Revision, approved.Report.IsLocked, approved.Report.GeneratedByName));
         var pdf = await manager.GetByteArrayAsync($"/api/work-orders/{approved.Id}/report");
@@ -257,7 +271,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         // The demo Technician sees exactly their own jobs (BR-02) and can act on the assigned one.
         var mine = await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
-        Assert.Equal(6, mine!.Count);
+        Assert.Equal(14, mine!.Count);
     }
 
     [Fact]
@@ -297,6 +311,67 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(244.5m, all.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand); // 256.5 received less 12 used
 
         await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
+    }
+
+    [Fact]
+    public async Task Dashboard_numbers_equal_the_hand_computed_values_of_the_seed()
+    {
+        // Phase 11 exit criterion. Counted by hand from the arrays in DemoSeeder:
+        //   open requests — New: chiller (High), filling line A bottles (Medium), boiler (Urgent);
+        //                   Approved: pump seal (High), filling line A belt (Medium, its job was cancelled);
+        //   work orders   — the six live ones (one per status except New) plus eight approved in earlier months;
+        //   low stock     — AVR-SX460, BLD-BSW-900, SEAL-MECH-35 and BLT-CNV-600 (the only one at zero).
+        var manager = await _factory.CreateAuthenticatedClientAsync(
+            "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
+
+        var summary = await manager.GetFromJsonAsync<DashboardSummaryDto>("/api/dashboard/summary");
+
+        Assert.Equal(new[] { ("Urgent", 1), ("High", 2), ("Medium", 2), ("Low", 0) },
+            summary!.OpenRequestsByPriority.Select(c => (c.Key, c.Count)));
+        Assert.Equal(
+            new[] { ("New", 0), ("Assigned", 1), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 9), ("Cancelled", 1) },
+            summary.WorkOrdersByStatus.Select(c => (c.Key, c.Count)));
+        Assert.Equal((4, 1), (summary.LowStock.Count, summary.LowStock.OutOfStock));
+        Assert.Equal("BLT-CNV-600", summary.LowStock.Items[0].PartNumber);
+        Assert.Equal(new[] { "AVR-SX460", "BLD-BSW-900", "BLT-CNV-600", "SEAL-MECH-35" },
+            summary.LowStock.Items.Select(i => i.PartNumber).Order());
+        Assert.Equal((5, 3, 1, 4),
+            (summary.Kpis.OpenRequests, summary.Kpis.ActiveWorkOrders, summary.Kpis.AwaitingApproval, summary.Kpis.LowStockParts));
+
+        // The trend depends on today's date (the seed is relative to it), so its expected value is computed here
+        // independently: every seeded completion is within 140 days, so all ten fall in the six-month window, each
+        // in the Malaysia-time month of its CompletedAt.
+        var jobs = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
+        var expected = jobs!.Where(w => w.CompletedAt is not null)
+            .GroupBy(w => w.CompletedAt!.Value.AddHours(8).ToString("yyyy-MM"))
+            .ToDictionary(g => g.Key, g => g.Count());
+        Assert.Equal(10, expected.Values.Sum());
+        Assert.Equal(6, summary.JobsCompletedPerMonth.Count);
+        Assert.Equal(DateTime.UtcNow.AddHours(8).ToString("yyyy-MM"), summary.JobsCompletedPerMonth[^1].Month);
+        Assert.All(summary.JobsCompletedPerMonth, m => Assert.Equal(expected.GetValueOrDefault(m.Month), m.Count));
+        Assert.Equal(10, summary.JobsCompletedPerMonth.Sum(m => m.Count));
+        Assert.Equal(summary.JobsCompletedPerMonth[^1].Count, summary.Kpis.CompletedThisMonth);
+        Assert.True(summary.JobsCompletedPerMonth.Count(m => m.Count > 0) >= 4, "the seed spans several months");
+    }
+
+    [Fact]
+    public async Task The_dashboard_summary_answers_well_under_half_a_second_on_the_seed()
+    {
+        // NFR-03 sanity check (< 500 ms target), not a benchmark: the median of five warm, in-process calls.
+        var manager = await _factory.CreateAuthenticatedClientAsync(
+            "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        (await manager.GetAsync("/api/dashboard/summary")).EnsureSuccessStatusCode(); // warm-up: JIT, query compilation
+
+        var timings = new List<TimeSpan>();
+        for (var i = 0; i < 5; i++)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            (await manager.GetAsync("/api/dashboard/summary")).EnsureSuccessStatusCode();
+            timings.Add(watch.Elapsed);
+        }
+
+        var median = timings.Order().ElementAt(2);
+        Assert.True(median < TimeSpan.FromMilliseconds(500), $"median {median.TotalMilliseconds:F0} ms");
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)

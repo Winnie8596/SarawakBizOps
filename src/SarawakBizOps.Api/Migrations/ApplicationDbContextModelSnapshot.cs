@@ -647,11 +647,17 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasIndex("CancelledByUserId");
 
+                    b.HasIndex("CompletedAt");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("CompletedAt"), new[] { "Status" });
+
                     b.HasIndex("PendingPartId");
 
                     b.HasIndex("ServiceRequestId")
                         .IsUnique()
                         .HasFilter("[Status] <> 'Cancelled'");
+
+                    b.HasIndex("Status");
 
                     b.HasIndex("TechnicianId");
 

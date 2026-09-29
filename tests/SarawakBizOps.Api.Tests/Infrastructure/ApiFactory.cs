@@ -32,6 +32,10 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public string StorageConnectionString => Blob.GetConnectionString();
 
+    /// <summary>The SQL Server container's connection string (its default database), for tests that need a
+    /// scratch database of their own on the same server — see <see cref="ScratchDatabase"/>.</summary>
+    public string SqlConnectionString => Sql.GetConnectionString();
+
     /// <summary>
     /// The default factory migrates the database itself before the host is built (Program does not
     /// migrate unless Database:MigrateOnStartup is on). <see cref="DemoApiFactory"/> turns this off
