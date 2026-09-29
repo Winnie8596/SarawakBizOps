@@ -81,7 +81,8 @@ with_rv() { # $1 = token, $2 = record path (e.g. /service-requests/7), $3 = opti
 }
 # Phase 8: a customer signature is a multipart upload (the PNG plus the job's rowVersion), not JSON.
 signature_png="$(mktemp)"
-trap 'rm -f "$signature_png"' EXIT
+report_pdf="$(mktemp)" # Phase 10: downloaded reports land here (a file, so a large PDF never meets a closed pipe)
+trap 'rm -f "$signature_png" "$report_pdf"' EXIT
 # A valid 1x1 PNG, standing in for what the canvas exports.
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' \
   | base64 -d > "$signature_png"
@@ -188,6 +189,21 @@ photo_id="$(api "$tech_token" GET "/work-orders/$work_order_id" | jq -er '.photo
 api "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)" | jq -e '.status == "Completed"' >/dev/null \
   || fail "technician could not complete the job"
 
+# Phase 10: the Manager generates the completed job's service report (no rowVersion: it documents the job without
+# changing it); regenerating keeps the number and bumps the revision until approval locks it.
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/generate-report")" = 403 ] \
+  || fail "a Technician must not be able to generate a report"
+[ "$(status_of "$staff_token" POST "/work-orders/$work_order_id/generate-report")" = 403 ] \
+  || fail "ServiceStaff must not be able to generate a report"
+[ "$(status_of "$tech_token" GET "/work-orders/$work_order_id/report")" = 404 ] \
+  || fail "a job without a report must have nothing to download"
+report_number="$(api "$token" POST "/work-orders/$work_order_id/generate-report" | jq -er '.report | select(.revision == 1) | .reportNumber')" \
+  || fail "manager could not generate the service report"
+[[ "$report_number" =~ ^SR-[0-9]{4}-[0-9]{6,}$ ]] || fail "unexpected report number: $report_number"
+api "$token" POST "/work-orders/$work_order_id/generate-report" \
+  | jq -e --arg n "$report_number" '.report.reportNumber == $n and .report.revision == 2' >/dev/null \
+  || fail "regenerating must keep the report number and bump the revision"
+
 api "$token" POST "/work-orders/$work_order_id/approve" "$(wo_rv)" | jq -e '.status == "Approved"' >/dev/null \
   || fail "manager could not approve the completed job"
 [ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 409 ] \
@@ -203,7 +219,18 @@ curl -fsS "$BASE_URL/api/work-orders/$work_order_id/photos/$photo_id" -H "Author
   | cmp -s - "$signature_png" || fail "the Manager must be able to download the stored photo byte for byte"
 [ "$(status_of "$warehouse_token" GET "/work-orders/$work_order_id/photos/$photo_id")" = 403 ] \
   || fail "WarehouseStaff must not be able to read a photo"
-echo "  ok: assigned, started, diagnosed, photographed, signed, completed and approved; wrong roles and invalid moves were refused"
+# Phase 10: approval locked the report (BR-14 per D-05); it stays downloadable by whoever may read the job.
+[ "$(status_of "$token" POST "/work-orders/$work_order_id/generate-report")" = 409 ] \
+  || fail "an approved job's report must be locked against regeneration (BR-14)"
+curl -fsS "$BASE_URL/api/work-orders/$work_order_id/report" -H "Authorization: Bearer $tech_token" -o "$report_pdf" \
+  || fail "the technician could not download their job's report"
+[ "$(head -c 5 "$report_pdf")" = '%PDF-' ] || fail "the report must download as a PDF"
+[ "$(status_of "$warehouse_token" GET "/work-orders/$work_order_id/report")" = 403 ] \
+  || fail "WarehouseStaff must not be able to read a report"
+api "$staff_token" GET /reports | jq -e --arg n "$report_number" 'map(select(.reportNumber == $n and .isLocked)) | length == 1' >/dev/null \
+  || fail "the Reports list must show the job's locked report"
+[ "$(status_of "$warehouse_token" GET /reports)" = 403 ] || fail "WarehouseStaff must not be able to list reports"
+echo "  ok: assigned, started, diagnosed, photographed, signed, completed, reported and approved; wrong roles and invalid moves were refused"
 
 echo "Seeded completed jobs carry a stored signature and photos..."
 seeded_signed="$(api "$token" GET "/work-orders?status=Completed" | jq -er 'map(select(.hasSignature))[0].id')" \
@@ -215,6 +242,14 @@ seeded_photo="$(api "$token" GET "/work-orders/$seeded_signed" | jq -er '.photos
 curl -fsS "$BASE_URL/api/work-orders/$seeded_signed/photos/$seeded_photo" -H "Authorization: Bearer $token" | head -c 8 | od -An -tx1 \
   | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || fail "the seeded photo must download as a PNG"
 echo "  ok: work order #$seeded_signed's signature and photos download as PNGs"
+
+echo "The seeded Approved job carries its locked service report..."
+seeded_reported="$(api "$token" GET "/work-orders?status=Approved" | jq -er 'map(select(.report != null and .report.isLocked))[0].id')" \
+  || fail "the seeded Approved job must have its (locked) service report"
+curl -fsS "$BASE_URL/api/work-orders/$seeded_reported/report" -H "Authorization: Bearer $token" -o "$report_pdf" \
+  || fail "the Manager could not download the seeded report"
+[ "$(head -c 5 "$report_pdf")" = '%PDF-' ] || fail "the seeded report must download as a PDF"
+echo "  ok: work order #$seeded_reported's report downloads as a PDF"
 
 # Phase 6 demo walk: the warehouse runs the parts catalogue and the stock ledger; other roles cannot.
 echo "Parts and stock: warehouse adds a part, receives, adjusts; low stock and history; wrong roles refused..."

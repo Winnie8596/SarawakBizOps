@@ -63,7 +63,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | ✅ Done |
 | 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | ✅ Done |
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | ✅ Done |
-| 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | |
+| 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | ✅ Done |
 | 11 | **Manager dashboard (core metrics)** | 15–18 | |
 | 12 | **Analytics depth:** remaining metrics, role-specific dashboards | 12–16 | |
 | 13 | **AI Technician Assistant** (mock-first) | 18–22 | |
@@ -417,8 +417,24 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | Report data-model correctness (assert on the model); a smoke check that a non-empty PDF is produced; unique report numbers under parallel generation; regeneration blocked after approval; access rows. |
 | Ops & docs | Library recorded in README dependencies (D-06) with its license note; a sample report screenshot for the README. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| PDF library (Open Question 3) | **None — a small hand-rolled PDF 1.4 writer** (`Services/Reports/Pdf`), in the spirit of the hand-rolled signature pad and PNG writer (PRD D-06). QuestPDF's Community licence is revenue-gated, not open source — awkward for a public MIT repo meant to be forked; PDFsharp (MIT) needs a font resolver and font files in Linux containers. The standard Helvetica fonts are never embedded, JPEG passes through (DCTDecode), PNG is decoded with `System.IO.Compression`. Cost: Latin-1 text only (anything else prints `?`). Recorded in the README's dependencies table. |
+| Schema (migration `ServiceReportStorage`) | The never-written `FileUrl` placeholder is replaced by `BlobKey` (200) and `SizeBytes` — the same "key and metadata, never a URL" shape as signatures and photos — plus `Revision` and `GeneratedByUserId`; an index on `GeneratedAt` for the list. `ReportNumber` and `WorkOrderId` were already unique (one report per job). |
+| Report numbers | `SR-{year}-{sequence:D6}` from a SQL Server `SEQUENCE` (`ServiceReportNumbers`): unique under parallel generation without locking a table; never reset, so unique across years; the year is the MYT year of issue; gaps are possible. Drawn once per job — regenerating keeps the number. |
+| When a report can be generated | A **Completed** job, any number of times (revision + 1, the old file deleted). An **Approved** job only if it has no report yet (one, e.g. a job approved before Phase 10) — its data is locked, so nothing can differ. Otherwise 409: approval locks the report (BR-14 per D-05; no reopen). Approval does **not** require a report (existing flows and tests stay as they are). Generation is **Manager** only. |
+| Concurrency without a rowVersion | Generating does not change the job, so it takes no `rowVersion` and does not bump it (generate, then approve, from one page load). Render and upload outside any transaction; then one transaction reads the job `WITH (UPDLOCK)` — an Approve waits, two generators take turns — and re-checks the state and that the report is still the one read at the start; otherwise 409 and the new file is deleted. |
+| Report content | Built by the pure `ServiceReportBuilder` into `ServiceReportModel` (tests assert on it), laid out by `ServiceReportRenderer`: number/revision/generator, customer (contact, phone, email, address), equipment (serial, type, brand/model, location), technician, priority, problem, diagnosis, work performed, notes, parts with RM totals, timeline (MYT), photo thumbnails, signature; header and "Page x of n" footer on every page. The approval itself is not printed (the report documents the completed job). |
+| Pictures | PNG (photos and the signature) decoded row by row and box-averaged to a thumbnail while streaming (≤ 50 MP accepted); JPEG embedded as-is with its EXIF orientation applied, up to 16 MB per report; WebP, unreadable or missing files get a placeholder — a report never fails because of a picture. |
+| Serving | `GET /{id}/report` → `application/pdf` as `SR-….pdf`, `no-store`, `nosniff`; same audience as the job (office roles, the owning technician; another technician 404). `GET /api/reports` for Admin, Manager, ServiceStaff. |
+| UI | **Service report** panel on the office work-order page (Generate / Regenerate for a Manager, Open PDF, Download PDF, the lock note); **Reports** page in the sidebar for office roles (list, state, Download); **View report** on the technician's completed job. The PDF is fetched with the token as a Blob; *Open* opens the tab on the click (popup blockers) and points it at the Blob once it arrives. |
+| Demo seed | The seeded **Approved** job gets its report through `IReportService` as the demo Manager (so it is locked); the **Completed** job is left without one for the demo. |
+| Git | Branch `phase-10-report` from the Phase 9 commit; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] The whole demo runs in Docker: request → … → PDF report downloaded.
+- [x] The whole demo runs in Docker: request → … → PDF report downloaded.
 
 ---
 
@@ -587,7 +603,7 @@ Because every phase is a working slice, cutting never leaves the app broken. Dro
 |---|---|---|---|
 | 1 | AI provider | Start of Phase 13 (only needed for a real client) | Mock only |
 | 2 | Azurite vs MinIO | Start of Phase 8 | Azurite (Azure Blob SDK) |
-| 3 | PDF library / license check | Start of Phase 10 | Simplest option whose license fits a public MIT repo; record in README |
+| 3 | PDF library / license check | Start of Phase 10 | **Decided (Phase 10):** no library — a hand-rolled PDF writer (see Phase 10 decisions); recorded in the README |
 | 4 | Live deployment | Phase 15 | Skip |
 | 5 | React Native | End of Phase 15 | Move to V2 |
 | 6 | Dashboard charts approach | Start of Phase 11 | Hand-rolled SVG/CSS |

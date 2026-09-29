@@ -8,12 +8,12 @@ and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
 
 | Layer | Where | What it proves |
 |---|---|---|
-| Unit | `tests/SarawakBizOps.Api.Tests` (`*StateMachineTests`) | Pure rules with no database: every lifecycle transition, allowed and forbidden |
+| Unit | `tests/SarawakBizOps.Api.Tests` (`*StateMachineTests`, `*RulesTests`, `ServiceReportBuilderTests`, `ServiceReportPdfTests`) | Pure rules with no database: every lifecycle transition, allowed and forbidden; upload and report rules; the report's data model and the PDF writer |
 | Integration | `tests/SarawakBizOps.Api.Tests` | The real API against a real SQL Server container (Testcontainers): business rules, validation, concurrency, seed data |
 | Authorization | `EndpointAccessTests` | Every endpoint × (anonymous + all five roles) → exactly 401, 403 or the success status (AC-11) |
 | Frontend | `src/SarawakBizOps.Web/src/test` (Vitest + React Testing Library) | The UI honours role gating and shows the API's messages; `fetch` is stubbed, the components are real |
 | Storage contract | `FileStorageContractTests` | One set of `IFileStorage` expectations, run against the in-memory fake (unit) and `AzureBlobFileStorage` on an Azurite container (integration), so the fake can stand in for real storage |
-| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job (with photos and the signature stored in Azurite), parts and stock, parts on a job |
+| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job (with photos, the signature and the service report stored in Azurite), parts and stock, parts on a job |
 | Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` and `WorkOrderPartsTests` ends with it, and `DemoSeedingTests` runs it on the seed |
 
 Conventions: each integration test creates its own uniquely named customers/users, so tests never depend on run order;
@@ -33,7 +33,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -165,6 +165,32 @@ Job photos (PRD §6.6, SDD §15). There is no numbered AC for photos; the plan's
 
 **Docker smoke**
 - WarehouseStaff cannot upload a photo (403); a shell script declared as `image/jpeg` is a 400; the technician uploads two photos and removes one; after complete and approve, removing it is a 409; the Manager downloads the exact bytes back through nginx and WarehouseStaff cannot (403); a seeded Completed job's two photos are listed and download as PNGs.
+
+## Phase 10 test inventory
+
+The service report PDF (PRD §6.7, SDD §15, BR-14 per D-05). There is no numbered AC for the report; the plan's Phase 10
+test list is covered as below.
+
+**Backend (xUnit)**
+- `ReportRulesTests` (unit): when a report may be generated — a Completed job any number of times, an Approved job only if it has none yet, never for New/Assigned/InProgress/PendingParts/Cancelled, each with its message; the `SR-{year}-{sequence}` format; a fresh storage key per rendering; MYT across midnight and New Year.
+- `ServiceReportBuilderTests` (unit, **report data-model correctness**): report identity and generator in MYT; customer and equipment with blank fields left out; problem, priority, technician, diagnosis, work performed; parts oldest first with line totals rounded to sen and the RM total; photos numbered in the order taken; the timeline in MYT, skipping steps the job never went through and showing a PendingParts wait; empty parts/photos; the job must be loaded with its request, customer and equipment.
+- `ServiceReportPdfTests` (unit, the **non-empty PDF smoke check**, made stricter): the file is structurally valid (header, every xref offset points at its object, `startxref`, `%%EOF`); the pages carry the report's text and a numbered footer; long content flows onto more pages with a footer on each; the same input renders the same bytes; photos and the signature are embedded as images (JPEG as-is, PNG as a thumbnail) and a missing photo gets a placeholder; WinAnsi encoding and font metrics; word wrap; the PNG decoder (greyscale/RGB scaling, all five filter types, transparency onto white, 2-bit palette with `tRNS`, 16-bit) and what it refuses (truncated, interlaced, 3.6-gigapixel header, not a PNG); JPEG headers (size, colour, EXIF orientation in both byte orders) and what is refused (CMYK, lossless, arithmetic, no frame header); EXIF orientation applied as the placement matrix.
+- `ServiceReportTests` (integration, SQL Server + Azurite):
+  - **generate and download** — a Manager generates a numbered report (`SR-{MYT year}-{6 digits}`, revision 1); the Manager, Admin, ServiceStaff and the job's technician download it as `application/pdf`, `SR-….pdf`, `nosniff`/`no-store`; no storage key in the DTO; the PDF pictures the PNG photo, the JPEG photo and the signature;
+  - **regeneration blocked after approval** — regenerating a Completed job keeps the number, bumps the revision and deletes the old file (in-memory fake); after Approve it is a 409 with the lock message and the stored PDF is unchanged; a job approved without a report gets exactly one; Assigned, InProgress and Cancelled jobs are 409 and have nothing to download (404); an unknown job is 404;
+  - **ownership** — another technician gets 404;
+  - **Reports list** — newest first, with the job's customer, equipment, technician, status and lock state;
+  - **unique report numbers under parallel generation** — six jobs generated at once get six distinct numbers; five generations of one job at once leave one report row whose revision equals the number of winners, one number, and exactly one stored file (losers and replaced files deleted);
+  - **failure** — a storage outage is a 500 without internals and records no report; a photo or signature missing from storage becomes a placeholder, not a failed report.
+- `EndpointAccessTests`: three new rows — `POST /work-orders/{id}/generate-report` (Manager only), `GET /work-orders/{id}/report` (Admin, Manager, ServiceStaff and the job's own Technician; WarehouseStaff 403) and `GET /reports` (Admin, Manager, ServiceStaff).
+- `DemoSeedingTests`: the seeded Approved job has its locked report (revision 1, generated by the demo Manager) that downloads as a PDF of the recorded size; no other seeded job has one; re-running the seeder generates nothing again.
+
+**Frontend (Vitest)**
+- `Reports.test.tsx`: a Manager generates the report of a completed job (no body sent), sees its number, size and generator, and gets Regenerate, the PDF buttons and still Approve; **Download PDF** fetches with the bearer token and saves `SR-….pdf`; **Open PDF** loads it into the tab opened on the click; an approved job's report shows as locked without Regenerate; an approved job without a report still offers Generate; a refused generation shows the reason and reloads the job; ServiceStaff can download but not generate, and are told who makes the report; no report panel before completion. The **Reports page** lists reports with their job link, revision, state (Locked or the job's status) and a Download per row, and has empty and error states; WarehouseStaff and Technicians are kept out of it. The technician can **View report** on their completed job, and is told the Manager makes it while there is none.
+- `RoleRouting.test.tsx`: the sidebar now offers **Reports** to Admin, Manager and ServiceStaff.
+
+**Docker smoke**
+- A Technician and ServiceStaff cannot generate (403); a job without a report has nothing to download (404); the Manager generates (`SR-…`, revision 1) and regenerates (same number, revision 2); after approval regenerating is a 409; the technician downloads a real PDF through nginx and WarehouseStaff cannot (403); ServiceStaff see it locked in `GET /reports` and WarehouseStaff cannot list (403); the seeded Approved job's locked report downloads as a PDF.
 
 ## Running
 
