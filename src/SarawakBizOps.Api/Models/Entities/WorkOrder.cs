@@ -36,6 +36,16 @@ public class WorkOrder
     public ApplicationUser? CancelledByUser { get; set; }
     public DateTime? CancelledAt { get; set; }
 
+    // Set when the technician pauses the job as PendingParts (Phase 7): what they are waiting for and why.
+    // Resume is allowed only once that part has at least PendingPartQuantity on hand. The fields are kept
+    // after a resume as the record of the last wait; pausing again overwrites them.
+    public string? PendingPartsReason { get; set; }
+    public int? PendingPartId { get; set; }
+    public Part? PendingPart { get; set; }
+    public decimal? PendingPartQuantity { get; set; }
+    public DateTime? PendingPartsAt { get; set; }
+    public DateTime? ResumedAt { get; set; }
+
     // Optimistic concurrency token: protects state-transition and inventory
     // writes against two people acting on the same work order at once
     // (design doc Section 10 / Section 18 concurrency requirements).

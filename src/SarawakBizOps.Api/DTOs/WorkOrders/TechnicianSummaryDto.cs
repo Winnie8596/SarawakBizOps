@@ -6,6 +6,6 @@ public class TechnicianSummaryDto
     public string Id { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
 
-    /// <summary>Jobs currently Assigned or InProgress — a quick load indicator when choosing who to assign.</summary>
+    /// <summary>Jobs currently Assigned, InProgress or PendingParts — a quick load indicator when choosing who to assign.</summary>
     public int OpenJobCount { get; set; }
 }

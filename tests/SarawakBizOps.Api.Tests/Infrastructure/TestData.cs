@@ -309,13 +309,63 @@ public static class TestData
     }
 
     /// <summary>A new part with <paramref name="onHand"/> units already received through the ledger.</summary>
-    public static async Task<PartDto> CreateStockedPartAsync(HttpClient client, decimal onHand, decimal minimumStockLevel = 5)
+    public static async Task<PartDto> CreateStockedPartAsync(
+        HttpClient client, decimal onHand, decimal minimumStockLevel = 5, decimal unitCost = 25.50m)
     {
-        var part = await CreatePartAsync(client, minimumStockLevel: minimumStockLevel);
+        var part = await CreatePartAsync(client, minimumStockLevel: minimumStockLevel, unitCost: unitCost);
         if (onHand > 0)
         {
             await ReceiveAsync(client, part.Id, onHand);
         }
         return await GetPartAsync(client, part.Id);
+    }
+
+    // ---- Phase 7: parts on a job and PendingParts. Like the Phase 5 helpers, each re-reads the job for
+    // its current RowVersion right before acting. ----
+
+    public static async Task<HttpResponseMessage> PostAddPartAsync(
+        HttpClient technician, int workOrderId, int partId, decimal quantity)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PostAsJsonAsync($"/api/work-orders/{workOrderId}/parts",
+            new AddWorkOrderPartRequest { PartId = partId, Quantity = quantity, RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
+    public static async Task<WorkOrderDto> AddPartAsync(HttpClient technician, int workOrderId, int partId, decimal quantity)
+    {
+        var response = await PostAddPartAsync(technician, workOrderId, partId, quantity);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
+    public static async Task<HttpResponseMessage> DeletePartLineAsync(HttpClient technician, int workOrderId, int lineId)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/work-orders/{workOrderId}/parts/{lineId}")
+        {
+            Content = JsonContent.Create(new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion })
+        });
+    }
+
+    public static async Task<HttpResponseMessage> PostPendingPartsAsync(
+        HttpClient technician, int workOrderId, int partId, decimal quantity, string reason = "Waiting for stock")
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PostAsJsonAsync($"/api/work-orders/{workOrderId}/pending-parts",
+            new PendingPartsRequest { Reason = reason, PartId = partId, Quantity = quantity, RowVersion = current?.RowVersion ?? DummyRowVersion });
+    }
+
+    public static async Task<WorkOrderDto> MarkPendingPartsAsync(HttpClient technician, int workOrderId, int partId, decimal quantity)
+    {
+        var response = await PostPendingPartsAsync(technician, workOrderId, partId, quantity);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
+    }
+
+    public static async Task<HttpResponseMessage> PostResumeAsync(HttpClient technician, int workOrderId)
+    {
+        var current = await GetWorkOrderAsync(technician, workOrderId);
+        return await technician.PostAsJsonAsync($"/api/work-orders/{workOrderId}/resume",
+            new RowVersionRequest { RowVersion = current?.RowVersion ?? DummyRowVersion });
     }
 }

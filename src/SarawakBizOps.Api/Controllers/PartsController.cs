@@ -1,19 +1,22 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Parts;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
 using SarawakBizOps.Api.Services.Parts;
 
 namespace SarawakBizOps.Api.Controllers;
 
 // PRD §6.5. WarehouseStaff/Admin run the catalogue; a Manager may read it (low stock feeds the Phase 11
-// dashboard, AC-09). ServiceStaff never touch inventory, and a Technician gets read access only when
-// parts are used on jobs (Phase 7).
+// dashboard, AC-09). ServiceStaff never touch inventory. A Technician may search the active catalogue to
+// pick parts for their job (Phase 7) — nothing else here.
 [ApiController]
 [Route("api/parts")]
-[Authorize(Roles = "Admin,Manager,WarehouseStaff")]
+[Authorize(Roles = "Admin,Manager,WarehouseStaff,Technician")]
 public class PartsController : ControllerBase
 {
+    private const string InventoryReaders = "Admin,Manager,WarehouseStaff";
+
     private readonly IPartService _service;
 
     public PartsController(IPartService service)
@@ -23,14 +26,24 @@ public class PartsController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] PartFilter filter, CancellationToken ct)
-        => Ok(await _service.GetAllAsync(filter, ct));
+    {
+        // A technician only ever picks from parts that can actually be used on a job.
+        if (User.IsInRole(AppRoles.Technician))
+        {
+            filter.IncludeInactive = false;
+        }
+
+        return Ok(await _service.GetAllAsync(filter, ct));
+    }
 
     // AC-09 (API half): active parts at or below their minimum stock level.
     [HttpGet("low-stock")]
+    [Authorize(Roles = InventoryReaders)]
     public async Task<IActionResult> GetLowStock(CancellationToken ct)
         => Ok(await _service.GetLowStockAsync(ct));
 
     [HttpGet("{id:int}")]
+    [Authorize(Roles = InventoryReaders)]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
         var part = await _service.GetByIdAsync(id, ct);

@@ -6,18 +6,21 @@ namespace SarawakBizOps.Api.Tests;
 /// <summary>
 /// Pure unit tests (no database): every (from, to) pair of the work-order lifecycle. The expected set
 /// is written out here independently of the implementation, so widening the rules on purpose means
-/// changing this table too. Phase 5 adds PendingParts/resume and Cancelled.
+/// changing this table too. Phase 5 adds Cancelled; Phase 7 adds PendingParts and resume.
 /// </summary>
 public class WorkOrderStateMachineTests
 {
     private static readonly (WorkOrderStatus From, WorkOrderStatus To)[] Valid =
     {
         (WorkOrderStatus.Assigned, WorkOrderStatus.InProgress),
+        (WorkOrderStatus.InProgress, WorkOrderStatus.PendingParts),
+        (WorkOrderStatus.PendingParts, WorkOrderStatus.InProgress),
         (WorkOrderStatus.InProgress, WorkOrderStatus.Completed),
         (WorkOrderStatus.Completed, WorkOrderStatus.Approved),
         (WorkOrderStatus.New, WorkOrderStatus.Cancelled),
         (WorkOrderStatus.Assigned, WorkOrderStatus.Cancelled),
-        (WorkOrderStatus.InProgress, WorkOrderStatus.Cancelled)
+        (WorkOrderStatus.InProgress, WorkOrderStatus.Cancelled),
+        (WorkOrderStatus.PendingParts, WorkOrderStatus.Cancelled)
     };
 
     public static TheoryData<WorkOrderStatus, WorkOrderStatus, bool> EveryPair()
@@ -68,14 +71,53 @@ public class WorkOrderStateMachineTests
     [InlineData(WorkOrderStatus.Completed, "Completed")]
     [InlineData(WorkOrderStatus.Approved, "Approved")]
     [InlineData(WorkOrderStatus.Cancelled, "Cancelled")]
-    public void Cancel_refusal_names_the_current_status_and_the_three_cancellable_states(
+    public void Cancel_refusal_names_the_current_status_and_the_cancellable_states(
         WorkOrderStatus from, string expectedText)
     {
         var refusal = WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Cancelled);
 
         Assert.NotNull(refusal);
         Assert.Contains(expectedText, refusal);
-        Assert.Contains("Only a New, Assigned or InProgress job", refusal);
+        Assert.Contains("Only a New, Assigned, InProgress or PendingParts job", refusal);
+    }
+
+    // Start and resume both reach InProgress; each is allowed from exactly one state, so "start" cannot
+    // skip the resume stock guard and "resume" cannot restart an Assigned job.
+    public static TheoryData<WorkOrderStatus> EveryStatus()
+    {
+        var data = new TheoryData<WorkOrderStatus>();
+        foreach (var status in Enum.GetValues<WorkOrderStatus>())
+        {
+            data.Add(status);
+        }
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryStatus))]
+    public void Start_is_allowed_only_from_Assigned(WorkOrderStatus from)
+    {
+        var refusal = WorkOrderStateMachine.StartRefusal(from);
+
+        Assert.Equal(from == WorkOrderStatus.Assigned, refusal is null);
+        if (refusal is not null) Assert.Contains(from.ToString(), refusal);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryStatus))]
+    public void Resume_is_allowed_only_from_PendingParts(WorkOrderStatus from)
+    {
+        var refusal = WorkOrderStateMachine.ResumeRefusal(from);
+
+        Assert.Equal(from == WorkOrderStatus.PendingParts, refusal is null);
+        if (refusal is not null) Assert.Contains(from.ToString(), refusal);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryStatus))]
+    public void Parts_change_only_while_a_job_is_in_progress(WorkOrderStatus status)
+    {
+        Assert.Equal(status == WorkOrderStatus.InProgress, WorkOrderStateMachine.AcceptsPartChanges(status));
     }
 
     [Theory]
@@ -90,6 +132,7 @@ public class WorkOrderStateMachineTests
     [InlineData(WorkOrderStatus.New)]
     [InlineData(WorkOrderStatus.Assigned)]
     [InlineData(WorkOrderStatus.InProgress)]
+    [InlineData(WorkOrderStatus.PendingParts)]
     [InlineData(WorkOrderStatus.Completed)]
     public void Open_states_are_not_locked(WorkOrderStatus status)
     {

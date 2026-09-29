@@ -70,7 +70,9 @@ public static class DemoSeeder
         new("Sibu Palm Oil Processing Sdn Bhd", "SPO-PMP-002", "Centrifugal Pump", "Hartmann", "HP-150",
             new DateTime(2021, 2, 23), EquipmentStatus.Active, "Clarification station"),
         new("Miri Offshore Supplies Sdn Bhd", "MOS-FLT-001", "Forklift", "Tanjung", "TL-35D",
-            new DateTime(2022, 7, 11), EquipmentStatus.Active, "Warehouse yard")
+            new DateTime(2022, 7, 11), EquipmentStatus.Active, "Warehouse yard"),
+        new("Santubong Bottling Works Sdn Bhd", "SBW-FIL-003", "Bottle Filling Line", "Tanjung", "TF-12",
+            new DateTime(2023, 5, 9), EquipmentStatus.UnderMaintenance, "Line B")
     };
 
     public static async Task SeedAsync(IServiceProvider services, CancellationToken ct = default)
@@ -89,8 +91,10 @@ public static class DemoSeeder
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
         await SeedCustomersAndEquipmentAsync(db, ct);
         await SeedServiceRequestsAsync(userManager, db, ct);
-        await SeedWorkOrdersAsync(userManager, db, ct);
+        // Parts before work orders: a PendingParts job names the part it is waiting for, and jobs use parts.
         await SeedPartsAsync(userManager, db, ct);
+        await SeedWorkOrdersAsync(userManager, db, ct);
+        await SeedPartsUsedAsync(userManager, db, ct);
     }
 
     // Phase 3 states: New, Approved and Rejected. Four of the Approved rows below are then carried
@@ -143,7 +147,10 @@ public static class DemoSeeder
                                  "review; no repair job is needed after all."),
         new("SBW-FIL-001",
             "Filling line A conveyor belt is fraying and needs replacing before it fails completely.",
-            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 11, ReviewedDaysAgo: 10)
+            RequestPriority.Medium, ServiceRequestStatus.Approved, CreatedDaysAgo: 11, ReviewedDaysAgo: 10),
+        new("SBW-FIL-003",
+            "Filling line B infeed conveyor stops intermittently and the belt has torn at the splice.",
+            RequestPriority.High, ServiceRequestStatus.Approved, CreatedDaysAgo: 4, ReviewedDaysAgo: 4)
     };
 
     // Phase 4 states: one job at each of Assigned, InProgress, Completed and Approved, all worked by
@@ -151,11 +158,19 @@ public static class DemoSeeder
     // Manager's next action — is represented without touching the still-unassigned pump request above.
     // Phase 5 adds one Cancelled job, whose linked request reverts to Approved (BR-12's filtered unique
     // index then lets it be reassigned) — the seeded proof that the revert-and-reassign path works.
+    // Phase 7 adds parts used on three jobs and one job paused as PendingParts.
     private record DemoWorkOrder(
         string EquipmentSerial, string Problem, WorkOrderStatus Status, int AssignedDaysAgo,
         int? StartedDaysAgo = null, int? CompletedDaysAgo = null, int? ApprovedDaysAgo = null,
         string? Diagnosis = null, string? WorkPerformed = null,
-        int? CancelledDaysAgo = null, string? CancellationReason = null);
+        int? CancelledDaysAgo = null, string? CancellationReason = null,
+        DemoPartUsed[]? PartsUsed = null, DemoPendingParts? Pending = null);
+
+    // Phase 7: parts the technician put on a job (each becomes a WorkOrderPart line plus one Issue ledger
+    // row), and what a PendingParts job is waiting for.
+    private record DemoPartUsed(string PartNumber, decimal Quantity, int DaysAgo);
+
+    private record DemoPendingParts(string PartNumber, decimal Quantity, int DaysAgo, string Reason);
 
     private static readonly DemoWorkOrder[] WorkOrders =
     {
@@ -169,7 +184,8 @@ public static class DemoSeeder
             "Air compressor short-cycles under load and trips its overload relay.",
             WorkOrderStatus.InProgress, AssignedDaysAgo: 6, StartedDaysAgo: 5,
             Diagnosis: "Overload relay set point was too low for the compressor's duty cycle; contacts were also pitted.",
-            WorkPerformed: "Replaced the overload relay, reset it to the compressor's rated current and ran a 30-minute load test."),
+            WorkPerformed: "Replaced the overload relay, reset it to the compressor's rated current and ran a 30-minute load test.",
+            PartsUsed: new[] { new DemoPartUsed("REL-OVL-25A", 1, 5) }),
 
         // Completed: the Manager's next action is to approve it.
         new("SBW-GEN-002",
@@ -183,7 +199,20 @@ public static class DemoSeeder
             "Forklift hydraulic lift is slow to raise a loaded pallet and leaks a little fluid at the mast.",
             WorkOrderStatus.Approved, AssignedDaysAgo: 16, StartedDaysAgo: 16, CompletedDaysAgo: 15, ApprovedDaysAgo: 14,
             Diagnosis: "Hydraulic pump inlet strainer was clogged and a lift-cylinder seal was worn, causing external leakage.",
-            WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec."),
+            WorkPerformed: "Cleaned the inlet strainer, replaced the lift-cylinder seal kit and topped up hydraulic fluid to spec.",
+            PartsUsed: new[] { new DemoPartUsed("SEAL-KIT-HYD", 1, 16), new DemoPartUsed("OIL-HYD-46", 12, 16) }),
+
+        // PendingParts (Phase 7): the idler bearings were replaced from stock, but the torn belt needs 6 m of
+        // belting and the store has none (the last roll was written off after the store-room leak). A
+        // reviewer can receive belting as the warehouse and then resume the job as the technician.
+        new("SBW-FIL-003",
+            "Filling line B infeed conveyor stops intermittently and the belt has torn at the splice.",
+            WorkOrderStatus.PendingParts, AssignedDaysAgo: 3, StartedDaysAgo: 3,
+            Diagnosis: "Belt torn at the vulcanised splice; two idler bearings seized, which overloaded the drive and tripped it.",
+            WorkPerformed: "Replaced both seized idler bearings. Belt replacement outstanding.",
+            PartsUsed: new[] { new DemoPartUsed("BRG-6205-2RS", 2, 3) },
+            Pending: new DemoPendingParts("BLT-CNV-600", 6, 3,
+                "Need 6 m of 600 mm belting to replace the torn belt; none in stock.")),
 
         // Cancelled before it could be started: the request behind it reverts to Approved and shows up
         // in the assign queue again, exactly as a real cancel would leave it.
@@ -278,6 +307,7 @@ public static class DemoSeeder
             .GroupBy(r => (r.Equipment!.SerialNumber, r.ProblemDescription))
             .ToDictionary(g => g.Key, g => g.First());
         var alreadyAssigned = (await db.WorkOrders.Select(w => w.ServiceRequestId).ToListAsync(ct)).ToHashSet();
+        var partIds = await db.Parts.ToDictionaryAsync(p => p.PartNumber, p => p.Id, StringComparer.OrdinalIgnoreCase, ct);
 
         var now = DateTime.UtcNow;
         foreach (var demo in WorkOrders)
@@ -306,6 +336,14 @@ public static class DemoSeeder
                 workOrder.CancelledByUserId = manager.Id;
                 workOrder.CancelledAt = now.AddDays(-demo.CancelledDaysAgo!.Value);
                 workOrder.CancellationReason = demo.CancellationReason;
+            }
+
+            if (demo.Pending is { } pending)
+            {
+                workOrder.PendingPartsReason = pending.Reason;
+                workOrder.PendingPartId = partIds[pending.PartNumber];
+                workOrder.PendingPartQuantity = pending.Quantity;
+                workOrder.PendingPartsAt = now.AddDays(-pending.DaysAgo);
             }
 
             db.WorkOrders.Add(workOrder);
@@ -422,6 +460,66 @@ public static class DemoSeeder
             }
 
             db.Parts.Add(part);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    // Phase 7: each part used becomes a WorkOrderPart line (price snapshotted from the catalogue) plus one
+    // Issue ledger row linked to the job, and the part's stock drops by the same amount — exactly what the
+    // API does, so QuantityOnHand == SUM(ledger) still holds. Natural key: a job's lines are added only
+    // while it has none, so a re-run (or a database seeded before Phase 7) gets each job's parts once.
+    private static async Task SeedPartsUsedAsync(
+        UserManager<ApplicationUser> userManager, ApplicationDbContext db, CancellationToken ct)
+    {
+        var technician = await userManager.FindByEmailAsync("technician@sarawakbizops.local")
+            ?? throw new InvalidOperationException("Demo Technician account is missing.");
+
+        var workOrders = await db.WorkOrders
+            .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
+            .Where(w => w.TechnicianId == technician.Id && !w.PartsUsed.Any())
+            .ToListAsync(ct);
+        var parts = await db.Parts.ToDictionaryAsync(p => p.PartNumber, StringComparer.OrdinalIgnoreCase, ct);
+
+        var now = DateTime.UtcNow;
+        foreach (var demo in WorkOrders.Where(d => d.PartsUsed is not null))
+        {
+            var workOrder = workOrders.FirstOrDefault(w =>
+                w.ServiceRequest!.Equipment!.SerialNumber == demo.EquipmentSerial
+                && w.ServiceRequest.ProblemDescription == demo.Problem);
+            if (workOrder is null)
+            {
+                continue;
+            }
+
+            foreach (var used in demo.PartsUsed!)
+            {
+                var part = parts[used.PartNumber];
+                if (part.QuantityOnHand < used.Quantity)
+                {
+                    continue; // never seed negative stock, even on a database whose stock has moved since
+                }
+
+                var at = now.AddDays(-used.DaysAgo);
+                part.QuantityOnHand -= used.Quantity;
+                workOrder.PartsUsed.Add(new WorkOrderPart
+                {
+                    PartId = part.Id,
+                    Quantity = used.Quantity,
+                    UnitPrice = part.UnitCost,
+                    CreatedAt = at
+                });
+                db.InventoryTransactions.Add(new InventoryTransaction
+                {
+                    PartId = part.Id,
+                    TransactionType = InventoryTransactionType.Issue,
+                    Quantity = -used.Quantity,
+                    WorkOrderId = workOrder.Id,
+                    CreatedByUserId = technician.Id,
+                    Notes = $"Used on work order #{workOrder.Id}",
+                    CreatedAt = at
+                });
+            }
         }
 
         await db.SaveChangesAsync(ct);

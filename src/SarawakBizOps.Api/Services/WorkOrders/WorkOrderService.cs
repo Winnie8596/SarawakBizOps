@@ -4,6 +4,7 @@ using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
+using SarawakBizOps.Api.Services.Inventory;
 
 namespace SarawakBizOps.Api.Services.WorkOrders;
 
@@ -160,11 +161,123 @@ public class WorkOrderService : IWorkOrderService
     public Task<ServiceResult<WorkOrderDto>> StartAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        return TransitionAsync(id, WorkOrderStatus.InProgress, technicianId, rowVersion,
+        return TransitionAsync(id, WorkOrderStateMachine.StartRefusal, technicianId, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.InProgress)
                 .SetProperty(w => w.StartedAt, now), token),
             ct);
+    }
+
+    public async Task<ServiceResult<WorkOrderDto>> MarkPendingPartsAsync(
+        int id, string technicianId, string reason, int partId, decimal quantity, byte[] rowVersion, CancellationToken ct)
+    {
+        var trimmed = reason.Trim();
+        if (trimmed.Length == 0)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
+                "Say what the job is waiting for.");
+        }
+
+        var invalid = StockMovementRules.ValidateJobQuantity(quantity);
+        if (invalid is not null)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation, invalid);
+        }
+
+        var part = await _db.Parts.AsNoTracking()
+            .Where(p => p.Id == partId)
+            .Select(p => new { p.Name, p.Unit, p.QuantityOnHand, p.IsActive })
+            .FirstOrDefaultAsync(ct);
+        if (part is null || !part.IsActive)
+        {
+            // Inactive parts are out of the catalogue the technician picks from, so they read as unknown.
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation, "Choose a part from the catalogue.");
+        }
+
+        // Waiting only makes sense for stock that is not there: with enough on hand, add it to the job instead.
+        if (part.QuantityOnHand >= quantity)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict,
+                $"{part.Name} is in stock ({part.QuantityOnHand:0.###} {part.Unit} on hand); add it to the job instead of waiting.");
+        }
+
+        var now = DateTime.UtcNow;
+        var result = await TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.PendingParts),
+            technicianId, rowVersion,
+            (rows, token) => rows.ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.Status, WorkOrderStatus.PendingParts)
+                .SetProperty(w => w.PendingPartsReason, trimmed)
+                .SetProperty(w => w.PendingPartId, partId)
+                .SetProperty(w => w.PendingPartQuantity, quantity)
+                .SetProperty(w => w.PendingPartsAt, now)
+                .SetProperty(w => w.ResumedAt, (DateTime?)null), token),
+            ct);
+
+        if (result.Succeeded)
+        {
+            _logger.LogInformation(
+                "WorkOrder {WorkOrderId} InProgress -> PendingParts by {TechnicianId}: waiting for {Quantity} of Part {PartId}",
+                id, technicianId, quantity, partId);
+        }
+
+        return result;
+    }
+
+    public async Task<ServiceResult<WorkOrderDto>> ResumeAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct)
+    {
+        // Friendly message first; the same condition is repeated inside the UPDATE below, which is what
+        // actually decides (stock can be issued elsewhere between this read and the update).
+        if (await ResumeShortageAsync(id, ct) is { } shortage)
+        {
+            var owned = await _db.WorkOrders.AnyAsync(w => w.Id == id && w.TechnicianId == technicianId, ct);
+            return owned
+                ? ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, shortage)
+                : ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
+        }
+
+        var now = DateTime.UtcNow;
+        var result = await TransitionAsync(id, WorkOrderStateMachine.ResumeRefusal, technicianId, rowVersion,
+            (rows, token) => rows
+                .Where(w => w.PendingPartId == null
+                    || _db.Parts.Any(p => p.Id == w.PendingPartId && p.QuantityOnHand >= w.PendingPartQuantity))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(w => w.Status, WorkOrderStatus.InProgress)
+                    .SetProperty(w => w.ResumedAt, now), token),
+            ct);
+
+        if (!result.Succeeded && result.ErrorKind == ServiceErrorKind.Conflict
+            && await ResumeShortageAsync(id, ct) is { } lateShortage)
+        {
+            // Lost the race for the stock between the check above and the update.
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, lateShortage);
+        }
+
+        if (result.Succeeded)
+        {
+            _logger.LogInformation("WorkOrder {WorkOrderId} PendingParts -> InProgress by {TechnicianId}", id, technicianId);
+        }
+
+        return result;
+    }
+
+    // Why a PendingParts job cannot resume yet, or null when its awaited part has enough stock.
+    private async Task<string?> ResumeShortageAsync(int id, CancellationToken ct)
+    {
+        var waiting = await _db.WorkOrders.AsNoTracking()
+            .Where(w => w.Id == id && w.Status == WorkOrderStatus.PendingParts && w.PendingPart != null)
+            .Select(w => new
+            {
+                w.PendingPart!.Name,
+                w.PendingPart.Unit,
+                w.PendingPart.QuantityOnHand,
+                Needed = w.PendingPartQuantity ?? 0
+            })
+            .FirstOrDefaultAsync(ct);
+
+        return waiting is null || waiting.QuantityOnHand >= waiting.Needed
+            ? null
+            : $"Still waiting for parts: {waiting.Needed:0.###} {waiting.Unit} of {waiting.Name} needed, " +
+              $"{waiting.QuantityOnHand:0.###} on hand.";
     }
 
     public async Task<ServiceResult<WorkOrderDto>> UpdateDiagnosisAsync(
@@ -239,7 +352,8 @@ public class WorkOrderService : IWorkOrderService
         }
 
         var now = DateTime.UtcNow;
-        return await TransitionAsync(id, WorkOrderStatus.Completed, technicianId, rowVersion,
+        return await TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Completed),
+            technicianId, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.Completed)
                 .SetProperty(w => w.CompletedAt, now), token),
@@ -249,7 +363,7 @@ public class WorkOrderService : IWorkOrderService
     public Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, byte[] rowVersion, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        return TransitionAsync(id, WorkOrderStatus.Approved, null, rowVersion,
+        return TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Approved), null, rowVersion,
             (rows, token) => rows.ExecuteUpdateAsync(s => s
                 .SetProperty(w => w.Status, WorkOrderStatus.Approved)
                 .SetProperty(w => w.ApprovedAt, now), token),
@@ -342,7 +456,8 @@ public class WorkOrderService : IWorkOrderService
 
         var openCounts = await _db.WorkOrders.AsNoTracking()
             .Where(w => w.TechnicianId != null
-                && (w.Status == WorkOrderStatus.Assigned || w.Status == WorkOrderStatus.InProgress))
+                && (w.Status == WorkOrderStatus.Assigned || w.Status == WorkOrderStatus.InProgress
+                    || w.Status == WorkOrderStatus.PendingParts))
             .GroupBy(w => w.TechnicianId!)
             .Select(g => new { TechnicianId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.TechnicianId, x => x.Count, ct);
@@ -361,10 +476,11 @@ public class WorkOrderService : IWorkOrderService
     /// RowVersion = @rowVersion means two people racing on the same job — or a status change racing a
     /// non-status edit — cannot both succeed: the loser updates 0 rows and gets a 409. A non-null
     /// <paramref name="technicianId"/> also enforces BR-02 ownership, hiding someone else's job as
-    /// not-found rather than exposing it with a 403.
+    /// not-found rather than exposing it with a 403. <paramref name="refusal"/> says why the action is not
+    /// allowed from a given status (null when it is).
     /// </summary>
     private async Task<ServiceResult<WorkOrderDto>> TransitionAsync(
-        int id, WorkOrderStatus target, string? technicianId, byte[] rowVersion,
+        int id, Func<WorkOrderStatus, string?> refusal, string? technicianId, byte[] rowVersion,
         Func<IQueryable<WorkOrder>, CancellationToken, Task<int>> apply, CancellationToken ct)
     {
         var current = await _db.WorkOrders.AsNoTracking()
@@ -377,10 +493,9 @@ public class WorkOrderService : IWorkOrderService
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
         }
 
-        var refusal = WorkOrderStateMachine.Refusal(current.Status, target);
-        if (refusal is not null)
+        if (refusal(current.Status) is { } refused)
         {
-            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, refusal);
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, refused);
         }
 
         var from = current.Status;
@@ -395,8 +510,7 @@ public class WorkOrderService : IWorkOrderService
             }
 
             var message = latest.Value != from
-                ? WorkOrderStateMachine.Refusal(latest.Value, target)
-                    ?? "This job was changed by someone else. Refresh and try again."
+                ? refusal(latest.Value) ?? "This job was changed by someone else. Refresh and try again."
                 : "This job was changed by someone else. Refresh and try again.";
 
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Conflict, message);
@@ -430,7 +544,10 @@ public class WorkOrderService : IWorkOrderService
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Customer)
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
         .Include(w => w.Technician)
-        .Include(w => w.CancelledByUser);
+        .Include(w => w.CancelledByUser)
+        .Include(w => w.PendingPart)
+        .Include(w => w.PartsUsed).ThenInclude(wp => wp.Part)
+        .AsSplitQuery();
 
     private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
     {
@@ -442,7 +559,32 @@ public class WorkOrderService : IWorkOrderService
     private static string NameListMessage<TEnum>(string field) where TEnum : struct, Enum
         => $"{field} must be one of: {string.Join(", ", Enum.GetNames<TEnum>())}.";
 
-    private static WorkOrderDto ToDto(WorkOrder w) => new()
+    private static WorkOrderDto ToDto(WorkOrder w)
+    {
+        var parts = w.PartsUsed
+            .OrderBy(wp => wp.CreatedAt)
+            .ThenBy(wp => wp.Id)
+            .Select(wp => new WorkOrderPartDto
+            {
+                Id = wp.Id,
+                PartId = wp.PartId,
+                PartNumber = wp.Part?.PartNumber ?? string.Empty,
+                PartName = wp.Part?.Name ?? string.Empty,
+                Unit = wp.Part?.Unit ?? string.Empty,
+                Quantity = wp.Quantity,
+                UnitPrice = wp.UnitPrice,
+                LineTotal = StockMovementRules.LineTotal(wp.Quantity, wp.UnitPrice),
+                CreatedAt = wp.CreatedAt
+            })
+            .ToList();
+
+        var dto = ToDtoWithoutParts(w);
+        dto.Parts = parts;
+        dto.PartsTotal = parts.Sum(p => p.LineTotal);
+        return dto;
+    }
+
+    private static WorkOrderDto ToDtoWithoutParts(WorkOrder w) => new()
     {
         Id = w.Id,
         ServiceRequestId = w.ServiceRequestId,
@@ -466,6 +608,14 @@ public class WorkOrderService : IWorkOrderService
         CancelledByName = w.CancelledByUser?.FullName,
         CancelledAt = w.CancelledAt,
         CancellationReason = w.CancellationReason,
+        PendingPartsReason = w.PendingPartsReason,
+        PendingPartId = w.PendingPartId,
+        PendingPartNumber = w.PendingPart?.PartNumber,
+        PendingPartName = w.PendingPart?.Name,
+        PendingPartUnit = w.PendingPart?.Unit,
+        PendingPartQuantity = w.PendingPartQuantity,
+        PendingPartsAt = w.PendingPartsAt,
+        ResumedAt = w.ResumedAt,
         RowVersion = Convert.ToBase64String(w.RowVersion ?? Array.Empty<byte>())
     };
 }

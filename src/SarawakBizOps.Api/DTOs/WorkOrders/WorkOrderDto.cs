@@ -33,6 +33,19 @@ public class WorkOrderDto
     public DateTime? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }
 
+    // Phase 7: parts used (oldest first) and their RM total, and the last PendingParts wait, if any.
+    public List<WorkOrderPartDto> Parts { get; set; } = new();
+    public decimal PartsTotal { get; set; }
+
+    public string? PendingPartsReason { get; set; }
+    public int? PendingPartId { get; set; }
+    public string? PendingPartNumber { get; set; }
+    public string? PendingPartName { get; set; }
+    public string? PendingPartUnit { get; set; }
+    public decimal? PendingPartQuantity { get; set; }
+    public DateTime? PendingPartsAt { get; set; }
+    public DateTime? ResumedAt { get; set; }
+
     /// <summary>Base64 EF Core concurrency token — the single conflict-token transport (Phase 5):
     /// every mutating call on this job must send it back.</summary>
     public string RowVersion { get; set; } = string.Empty;

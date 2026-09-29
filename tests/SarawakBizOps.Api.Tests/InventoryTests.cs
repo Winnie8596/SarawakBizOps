@@ -436,7 +436,7 @@ public class InventoryTests
         Assert.Contains(inWindow, t => t.Notes == "other part");
         Assert.Contains(inWindow, t => t.Notes == "first");
         Assert.Empty(beforeWindow);
-        Assert.Empty(forWorkOrder); // Issue/Return rows linked to jobs arrive in Phase 7
+        Assert.Empty(forWorkOrder); // this part was never used on a job (WorkOrderPartsTests covers the filter)
     }
 
     [Theory]

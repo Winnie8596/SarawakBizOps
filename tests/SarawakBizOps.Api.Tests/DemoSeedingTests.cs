@@ -77,11 +77,11 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var after = await CountsAsync(db);
         Assert.Equal(before, after);
         Assert.Equal(5, after.Customers);
-        Assert.Equal(10, after.Equipment);
-        Assert.Equal(11, after.Requests);
-        Assert.Equal(5, after.WorkOrders);
+        Assert.Equal(11, after.Equipment);
+        Assert.Equal(12, after.Requests);
+        Assert.Equal(6, after.WorkOrders);
         Assert.Equal(12, after.Parts);
-        Assert.Equal(15, after.Transactions);
+        Assert.Equal(19, after.Transactions); // 15 warehouse movements + 4 parts issued to jobs
     }
 
     private static async Task<(int Users, int Customers, int Equipment, int Requests, int WorkOrders, int Parts, int Transactions)>
@@ -140,13 +140,13 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var requests = await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests");
 
-        Assert.Equal(11, requests!.Count);
+        Assert.Equal(12, requests!.Count);
         Assert.Equal(3, requests.Count(r => r.Status == "New"));
         // One request is left Approved-but-unassigned so a reviewer always has one to assign by hand;
         // a second is Approved because its work order was cancelled (BR-12's revert-to-Approved); the
-        // other four Approved requests were carried into a WorkOrder and are now Assigned.
+        // other five Approved requests were carried into a WorkOrder and are now Assigned.
         Assert.Equal(2, requests.Count(r => r.Status == "Approved"));
-        Assert.Equal(4, requests.Count(r => r.Status == "Assigned"));
+        Assert.Equal(5, requests.Count(r => r.Status == "Assigned"));
         var rejected = Assert.Single(requests, r => r.Status == "Rejected");
         Assert.False(string.IsNullOrWhiteSpace(rejected.RejectionReason));
         Assert.NotNull(rejected.RejectedByName);
@@ -164,7 +164,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
     }
 
     [Fact]
-    public async Task Demo_work_orders_cover_every_phase_4_lifecycle_state()
+    public async Task Demo_work_orders_cover_every_reachable_lifecycle_state()
     {
         var manager = await _factory.CreateAuthenticatedClientAsync(
             "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
@@ -173,18 +173,32 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var workOrders = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
 
-        Assert.Equal(5, workOrders!.Count);
+        Assert.Equal(6, workOrders!.Count);
         Assert.All(workOrders, w => Assert.Equal("Ahmad Bujang", w.TechnicianName));
         var assigned = Assert.Single(workOrders, w => w.Status == "Assigned");
         Assert.Null(assigned.Diagnosis);
+        Assert.Empty(assigned.Parts);
         var inProgress = Assert.Single(workOrders, w => w.Status == "InProgress");
         Assert.False(string.IsNullOrWhiteSpace(inProgress.Diagnosis));
         Assert.False(string.IsNullOrWhiteSpace(inProgress.WorkPerformed));
+        var relay = Assert.Single(inProgress.Parts);
+        Assert.Equal(("REL-OVL-25A", 1m, 145.00m), (relay.PartNumber, relay.Quantity, relay.UnitPrice));
         var completed = Assert.Single(workOrders, w => w.Status == "Completed");
         Assert.NotNull(completed.CompletedAt);
         Assert.Null(completed.ApprovedAt);
         var approved = Assert.Single(workOrders, w => w.Status == "Approved");
         Assert.NotNull(approved.ApprovedAt);
+        Assert.Equal(new[] { "SEAL-KIT-HYD", "OIL-HYD-46" }.Order(), approved.Parts.Select(p => p.PartNumber).Order());
+        Assert.Equal(363.80m, approved.PartsTotal); // 1 × RM 185.00 + 12 L × RM 14.90
+
+        // PendingParts: waiting for belting that is not in stock, so it cannot be resumed yet.
+        var pending = Assert.Single(workOrders, w => w.Status == "PendingParts");
+        Assert.Equal("BLT-CNV-600", pending.PendingPartNumber);
+        Assert.Equal(6m, pending.PendingPartQuantity);
+        Assert.False(string.IsNullOrWhiteSpace(pending.PendingPartsReason));
+        Assert.NotNull(pending.PendingPartsAt);
+        Assert.Null(pending.ResumedAt);
+        Assert.Equal("BRG-6205-2RS", Assert.Single(pending.Parts).PartNumber);
         var cancelled = Assert.Single(workOrders, w => w.Status == "Cancelled");
         Assert.False(string.IsNullOrWhiteSpace(cancelled.CancellationReason));
         Assert.Equal("Jenny Lau", cancelled.CancelledByName);
@@ -195,7 +209,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         // The demo Technician sees exactly their own jobs (BR-02) and can act on the assigned one.
         var mine = await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
-        Assert.Equal(5, mine!.Count);
+        Assert.Equal(6, mine!.Count);
     }
 
     [Fact]
@@ -219,13 +233,20 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal("BLT-CNV-600", lowStock![0].PartNumber); // 10 below its minimum: the most urgent
         Assert.DoesNotContain(lowStock, p => p.PartNumber == "FUSE-HRC-63");
 
-        // Every movement is a warehouse Receive or a reasoned Adjustment; nothing is tied to a job yet.
-        Assert.Equal(15, ledger!.Count);
-        Assert.All(ledger, t => Assert.Contains(t.TransactionType, new[] { "Receive", "Adjustment" }));
-        Assert.All(ledger, t => Assert.Equal("Siti Nurul", t.CreatedByName));
+        // 15 warehouse movements (Receive, or an Adjustment with a reason), plus one Issue per part line on a
+        // job, raised by the technician and linked to that job (BR-05).
+        Assert.Equal(19, ledger!.Count);
+        var warehouseMovements = ledger.Where(t => t.TransactionType is "Receive" or "Adjustment").ToList();
+        var issues = ledger.Where(t => t.TransactionType == "Issue").ToList();
+        Assert.Equal(15, warehouseMovements.Count);
+        Assert.Equal(4, issues.Count);
+        Assert.All(warehouseMovements, t => Assert.Equal("Siti Nurul", t.CreatedByName));
+        Assert.All(warehouseMovements, t => Assert.Null(t.WorkOrderId));
         Assert.All(ledger.Where(t => t.TransactionType == "Adjustment"), t => Assert.False(string.IsNullOrWhiteSpace(t.Notes)));
-        Assert.All(ledger, t => Assert.Null(t.WorkOrderId));
-        Assert.Equal(256.5m, all.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand);
+        Assert.All(issues, t => Assert.Equal("Ahmad Bujang", t.CreatedByName));
+        Assert.All(issues, t => Assert.NotNull(t.WorkOrderId));
+        Assert.All(issues, t => Assert.True(t.Quantity < 0));
+        Assert.Equal(244.5m, all.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand); // 256.5 received less 12 used
 
         await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
     }

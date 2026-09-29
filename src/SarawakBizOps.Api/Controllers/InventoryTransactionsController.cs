@@ -27,7 +27,8 @@ public class InventoryTransactionsController : ControllerBase
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
-    // Receive or Adjustment only; Issue/Return come from work-order part operations (Phase 7).
+    // Receive or Adjustment only; Issue/Return come only from work-order part operations
+    // (POST/DELETE /api/work-orders/{id}/parts).
     // There is no GET-by-id, so the 201 carries the new row in its body without a Location header.
     [HttpPost]
     [Authorize(Roles = "Admin,WarehouseStaff")]

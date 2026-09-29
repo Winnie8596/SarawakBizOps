@@ -25,16 +25,18 @@ public class EndpointAccessTests
     private static readonly string[] Office = { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff };
 
     // Phase 6: the warehouse runs inventory; a Manager may read it (low stock feeds the dashboard).
-    // ServiceStaff never touch inventory and a Technician gets no inventory access until Phase 7.
+    // ServiceStaff never touch inventory. Phase 7: a Technician may search the parts list (to pick parts for
+    // their job) and nothing else — not low stock, a single part, or the ledger.
     private static readonly string[] InventoryReaders = { AppRoles.Admin, AppRoles.Manager, AppRoles.WarehouseStaff };
     private static readonly string[] InventoryWriters = { AppRoles.Admin, AppRoles.WarehouseStaff };
+    private static readonly string[] PartPickers = { AppRoles.Admin, AppRoles.Manager, AppRoles.WarehouseStaff, AppRoles.Technician };
 
     /// <summary>Ids of the records an endpoint row's Path/Body can point at. RowVersion is the base64
     /// concurrency token of whichever record the row's Body posts back (Phase 5: required on every
-    /// mutating call), left blank for rows that do not need one.</summary>
+    /// mutating call), left blank for rows that do not need one. LineId is a part line on the job.</summary>
     private record Fixture(
         int CustomerId, int EquipmentId, int RequestId, int WorkOrderId, string TechnicianId, string RowVersion = "",
-        PartDto? Part = null);
+        PartDto? Part = null, int LineId = 0);
 
     /// <summary>Clients set up once per test row, for Prepare functions to drive through real endpoints.</summary>
     private record PrepContext(HttpClient Admin, HttpClient Manager, HttpClient TechnicianClient, string TechnicianId);
@@ -180,7 +182,7 @@ public class EndpointAccessTests
 
         // ---- Phase 6: parts and the inventory ledger ----
         new("GET /api/parts", HttpMethod.Get,
-            _ => "/api/parts", _ => null, InventoryReaders, HttpStatusCode.OK,
+            _ => "/api/parts", _ => null, PartPickers, HttpStatusCode.OK,
             Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
 
         new("GET /api/parts/low-stock", HttpMethod.Get,
@@ -216,7 +218,59 @@ public class EndpointAccessTests
             _ => "/api/inventory-transactions",
             f => new CreateInventoryTransactionRequest { PartId = f.Part!.Id, TransactionType = "Receive", Quantity = 1 },
             InventoryWriters, HttpStatusCode.Created,
-            Prepare: async ctx => await NewPartFixtureAsync(ctx))
+            Prepare: async ctx => await NewPartFixtureAsync(ctx)),
+
+        // ---- Phase 7: parts used on a job and PendingParts — the assigned technician only ----
+        new("POST /api/work-orders/{id}/parts", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/parts",
+            f => new AddWorkOrderPartRequest { PartId = f.Part!.Id, Quantity = 1, RowVersion = f.RowVersion },
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                var part = await CreateStockedPartAsync(ctx.Admin, onHand: 3);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion, part);
+            },
+            OwnedByTechnician: true),
+
+        new("DELETE /api/work-orders/{id}/parts/{lineId}", HttpMethod.Delete,
+            f => $"/api/work-orders/{f.WorkOrderId}/parts/{f.LineId}",
+            f => new RowVersionRequest { RowVersion = f.RowVersion },
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                var part = await CreateStockedPartAsync(ctx.Admin, onHand: 3);
+                var withPart = await AddPartAsync(ctx.TechnicianClient, wo.Id, part.Id, 1);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, withPart.RowVersion, part, withPart.Parts.Single().Id);
+            },
+            OwnedByTechnician: true),
+
+        new("POST /api/work-orders/{id}/pending-parts", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/pending-parts",
+            f => new PendingPartsRequest { Reason = "Access check", PartId = f.Part!.Id, Quantity = 1, RowVersion = f.RowVersion },
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                var outOfStock = await CreatePartAsync(ctx.Admin);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion, outOfStock);
+            },
+            OwnedByTechnician: true),
+
+        new("POST /api/work-orders/{id}/resume", HttpMethod.Post,
+            f => $"/api/work-orders/{f.WorkOrderId}/resume",
+            f => new RowVersionRequest { RowVersion = f.RowVersion },
+            new[] { AppRoles.Technician }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                var part = await CreatePartAsync(ctx.Admin);
+                var pending = await MarkPendingPartsAsync(ctx.TechnicianClient, wo.Id, part.Id, 1);
+                await ReceiveAsync(ctx.Admin, part.Id, 2); // the awaited stock has arrived
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, pending.RowVersion, part);
+            },
+            OwnedByTechnician: true)
     };
 
     private static async Task<Fixture> NewPartFixtureAsync(PrepContext ctx)

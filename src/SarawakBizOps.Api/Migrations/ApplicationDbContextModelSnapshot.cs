@@ -581,6 +581,22 @@ namespace SarawakBizOps.Api.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<int?>("PendingPartId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("PendingPartQuantity")
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime?>("PendingPartsAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PendingPartsReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("ResumedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -607,6 +623,8 @@ namespace SarawakBizOps.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CancelledByUserId");
+
+                    b.HasIndex("PendingPartId");
 
                     b.HasIndex("ServiceRequestId")
                         .IsUnique()
@@ -839,6 +857,11 @@ namespace SarawakBizOps.Api.Migrations
                         .HasForeignKey("CancelledByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SarawakBizOps.Api.Models.Entities.Part", "PendingPart")
+                        .WithMany()
+                        .HasForeignKey("PendingPartId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SarawakBizOps.Api.Models.Entities.ServiceRequest", "ServiceRequest")
                         .WithOne("WorkOrder")
                         .HasForeignKey("SarawakBizOps.Api.Models.Entities.WorkOrder", "ServiceRequestId")
@@ -851,6 +874,8 @@ namespace SarawakBizOps.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("CancelledByUser");
+
+                    b.Navigation("PendingPart");
 
                     b.Navigation("ServiceRequest");
 

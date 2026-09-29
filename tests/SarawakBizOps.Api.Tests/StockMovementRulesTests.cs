@@ -98,4 +98,35 @@ public class StockMovementRulesTests
     {
         Assert.Equal(expected, StockMovementRules.KeepsStockNonNegative(D(onHand), D(quantity)));
     }
+
+    // ---- Phase 7: quantities used on a job ----
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("0.5")]
+    [InlineData("12.125")]
+    public void A_positive_job_quantity_with_up_to_three_decimals_is_valid(string quantity)
+    {
+        Assert.Null(StockMovementRules.ValidateJobQuantity(D(quantity)));
+    }
+
+    [Theory]
+    [InlineData("0", "greater than zero")]
+    [InlineData("-2", "greater than zero")]
+    [InlineData("1.0005", "decimal places")]
+    [InlineData("1000000001", "too large")]
+    public void Invalid_job_quantities_are_refused(string quantity, string expected)
+    {
+        Assert.Contains(expected, StockMovementRules.ValidateJobQuantity(D(quantity)));
+    }
+
+    [Theory]
+    [InlineData("2", "145.00", "290.00")]
+    [InlineData("12", "14.90", "178.80")]
+    [InlineData("0.333", "10.00", "3.33")]
+    [InlineData("0.125", "0.10", "0.01")] // 0.0125 rounds half away from zero to one sen
+    public void A_line_total_is_quantity_times_the_snapshot_price_rounded_to_sen(string quantity, string price, string expected)
+    {
+        Assert.Equal(D(expected), StockMovementRules.LineTotal(D(quantity), D(price)));
+    }
 }

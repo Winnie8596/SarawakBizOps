@@ -5,7 +5,7 @@ namespace SarawakBizOps.Api.DTOs.Inventory;
 /// <summary>
 /// A stock movement raised by the warehouse: <c>Receive</c> (a positive quantity) or <c>Adjustment</c>
 /// (signed, non-zero, with a mandatory reason in <c>Notes</c>). Issue and Return are never created here —
-/// they come only from work-order part operations (Phase 7).
+/// they come only from work-order part operations.
 /// </summary>
 public class CreateInventoryTransactionRequest
 {

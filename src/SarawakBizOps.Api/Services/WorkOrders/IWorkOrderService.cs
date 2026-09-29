@@ -26,6 +26,15 @@ public interface IWorkOrderService
         int id, string technicianId, string diagnosis, string workPerformed, string? notes,
         byte[] rowVersion, CancellationToken ct);
 
+    /// <summary>InProgress -&gt; PendingParts: records the reason and the part and quantity being waited for.
+    /// Refused while that part already has enough stock (it should simply be added to the job).</summary>
+    Task<ServiceResult<WorkOrderDto>> MarkPendingPartsAsync(
+        int id, string technicianId, string reason, int partId, decimal quantity, byte[] rowVersion, CancellationToken ct);
+
+    /// <summary>PendingParts -&gt; InProgress, only once the awaited part has the awaited quantity on hand.
+    /// Nothing is reserved: the stock can still be used elsewhere before this job adds it.</summary>
+    Task<ServiceResult<WorkOrderDto>> ResumeAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
+
     /// <summary>BR-03 (partial): requires a stored diagnosis and work-performed record (AC-05).</summary>
     Task<ServiceResult<WorkOrderDto>> CompleteAsync(int id, string technicianId, byte[] rowVersion, CancellationToken ct);
 

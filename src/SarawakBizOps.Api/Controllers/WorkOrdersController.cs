@@ -16,10 +16,12 @@ namespace SarawakBizOps.Api.Controllers;
 public class WorkOrdersController : ControllerBase
 {
     private readonly IWorkOrderService _service;
+    private readonly IWorkOrderPartService _parts;
 
-    public WorkOrdersController(IWorkOrderService service)
+    public WorkOrdersController(IWorkOrderService service, IWorkOrderPartService parts)
     {
         _service = service;
+        _parts = parts;
     }
 
     [HttpGet]
@@ -66,6 +68,63 @@ public class WorkOrdersController : ControllerBase
 
         var result = await _service.UpdateDiagnosisAsync(
             id, ActingUserId, request.Diagnosis, request.WorkPerformed, request.Notes, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // ---- Phase 7: parts used on the job (AC-03/AC-04) and PendingParts ----
+
+    [HttpPost("{id:int}/parts")]
+    [Authorize(Roles = "Technician")]
+    public async Task<IActionResult> AddPart(int id, [FromBody] AddWorkOrderPartRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _parts.AddAsync(id, ActingUserId, request.PartId, request.Quantity, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    // {lineId} is the WorkOrderPart line (the same part can be on a job in more than one line). The whole
+    // line goes back to stock; the body carries the job's rowVersion like every other mutating call.
+    [HttpDelete("{id:int}/parts/{lineId:int}")]
+    [Authorize(Roles = "Technician")]
+    public async Task<IActionResult> ReturnPart(int id, int lineId, [FromBody] RowVersionRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _parts.ReturnAsync(id, lineId, ActingUserId, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    [HttpPost("{id:int}/pending-parts")]
+    [Authorize(Roles = "Technician")]
+    public async Task<IActionResult> PendingParts(int id, [FromBody] PendingPartsRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.MarkPendingPartsAsync(
+            id, ActingUserId, request.Reason, request.PartId, request.Quantity, rowVersion, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
+    }
+
+    [HttpPost("{id:int}/resume")]
+    [Authorize(Roles = "Technician")]
+    public async Task<IActionResult> Resume(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
+    {
+        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
+        {
+            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
+        }
+
+        var result = await _service.ResumeAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 

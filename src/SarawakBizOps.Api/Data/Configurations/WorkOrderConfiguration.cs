@@ -14,6 +14,13 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
         builder.Property(wo => wo.Notes).HasMaxLength(2000);
         builder.Property(wo => wo.CustomerSignatureUrl).HasMaxLength(500);
         builder.Property(wo => wo.CancellationReason).HasMaxLength(500);
+        builder.Property(wo => wo.PendingPartsReason).HasMaxLength(500);
+        builder.Property(wo => wo.PendingPartQuantity).HasColumnType("decimal(18,3)");
+
+        builder.HasOne(wo => wo.PendingPart)
+            .WithMany()
+            .HasForeignKey(wo => wo.PendingPartId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // BR-12: a ServiceRequest can produce at most one WorkOrder — but a Cancelled work order
         // (Phase 5 decision) is excluded, so a request whose job was cancelled can be assigned again.
