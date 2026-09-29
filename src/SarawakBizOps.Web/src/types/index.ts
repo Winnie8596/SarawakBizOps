@@ -364,8 +364,54 @@ export interface LowStockItem {
   minimumStockLevel: number
 }
 
-export interface DashboardSummary {
+export interface AnalyticsPeriod {
+  /** 'yyyy-MM' in Malaysia time, the first and last (current) month covered. */
+  fromMonth: string
+  toMonth: string
+  fromUtc: string
+  toUtc: string
+}
+
+export interface DurationStat {
+  /** Null when nothing was measured. */
+  averageHours: number | null
+  count: number
+}
+
+export interface RepeatedFailure {
+  equipmentId: number
+  serialNumber: string
+  equipmentType: string
+  customerId: number
+  customerName: string
+  requestCount: number
+  lastReportedAt: string
+}
+
+export interface PartUsage {
+  partId: number
+  partNumber: string
+  name: string
+  unit: string
+  quantity: number
+  /** RM, at the prices snapshotted when the parts were used. */
+  cost: number
+  jobCount: number
+}
+
+export interface LowStockSummary {
+  count: number
+  outOfStock: number
+  items: LowStockItem[]
+}
+
+// Phase 12: GET /api/dashboard/summary answers with the caller's own view, tagged by `view`.
+export type DashboardView = ManagerDashboard | WarehouseDashboard | ServiceQueueDashboard
+
+export interface ManagerDashboard {
+  view: 'Manager'
   generatedAt: string
+  period: AnalyticsPeriod
   kpis: {
     openRequests: number
     activeWorkOrders: number
@@ -379,9 +425,82 @@ export interface DashboardSummary {
   workOrdersByStatus: CountByKey[]
   /** Oldest first, ending with the current month. */
   jobsCompletedPerMonth: MonthCount[]
-  lowStock: {
+  lowStock: LowStockSummary
+  averageTimeToAssignment: DurationStat
+  averageCompletionDuration: DurationStat
+  repeatedFailures: {
+    minimumRequests: number
+    equipmentCount: number
+    items: RepeatedFailure[]
+  }
+  /** Costliest first. */
+  topPartsByUsage: PartUsage[]
+}
+
+export interface JobWaitingForPart {
+  workOrderId: number
+  partId: number
+  partNumber: string
+  name: string
+  unit: string
+  quantityNeeded: number
+  quantityOnHand: number
+  waitingSince: string | null
+  inStock: boolean
+}
+
+export interface WarehouseDashboard {
+  view: 'Warehouse'
+  generatedAt: string
+  period: AnalyticsPeriod
+  kpis: {
+    activeParts: number
+    lowStockParts: number
+    outOfStockParts: number
+    jobsWaitingForParts: number
+  }
+  lowStock: LowStockSummary
+  jobsWaitingForParts: {
     count: number
-    outOfStock: number
-    items: LowStockItem[]
+    readyToResume: number
+    items: JobWaitingForPart[]
+  }
+  topPartsByUsage: PartUsage[]
+}
+
+export interface QueuedRequest {
+  id: number
+  customerName: string
+  equipmentSerialNumber: string
+  equipmentType: string
+  priority: RequestPriority
+  status: ServiceRequestStatus
+  createdAt: string
+}
+
+export interface RejectedRequest {
+  id: number
+  customerName: string
+  equipmentSerialNumber: string
+  rejectedAt: string
+  rejectionReason: string
+}
+
+export interface ServiceQueueDashboard {
+  view: 'ServiceQueue'
+  generatedAt: string
+  kpis: {
+    awaitingReview: number
+    awaitingAssignment: number
+    rejectedRecently: number
+  }
+  openRequestsByPriority: CountByKey[]
+  queue: {
+    awaitingReview: number
+    awaitingAssignment: number
+    recentDays: number
+    rejectedRecently: number
+    oldestOpen: QueuedRequest[]
+    recentlyRejected: RejectedRequest[]
   }
 }

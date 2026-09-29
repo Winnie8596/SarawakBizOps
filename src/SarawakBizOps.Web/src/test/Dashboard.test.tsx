@@ -1,12 +1,16 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { DashboardSummary } from '../types'
+import type { ManagerDashboard, ServiceQueueDashboard, WarehouseDashboard } from '../types'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
-function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
+const period = { fromMonth: '2026-04', toMonth: '2026-09', fromUtc: '2026-03-31T16:00:00', toUtc: '2026-09-30T16:00:00' }
+
+function summary(overrides: Partial<ManagerDashboard> = {}): ManagerDashboard {
   return {
+    view: 'Manager',
     generatedAt: '2026-09-29T02:00:00',
+    period,
     kpis: { openRequests: 5, activeWorkOrders: 3, awaitingApproval: 1, completedThisMonth: 2, lowStockParts: 2 },
     openRequestsByPriority: [
       { key: 'Urgent', count: 1 }, { key: 'High', count: 2 }, { key: 'Medium', count: 2 }, { key: 'Low', count: 0 }
@@ -26,6 +30,70 @@ function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
       items: [
         { partId: 1, partNumber: 'BLT-CNV-600', name: 'Conveyor belt, 600 mm', unit: 'm', quantityOnHand: 0, minimumStockLevel: 10 },
         { partId: 2, partNumber: 'AVR-SX460', name: 'Automatic voltage regulator', unit: 'pcs', quantityOnHand: 1, minimumStockLevel: 1 }
+      ]
+    },
+    averageTimeToAssignment: { averageHours: 47.74, count: 14 },
+    averageCompletionDuration: { averageHours: 22.8, count: 10 },
+    repeatedFailures: {
+      minimumRequests: 3,
+      equipmentCount: 2,
+      items: [
+        { equipmentId: 3, serialNumber: 'SBW-FIL-001', equipmentType: 'Bottle Filling Line', customerId: 2,
+          customerName: 'Santubong Bottling Works Sdn Bhd', requestCount: 3, lastReportedAt: '2026-09-27T02:00:00' },
+        { equipmentId: 9, serialNumber: 'SPO-PMP-002', equipmentType: 'Centrifugal Pump', customerId: 4,
+          customerName: 'Sibu Palm Oil Processing Sdn Bhd', requestCount: 3, lastReportedAt: '2026-09-15T02:00:00' }
+      ]
+    },
+    topPartsByUsage: [
+      { partId: 4, partNumber: 'SEAL-KIT-HYD', name: 'Hydraulic lift-cylinder seal kit', unit: 'kit', quantity: 1, cost: 185, jobCount: 1 },
+      { partId: 3, partNumber: 'OIL-HYD-46', name: 'Hydraulic oil ISO VG 46', unit: 'L', quantity: 12, cost: 178.8, jobCount: 1 }
+    ],
+    ...overrides
+  }
+}
+
+function warehouse(overrides: Partial<WarehouseDashboard> = {}): WarehouseDashboard {
+  return {
+    view: 'Warehouse',
+    generatedAt: '2026-09-29T02:00:00',
+    period,
+    kpis: { activeParts: 11, lowStockParts: 4, outOfStockParts: 1, jobsWaitingForParts: 2 },
+    lowStock: summary().lowStock,
+    jobsWaitingForParts: {
+      count: 2,
+      readyToResume: 1,
+      items: [
+        { workOrderId: 5, partId: 11, partNumber: 'BLT-CNV-600', name: 'Conveyor belt, 600 mm', unit: 'm',
+          quantityNeeded: 6, quantityOnHand: 0, waitingSince: '2026-09-26T02:00:00', inStock: false },
+        { workOrderId: 7, partId: 8, partNumber: 'BRG-6205-2RS', name: 'Deep-groove ball bearing', unit: 'pcs',
+          quantityNeeded: 2, quantityOnHand: 38, waitingSince: '2026-09-27T02:00:00', inStock: true }
+      ]
+    },
+    topPartsByUsage: summary().topPartsByUsage,
+    ...overrides
+  }
+}
+
+function serviceQueue(overrides: Partial<ServiceQueueDashboard> = {}): ServiceQueueDashboard {
+  return {
+    view: 'ServiceQueue',
+    generatedAt: '2026-09-29T02:00:00',
+    kpis: { awaitingReview: 3, awaitingAssignment: 2, rejectedRecently: 1 },
+    openRequestsByPriority: summary().openRequestsByPriority,
+    queue: {
+      awaitingReview: 3,
+      awaitingAssignment: 2,
+      recentDays: 30,
+      rejectedRecently: 1,
+      oldestOpen: [
+        { id: 5, customerName: 'Sibu Palm Oil Processing Sdn Bhd', equipmentSerialNumber: 'SPO-PMP-002',
+          equipmentType: 'Centrifugal Pump', priority: 'High', status: 'Approved', createdAt: '2026-09-15T02:00:00' },
+        { id: 3, customerName: 'Sibu Palm Oil Processing Sdn Bhd', equipmentSerialNumber: 'SPO-BLR-001',
+          equipmentType: 'Steam Boiler', priority: 'Urgent', status: 'New', createdAt: '2026-09-26T02:00:00' }
+      ],
+      recentlyRejected: [
+        { id: 6, customerName: 'Rajang Timber Mills Sdn Bhd', equipmentSerialNumber: 'RTM-CNV-003',
+          rejectedAt: '2026-09-10T02:00:00', rejectionReason: 'The conveyor is inactive pending replacement.' }
       ]
     },
     ...overrides
@@ -104,16 +172,126 @@ describe('Manager dashboard (Phase 11)', () => {
     expect(callsTo(fetchMock, 'GET', '/dashboard/summary')).toHaveLength(2)
   })
 
-  it('is not requested for ServiceStaff, who keep the simple counts', async () => {
-    signInAs('ServiceStaff')
-    const fetchMock = stubApi({
-      'GET /customers': { body: [] },
-      'GET /equipment': { body: [] }
+})
+
+describe('Analytics depth and role dashboards (Phase 12)', () => {
+  it('shows the Manager the turnaround averages, repeated failures and top parts', async () => {
+    signInAs('Manager')
+    stubApi({ 'GET /dashboard/summary': { body: summary() } })
+    renderApp('/')
+
+    const turnaround = await screen.findByRole('region', { name: 'Turnaround, Apr–Sep 2026' })
+    expect(within(turnaround).getByText('Request raised → technician assigned').closest('.metric'))
+      .toHaveTextContent('47.7 hover 14 assignments')
+    expect(within(turnaround).getByText('Job started → completed').closest('.metric'))
+      .toHaveTextContent('22.8 hover 10 completed jobs')
+
+    const failures = screen.getByRole('region', { name: 'Repeated failures, Apr–Sep 2026' })
+    expect(within(failures).getByText(/2 pieces of equipment with 3 or more/)).toBeInTheDocument()
+    const filler = within(failures).getByRole('link', { name: 'SBW-FIL-001' })
+    expect(filler).toHaveAttribute('href', '/equipment/3')
+    expect(filler.closest('tr')).toHaveTextContent('Bottle Filling Line · Santubong Bottling Works Sdn Bhd3')
+
+    const parts = screen.getByRole('region', { name: 'Top parts by usage, Apr–Sep 2026' })
+    const rows = within(parts).getAllByRole('row').slice(1)
+    expect(rows.map(r => r.querySelector('.mono')?.textContent)).toEqual(['SEAL-KIT-HYD', 'OIL-HYD-46'])
+    expect(rows[1]).toHaveTextContent('12 L')
+    expect(rows[1]).toHaveTextContent('RM 178.80')
+  })
+
+  it('says so when there is nothing to measure yet', async () => {
+    signInAs('Admin')
+    stubApi({
+      'GET /dashboard/summary': {
+        body: summary({
+          averageTimeToAssignment: { averageHours: null, count: 0 },
+          averageCompletionDuration: { averageHours: null, count: 0 },
+          repeatedFailures: { minimumRequests: 3, equipmentCount: 0, items: [] },
+          topPartsByUsage: []
+        })
+      }
     })
     renderApp('/')
 
-    expect(await screen.findByText('Customers', { selector: '.stat-label' })).toBeInTheDocument()
+    const turnaround = await screen.findByRole('region', { name: /Turnaround/ })
+    expect(within(turnaround).getAllByText('nothing to measure yet')).toHaveLength(2)
+    expect(screen.getByText('No equipment has had 3 or more fault reports in this period.')).toBeInTheDocument()
+    expect(screen.getByText('No parts were used on jobs in Apr–Sep 2026.')).toBeInTheDocument()
+  })
+
+  it('gives WarehouseStaff the stock view: tiles, jobs waiting for parts, low stock and usage', async () => {
+    signInAs('WarehouseStaff', 'Siti Nurul')
+    stubApi({ 'GET /dashboard/summary': { body: warehouse() } })
+    renderApp('/')
+
+    expect(await screen.findByText('Jobs waiting for parts', { selector: '.stat-label' })).toBeInTheDocument()
+    expect(within(tile('Active parts')).getByText('11')).toBeInTheDocument()
+    expect(tile('Out of stock')).toHaveClass('stat-card-warn')
+
+    const waiting = screen.getByRole('table', { name: 'Jobs paused waiting for a part' })
+    const [short, ready] = within(waiting).getAllByRole('row').slice(1)
+    expect(short).toHaveTextContent('#5')
+    expect(short).toHaveTextContent('Short')
+    expect(short).toHaveClass('row-warn')
+    expect(ready).toHaveTextContent('In stock')
+    expect(screen.getByText(/2 jobs are paused for a part; 1 can resume now/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Low stock' })).toHaveTextContent('BLT-CNV-600')
+    expect(screen.getByRole('region', { name: /Top parts by usage/ })).toHaveTextContent('SEAL-KIT-HYD')
+
+    // Not the Manager view.
+    expect(screen.queryByText('Awaiting your approval')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: /Turnaround/ })).not.toBeInTheDocument()
+  })
+
+  it('gives ServiceStaff their request queue', async () => {
+    signInAs('ServiceStaff', 'Aina Abdullah')
+    stubApi({ 'GET /dashboard/summary': { body: serviceQueue() } })
+    renderApp('/')
+
+    expect(await screen.findByText('Awaiting review')).toBeInTheDocument()
+    expect(within(tile('Awaiting review')).getByText('3')).toBeInTheDocument()
+    expect(within(tile('Awaiting assignment')).getByText('2')).toBeInTheDocument()
+    expect(tile('Rejected in the last 30 days')).toHaveClass('stat-card-warn')
+
+    const oldest = screen.getByRole('table', { name: 'Open requests, the longest-waiting first' })
+    const links = within(oldest).getAllByRole('link')
+    expect(links.map(l => l.getAttribute('href'))).toEqual(['/service-requests/5', '/service-requests/3'])
+    expect(links[1].closest('tr')).toHaveTextContent('Urgent')
+
+    const rejected = screen.getByRole('region', { name: 'Recently rejected' })
+    expect(within(rejected).getByRole('link', { name: '#6' })).toHaveAttribute('href', '/service-requests/6')
+    expect(rejected).toHaveTextContent('The conveyor is inactive pending replacement.')
+
+    expect(screen.queryByText('Parts low on stock')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Low stock' })).not.toBeInTheDocument()
+  })
+
+  it('shows an empty queue as sentences', async () => {
+    signInAs('ServiceStaff')
+    stubApi({
+      'GET /dashboard/summary': {
+        body: serviceQueue({
+          kpis: { awaitingReview: 0, awaitingAssignment: 0, rejectedRecently: 0 },
+          openRequestsByPriority: summary().openRequestsByPriority.map(c => ({ ...c, count: 0 })),
+          queue: {
+            ...serviceQueue().queue,
+            awaitingReview: 0, awaitingAssignment: 0, rejectedRecently: 0, oldestOpen: [], recentlyRejected: []
+          }
+        })
+      }
+    })
+    renderApp('/')
+
+    expect(await screen.findByText('Nothing is waiting for review or assignment.')).toBeInTheDocument()
+    expect(screen.getByText('No requests rejected in the last 30 days.')).toBeInTheDocument()
+  })
+
+  it('never asks for a dashboard for a Technician, who lands on My Jobs', async () => {
+    signInAs('Technician')
+    const fetchMock = stubApi({ 'GET /work-orders/mine': { body: [] } })
+    renderApp('/')
+
+    expect(await screen.findByRole('heading', { name: 'My Jobs' })).toBeInTheDocument()
     expect(callsTo(fetchMock, 'GET', '/dashboard/summary')).toHaveLength(0)
-    expect(screen.queryByText('Open requests')).not.toBeInTheDocument()
   })
 })

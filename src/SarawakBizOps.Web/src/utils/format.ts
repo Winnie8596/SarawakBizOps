@@ -50,3 +50,20 @@ export function formatMonth(monthKey: string, style: 'long' | 'short' = 'long'):
   const [year, month] = monthKey.split('-').map(Number)
   return style === 'long' ? `${MONTHS[month - 1]} ${year}` : MONTHS[month - 1]
 }
+
+// Phase 12: an average duration in hours as people read it — minutes under an hour, hours under two days, then
+// days: "45 min", "22.8 h", "3.2 days". Null (nothing measured) is a dash.
+export function formatHours(hours: number | null): string {
+  if (hours === null) return '—'
+  if (hours < 1) return `${Math.round(hours * 60)} min`
+  if (hours < 48) return `${hours.toLocaleString('en-MY', { maximumFractionDigits: 1 })} h`
+  return `${(hours / 24).toLocaleString('en-MY', { maximumFractionDigits: 1 })} days`
+}
+
+// Two 'yyyy-MM' month keys as a period: "Apr–Sep 2026", or "Nov 2026–Jan 2027" across a year.
+export function formatPeriod(fromMonth: string, toMonth: string): string {
+  if (fromMonth.slice(0, 4) === toMonth.slice(0, 4)) {
+    return `${formatMonth(fromMonth, 'short')}–${formatMonth(toMonth)}`
+  }
+  return `${formatMonth(fromMonth)}–${formatMonth(toMonth)}`
+}
