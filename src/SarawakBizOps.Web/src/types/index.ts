@@ -341,3 +341,47 @@ export interface TransactionFilters {
   fromDate?: string
   toDate?: string
 }
+
+// ---- Phase 11: the Manager dashboard (GET /api/dashboard/summary) ----
+
+export interface CountByKey {
+  key: string
+  count: number
+}
+
+export interface MonthCount {
+  /** 'yyyy-MM' in Malaysia time. */
+  month: string
+  count: number
+}
+
+export interface LowStockItem {
+  partId: number
+  partNumber: string
+  name: string
+  unit: string
+  quantityOnHand: number
+  minimumStockLevel: number
+}
+
+export interface DashboardSummary {
+  generatedAt: string
+  kpis: {
+    openRequests: number
+    activeWorkOrders: number
+    awaitingApproval: number
+    completedThisMonth: number
+    lowStockParts: number
+  }
+  /** Most urgent first; every priority present. */
+  openRequestsByPriority: CountByKey[]
+  /** Lifecycle order; every status present. */
+  workOrdersByStatus: CountByKey[]
+  /** Oldest first, ending with the current month. */
+  jobsCompletedPerMonth: MonthCount[]
+  lowStock: {
+    count: number
+    outOfStock: number
+    items: LowStockItem[]
+  }
+}

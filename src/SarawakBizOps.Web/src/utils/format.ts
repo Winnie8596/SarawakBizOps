@@ -41,3 +41,12 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toLocaleString('en-MY', { maximumFractionDigits: 1 })} MB`
 }
+
+// A 'yyyy-MM' month key (already in Malaysia time) as people read it: "Sep 2026", or just "Sep" when short.
+// A fixed table rather than toLocaleString: ICU versions disagree on short month names ("Sep" vs "Sept").
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+export function formatMonth(monthKey: string, style: 'long' | 'short' = 'long'): string {
+  const [year, month] = monthKey.split('-').map(Number)
+  return style === 'long' ? `${MONTHS[month - 1]} ${year}` : MONTHS[month - 1]
+}

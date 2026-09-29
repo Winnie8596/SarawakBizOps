@@ -26,6 +26,6 @@ export function StatusBadge({ status }: StatusBadgeProps) {
 }
 
 // "UnderMaintenance" -> "Under Maintenance"
-function formatStatus(status: string): string {
+export function formatStatus(status: string): string {
   return status.replace(/([a-z])([A-Z])/g, '$1 $2')
 }
