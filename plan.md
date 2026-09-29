@@ -65,7 +65,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | ✅ Done |
 | 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | ✅ Done |
 | 11 | **Manager dashboard (core metrics)** | 15–18 | ✅ Done |
-| 12 | **Analytics depth:** remaining metrics, role-specific dashboards | 12–16 | |
+| 12 | **Analytics depth:** remaining metrics, role-specific dashboards | 12–16 | ✅ Done |
 | 13 | **AI Technician Assistant** (mock-first) | 18–22 | |
 | 14 | **AI Manager Insights** (grounded in analytics) | 15–20 | |
 | 15 | **Release polish:** final sweeps, docs, demo video, public flip | 20–25 | |
@@ -471,7 +471,7 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 
 ---
 
-## Phase 12 — Analytics depth
+## ✅ Phase 12 — Analytics depth
 
 **Goal:** finish the metric list and tailor the dashboard to each role. Same slice shape, more operations.
 **Demo:** the Manager also sees average time request→assignment, average completion duration, repeated failures by equipment and top parts by usage; Warehouse sees stock; ServiceStaff sees their request queue.
@@ -486,8 +486,25 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | Known-answer tests per operation including boundaries; role-shaped payload tests; access rows. |
 | Ops & docs | README metric definitions completed. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Role-aware payloads | **One endpoint, one payload type per view**, tagged `"view"`: `Manager` (Admin, Manager — Phase 11's `DashboardSummaryDto`, extended), `Warehouse` (WarehouseStaff), `ServiceQueue` (ServiceStaff). The server picks the view from the roles (`AnalyticsRules.ViewFor`, pure); several roles get the broadest (Manager > Warehouse > ServiceQueue). A Technician gets 403 — their home is My Jobs. Each payload carries only its own numbers (tested on the JSON's property names), so no role receives data it is not shown. Separate DTOs rather than one DTO with nullable sections: the Phase 11 shape and its tests stay intact, and the web types are a discriminated union. |
+| One period | Every Phase 12 operation takes the period as **N MYT months ending with the current one** — the same window as the completed-jobs trend (6 on the dashboard) — so all the Manager's numbers describe one period, shown as "Apr–Sep 2026". The service queue's "recently rejected" is a rolling 30 days instead: it is a to-do list, not a statistic. |
+| Time to assignment | Request `CreatedAt` → job `AssignedAt`, over **jobs assigned in the period**, a later-cancelled job included; a reassigned request is measured again from when it was raised (the customer's wait). |
+| Completion duration | Job `StartedAt` → `CompletedAt`, over jobs Completed or Approved **completed in the period**; time paused for parts counts. (Assignment → completion was the alternative; start → completion is the technician's time on the job, and the wait before it is already the other metric's and the queue's.) |
+| Repeated failures | ≥ **3** fault reports in the six months (a parameter; the dashboard fixes 3). A fault report is a request not Cancelled (raised in error) and not Rejected (turned down). Most reports first, then most recent; the total count beside a top-5 list. With 2 as the threshold, six of the eleven demo machines would qualify — not a signal. |
+| Parts usage | From the **part lines on jobs** (net of returns, since a return deletes its line; each line carries its price snapshot), not the ledger (which has no price). Ranked by **cost**, since quantities in L, m and pcs do not compare; a cancelled job's parts count (that stock left the store). |
+| Averages in SQL | `AVG(CAST(DATEDIFF(second, …) AS float))` via `EF.Functions.DateDiffSecond` — one aggregate row comes back; the cast stops SQL Server averaging integers into an integer. Hours to two decimals in the payload; the UI formats minutes / hours / days. |
+| Indexes | **None added.** The completion and parts queries use the Phase 11 `IX_WorkOrders_CompletedAt` or scan small tables; the latency check (median < 500 ms on the seed) covers the larger summary. Revisit only if profiling says so. |
+| Warehouse view | Tiles (active, low, out of stock, jobs waiting for parts), jobs waiting for parts with *in stock / short* (the Phase 7 resume rule), low stock (10), top parts. No links to work orders — the warehouse cannot open them. |
+| Service queue view | Awaiting review / assignment tiles, open requests by priority (the Manager's series), the five longest-waiting open requests (linked), requests rejected in the last 30 days with the reason. The Phase 11 "simple counts" (customers, equipment) are gone: every office role now has a real dashboard. |
+| Demo seed | The eight history jobs get their own wait for assignment and time on the job (`DaysToAssign`, `DaysOnJob`; the day fields became `double`), so the averages are not all "1 day". Existing databases keep their old timings (the seed only inserts missing rows). |
+| Git | Branch `phase-12-analytics-depth` from the Phase 11 commit; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] All PRD §6.9 metrics are computed by the backend and match the seed data.
+- [x] All PRD §6.9 metrics are computed by the backend and match the seed data. *(`DemoSeedingTests.Phase_12_metrics_equal_the_hand_computed_values_of_the_seed`, with the averages also recomputed from the raw rows in C#; each operation's known-answer tests in `AnalyticsDepthTests`; the compose smoke walk's consistency checks. Not clicked through by hand in a real browser in this session.)*
 
 ---
 

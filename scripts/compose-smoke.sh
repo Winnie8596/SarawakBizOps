@@ -336,9 +336,32 @@ open_approved="$(api "$token" GET "/service-requests?status=Approved" | jq 'leng
   || fail "open requests must be the New and Approved ones"
 jq -e '([.jobsCompletedPerMonth[] | select(.count > 0)] | length) >= 4 and .kpis.lowStockParts == .lowStock.count' \
   <<<"$dashboard" >/dev/null || fail "the seeded history must span several months, and the tiles must match the charts"
-for other in "$staff_token" "$tech_token" "$warehouse_token"; do
-  [ "$(status_of "$other" GET /dashboard/summary)" = 403 ] || fail "only a Manager or Admin may read the dashboard"
-done
 echo "  ok: $(jq -r '"\(.kpis.openRequests) open requests, \(.kpis.activeWorkOrders) active jobs, \(.lowStock.count) parts low"' <<<"$dashboard")"
+
+# Phase 12 demo walk: the rest of the metrics, and each role's own view of the same endpoint (again consistency
+# checks; the seed's hand-computed values are in DemoSeedingTests).
+echo "Analytics depth and role dashboards: every metric present, each role only its own view..."
+jq -e '.view == "Manager" and (.period.fromMonth | test("^[0-9]{4}-[0-9]{2}$"))
+  and .averageTimeToAssignment.count >= 14 and .averageTimeToAssignment.averageHours > 0
+  and .averageCompletionDuration.count >= 10 and .averageCompletionDuration.averageHours > 0
+  and .repeatedFailures.minimumRequests == 3 and .repeatedFailures.equipmentCount >= 2
+  and (.repeatedFailures.items | length) >= 2 and all(.repeatedFailures.items[]; .requestCount >= 3)
+  and (.topPartsByUsage | length) >= 4 and ([.topPartsByUsage[].cost] | . == (sort | reverse))' \
+  <<<"$dashboard" >/dev/null || fail "the Manager dashboard must carry every PRD 6.9 metric, got: $dashboard"
+stock="$(api "$warehouse_token" GET /dashboard/summary)"
+jq -e '.view == "Warehouse" and has("workOrdersByStatus") == false and has("averageTimeToAssignment") == false
+  and .kpis.lowStockParts == .lowStock.count and .kpis.jobsWaitingForParts == .jobsWaitingForParts.count' \
+  <<<"$stock" >/dev/null || fail "WarehouseStaff must get the stock view only, got: $stock"
+[ "$(jq '.lowStock.count' <<<"$stock")" = "$(jq '.lowStock.count' <<<"$dashboard")" ] \
+  || fail "the warehouse and the Manager must see the same low-stock count"
+[ "$(jq '.kpis.jobsWaitingForParts' <<<"$stock")" = "$(api "$token" GET "/work-orders?status=PendingParts" | jq 'length')" ] \
+  || fail "jobs waiting for parts must be the PendingParts jobs"
+queue="$(api "$staff_token" GET /dashboard/summary)"
+jq -e '.view == "ServiceQueue" and has("lowStock") == false and has("topPartsByUsage") == false' \
+  <<<"$queue" >/dev/null || fail "ServiceStaff must get the request queue only, got: $queue"
+[ "$(jq '.kpis.awaitingReview' <<<"$queue"),$(jq '.kpis.awaitingAssignment' <<<"$queue")" = "$open_new,$open_approved" ] \
+  || fail "the queue must count the New and the Approved requests"
+[ "$(status_of "$tech_token" GET /dashboard/summary)" = 403 ] || fail "a Technician has My Jobs, not a dashboard"
+echo "  ok: $(jq -r '"to assignment \(.averageTimeToAssignment.averageHours) h, to completion \(.averageCompletionDuration.averageHours) h, \(.repeatedFailures.equipmentCount) repeat offenders"' <<<"$dashboard")"
 
 echo "Smoke test passed."

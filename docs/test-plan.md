@@ -33,7 +33,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…`; dashboard (Phase 11): `AnalyticsTests.Low_stock_summary_counts_active_parts_at_or_below_minimum_and_agrees_with_the_low_stock_list`, `A_part_that_falls_low_appears_on_the_Manager_dashboard`, `DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`; UI: `Dashboard.test.tsx` › `shows the server-computed tiles and charts to a Manager` | **Done** (API Phase 6, dashboard Phase 11) |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -213,6 +213,31 @@ The Manager dashboard (PRD §6.9, SDD §14, AC-09). The plan's Phase 11 test lis
 
 **Docker smoke**
 - The Manager's summary has every priority, every status and six months; its low-stock count equals `GET /parts/low-stock`; its statuses add up to every work order; its open requests equal the New plus Approved lists; the seeded history spans at least four months; ServiceStaff, a Technician and WarehouseStaff get 403.
+
+## Phase 12 test inventory
+
+Analytics depth and role dashboards (PRD §6.9, §5). The plan's Phase 12 test list is covered as below.
+
+**Backend (xUnit)**
+- `AnalyticsRulesTests` (unit): the period names the window's first and last MYT month and its UTC bounds; an average in seconds is reported in hours to two decimals, zero stays zero and nothing measured is *null*; **each role gets its own view** (Manager and Admin → Manager, WarehouseStaff → Warehouse, ServiceStaff → ServiceQueue, several roles → the broadest, a Technician or no role → none); Cancelled and Rejected requests are not fault reports.
+- `AnalyticsDepthTests` (integration, real SQL Server; **known-answer tests per operation**, each in its own scratch database with a fixed clock, **boundaries included**):
+  - **nothing to measure** — both averages *null* over 0, no repeated failures, no parts, the period Apr–Sep, no waiting jobs, an empty queue;
+  - `AverageTimeToAssignment` — (6 + 48 + 12 + 6) / 4 = 18 h: a cancelled job's assignment counts, an assignment on the first instant of the period counts, one a second before it or on the first instant after it does not, an unassigned job does not;
+  - `AverageCompletionDuration` — (8 + 24 + 16) / 3 = 16 h: Completed and Approved count, a completion on the first instant counts (started before the period), one a second before does not, InProgress and Cancelled do not, a job with no start is left out;
+  - `RepeatedFailuresByEquipment` — Cancelled and Rejected are not faults, a report a second before the period does not count (so 3 becomes 2, below the threshold), most reports first then the most recent, the count of all qualifying equipment beside a capped list, and a lower threshold brings more in;
+  - `TopPartsByUsage` — ranked by cost with lines at two different snapshotted prices summed, distinct jobs counted, a cancelled job's parts included, a line on the first instant counted and one before the period not, cost rounded to sen;
+  - `JobsWaitingForParts` — only PendingParts jobs (a resumed job keeps its old fields but is not waiting), the longest wait first, *in stock* when on hand ≥ needed (equal counts), the count uncapped and the list capped;
+  - `RequestQueue` — New and Approved counted, the oldest open first, rejected exactly 30 days ago still recent and a second more not, most recent rejection first;
+  - **role-shaped payloads** through the API — the Manager and Admin get exactly the Manager fields, WarehouseStaff exactly the stock fields (no statuses, turnaround or queue), ServiceStaff exactly the queue fields (no stock or costs), a Technician 403;
+  - a request raised through the API joins the service queue, and the queue's tiles match its series.
+- `DemoSeedingTests`: **every Phase 12 metric equals the hand-computed value of the seed** — 47.74 h to assignment over 14 jobs, 22.8 h to completion over 10, the filling line and the pump with 3 fault reports each, the four parts used in cost order, the warehouse view (11 active, 4 low, 1 out, the belt job waiting and short), the service queue (3 / 2 / 1, the five oldest in order, the conveyor rejection) — and the two averages cross-checked from the raw rows in C#, independently of the SQL. The NFR-03 latency check now times the larger summary.
+- `EndpointAccessTests`: the `GET /dashboard/summary` row now allows Admin, Manager, ServiceStaff and WarehouseStaff (a Technician and anonymous are refused).
+
+**Frontend (Vitest)**
+- `Dashboard.test.tsx`: the Manager sees the turnaround figures with their sample sizes, repeated failures linked to the equipment page and the parts in cost order with RM; nothing measured reads as sentences; WarehouseStaff get the stock tiles, jobs waiting for parts (short ones highlighted, "can resume now"), low stock and usage — and none of the Manager panels; ServiceStaff get their queue with links to each request, priority and status badges and recent rejections with reasons — and no stock; an empty queue reads as sentences; a Technician lands on My Jobs and never calls the endpoint.
+
+**Docker smoke**
+- The Manager's summary carries every PRD §6.9 metric (averages over at least the seeded jobs, at least two repeat offenders each with 3 or more reports, parts in cost order); WarehouseStaff get the stock view without Manager fields, with the same low-stock count as the Manager and one waiting job per PendingParts job; ServiceStaff get the queue without stock, counting the New and Approved requests; a Technician gets 403.
 
 ## Running
 
