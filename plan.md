@@ -61,7 +61,7 @@ If a phase can't show a **demo script** (a short click-through a stranger could 
 | 5 | **Workflow rules for real:** cancel, locks, ownership, conflicts, status timeline | 20–25 | ✅ Done |
 | 6 | **Parts & stock in:** warehouse manages the catalogue, receives stock, sees low stock | 18–22 | ✅ Done |
 | 7 | **Parts used on a job:** technician adds parts (atomic issue), pending-parts, concurrency proof | 25–30 | ✅ Done |
-| 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | |
+| 8 | **Customer signature:** drawn on the phone, stored, required to complete | 15–20 | ✅ Done |
 | 9 | **Job photos:** capture, upload, gallery | 12–16 | |
 | 10 | **Service report PDF:** generate, lock, download, Reports page | 20–25 | |
 | 11 | **Manager dashboard (core metrics)** | 15–18 | |
@@ -342,9 +342,28 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests | **AC-06** (complete rejected without signature, accepted with one); file limits and type validation; unauthorized download → 403/404; storage abstraction tested with a fake (unit) and the emulator (integration); access rows. |
 | Ops & docs | **Storage emulator container added to `docker-compose.yml`** and CI; `IFileStorage` fake documented; seed jobs get signatures. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Storage emulator (Open Question 2) | **Azurite** (the plan's default), via `Azure.Storage.Blobs`. Pinned image `azurite:3.36.0`, blob service only, `--skipApiVersionCheck` so the current SDK can talk to it. Tests use `Testcontainers.Azurite` with the same image. |
+| `IFileStorage` shape | `SaveAsync(key, stream, contentType)`, `OpenReadAsync(key)` → `StoredFile?` (null when missing), `DeleteAsync(key)` (idempotent). The caller chooses the key; `AzureBlobFileStorage` refuses to overwrite (`If-None-Match: *`) and creates its **private** container on first use, so API startup does not depend on the emulator being up. Registered as a singleton from `Storage:ConnectionString` / `Storage:Container`; a missing connection string stops startup with a hint (like the JWT key). |
+| Schema (migration `WorkOrderSignature`) | The never-written `CustomerSignatureUrl` placeholder is replaced by `SignatureBlobKey` (200), `SignatureSizeBytes`, `SignedAt` — no URL is ever stored. The DTO exposes only `hasSignature` and `signedAt`. No signer-name field (thin slice). |
+| What is accepted | PNG only, decided from the bytes (8-byte signature + `IHDR` first) — the client's Content-Type and file name are ignored. ≤ 512 KB, 1–4000 px a side. The request is capped just above the limit so larger bodies are refused before buffering. |
+| Upload shape | `multipart/form-data` with `file` and `rowVersion` (the Phase 5 token rides along as a form field). The web `apiFetch` leaves Content-Type to the browser for a `FormData` body. |
+| When and who | The job's own Technician, **InProgress only** (the central lock message for Approved/Cancelled). Signing again replaces the signature until the job is completed. Reading: the same audience as the job (office roles; the owning technician; another technician gets 404). |
+| Storage vs. transaction | Upload first under a fresh key (`work-orders/{id}/signature-{guid}.png`), then one conditional `UPDATE … WHERE owner AND InProgress AND RowVersion = @rv`. Lost `UPDATE` → delete the new file, 409; success → delete the replaced file. Deletes are best-effort and logged, so the worst case is an orphaned file, never a job pointing at a missing one. |
+| BR-03 in `Complete` | Checked after the diagnosis/work-performed check (AC-05's message first), and repeated in the `UPDATE`'s `WHERE`. |
+| Serving the image | `GET /{id}/signature` streams `image/png` with `Cache-Control: private, no-store` and `nosniff`. The UI fetches it with the bearer token and shows it via an object URL. |
+| Signature pad | Hand-rolled `<canvas>` (PRD D-06): pointer events for touch/mouse/pen, strokes kept as points so **Undo**, **Clear** and a resize redraw them, DPR-scaled, white background, exported with `toBlob('image/png')`. It saves on its own button (not on Complete) so the phone goes back to the technician with the signature safe. |
+| The fake | `InMemoryFileStorage` in the test project, proven equivalent by `FileStorageContractTests` (run against both implementations); swapped in with `WithWebHostBuilder` to observe cleanup and to simulate an outage. |
+| Demo seed | The seeded Completed and Approved jobs get a generated, fictional scrawl (`DemoSignatureImage`: a tiny dependency-free PNG writer) uploaded through `IFileStorage`. The InProgress compressor job is left unsigned so the demo shows the signing step. |
+| Dev setup | Azurite's port is published on `127.0.0.1:10000` (`AZURITE_HOST_PORT` moves it when another program already holds 10000) so `dotnet run` with `UseDevelopmentStorage=true` works against `docker compose up -d azurite`. |
+| Git | Branch `phase-8-signature` from the Phase 7 commit (one branch per phase, as for Phases 5–7); commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] Sign on a phone-sized viewport → complete → Manager sees the signature.
-- [ ] Docker compose includes storage and the smoke job still passes.
+- [x] Sign on a phone-sized viewport → complete → Manager sees the signature. *(Covered end to end by `Signature.test.tsx` (sign → save → complete; the Manager's page fetches the image with the token), `WorkOrderSignatureTests` (AC-06, round trip, ownership) and the compose smoke walk. Not clicked through by hand in a real browser at 360 px in this session.)*
+- [x] Docker compose includes storage and the smoke job still passes. *(Azurite is in `docker-compose.yml`; `scripts/compose-smoke.sh` — including the signature walk: wrong role 403, non-PNG 400, complete refused unsigned, upload 200, byte-for-byte download — passed twice in a row on a fresh, isolated stack.)*
 
 ---
 

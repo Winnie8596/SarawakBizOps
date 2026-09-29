@@ -12,11 +12,12 @@ and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
 | Integration | `tests/SarawakBizOps.Api.Tests` | The real API against a real SQL Server container (Testcontainers): business rules, validation, concurrency, seed data |
 | Authorization | `EndpointAccessTests` | Every endpoint × (anonymous + all five roles) → exactly 401, 403 or the success status (AC-11) |
 | Frontend | `src/SarawakBizOps.Web/src/test` (Vitest + React Testing Library) | The UI honours role gating and shows the API's messages; `fetch` is stubbed, the components are real |
-| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job, parts and stock, parts on a job |
+| Storage contract | `FileStorageContractTests` | One set of `IFileStorage` expectations, run against the in-memory fake (unit) and `AzureBlobFileStorage` on an Azurite container (integration), so the fake can stand in for real storage |
+| Docker smoke | `scripts/compose-smoke.sh` (CI job `compose-smoke`) | The shipped containers work together: sign-in through nginx, seed data, request intake, the first job (with the signature stored in Azurite), parts and stock, parts on a job |
 | Ledger reconciliation | `Infrastructure/LedgerReconciliation` | Straight from the database: `QuantityOnHand == SUM(ledger)` for **every** part. Every stock-moving test in `InventoryTests` and `WorkOrderPartsTests` ends with it, and `DemoSeedingTests` runs it on the seed |
 
 Conventions: each integration test creates its own uniquely named customers/users, so tests never depend on run order;
-the `Api` collection shares one SQL Server container per test run.
+the `Api` collection shares one SQL Server container and one Azurite container per test run.
 
 ## Acceptance-criteria map
 
@@ -27,12 +28,12 @@ the `Api` collection shares one SQL Server container per test run.
 | AC-03 | Add part → one WorkOrderPart + one Issue transaction, atomically | 7 | `WorkOrderPartsTests.Adding_a_part_creates_one_line_and_exactly_one_issue_row_and_lowers_stock`, `A_failure_part_way_through_adding_a_part_leaves_nothing_behind` (failure injected before and after the rows are written: stock, lines, ledger and the job's `rowVersion` all unchanged), `The_price_is_snapshotted_from_the_catalogue_and_a_client_price_is_ignored`; UI: `TechnicianView.test.tsx` › `adds a part picked from the catalogue…` | **Done** |
 | AC-04 | Insufficient stock rejected, stock unchanged | 7 | `WorkOrderPartsTests.Adding_more_than_is_in_stock_is_refused_and_changes_nothing`, `Technicians_racing_for_the_last_units_never_take_more_than_there_is` (the concurrent-issue test, five rounds); UI: `shows the server’s not-enough-stock refusal…`, `pauses the job for a part that is out of stock…` | **Done** |
 | AC-05 | Completion rejected without diagnosis / work performed | 4 | `WorkOrderTests.Completing_without_diagnosis_or_work_performed_is_rejected`, `Saving_a_diagnosis_with_a_blank_field_is_rejected_and_the_job_still_cannot_complete` | **Done** |
-| AC-06 | Completion rejected without a signature | 8 | | Not yet implemented |
+| AC-06 | Completion rejected without a signature | 8 | `WorkOrderSignatureTests.Completing_without_a_signature_is_rejected_and_succeeds_once_the_customer_has_signed`, `The_diagnosis_is_still_asked_for_first_when_both_are_missing`; `WorkOrderTests.Completing_with_both_fields_and_the_signature_recorded_succeeds`; UI: `Signature.test.tsx` › `refuses to complete until the customer has signed…`; smoke: complete-without-signature is a 400 | **Done** |
 | AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…` | **API done** (Phase 6); the dashboard tile lands in Phase 11 |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -125,6 +126,23 @@ the `Api` collection shares one SQL Server container per test run.
 
 **Docker smoke**
 - A fresh job for the demo technician: the technician can search parts (200) but not read the ledger (403); WarehouseStaff cannot add parts to a job (403); add 2 at the snapshotted price (stock 7 → 5); over-stock is a 409 and changes nothing; return the line (stock back to 7); the job's ledger holds exactly one Issue and one Return; pause for 10; resume refused while short (409); the warehouse receives 3; resume succeeds.
+
+## Phase 8 test inventory
+
+**Backend (xUnit)**
+- `SignatureRulesTests` (unit, no database or storage): a real PNG is accepted; empty, over 512 KB (and exactly 512 KB accepted), JPEG, SVG-with-script, PNG signature without IHDR, and zero/absurd dimensions are refused; every upload gets a fresh key under its work order.
+- `FileStorageContractTests` (unit against `InMemoryFileStorage`, integration against `AzureBlobFileStorage` on Azurite): save/read back with content type and length, missing key reads as null, delete is idempotent, saving twice under one key is refused and keeps the first file.
+- `WorkOrderSignatureTests` (integration, SQL Server + Azurite): AC-06 (refused without a signature, completes once signed; the diagnosis message still comes first); the image round-trips byte for byte as `image/png` with `nosniff`/`no-store` for the technician and every office role, and the DTO never contains the storage key; signing again replaces the image and deletes the old file; unsigned job → 404 on download; non-PNGs refused whatever they claim to be, and a real PNG accepted whatever the browser labels it; over the limit (400) and far over it (cut off before buffering); no file, missing or malformed `rowVersion` (400) — all leaving the job untouched; another technician gets 404 on upload and download; Assigned/Completed jobs are 409 and Approved/Cancelled get the central lock message; with the in-memory fake swapped in: a stale `rowVersion` is a 409 and the uploaded file is deleted again, a storage outage is a 500 without internals and changes nothing, and a double tap has exactly one winner and one stored file.
+- `WorkOrderTests`: the Phase 4 completion test and the full-workflow test now sign before completing.
+- `EndpointAccessTests`: two new rows — `POST /work-orders/{id}/signature` (the job's own Technician only; multipart body) and `GET /work-orders/{id}/signature` (Admin, Manager, ServiceStaff and the job's own Technician; WarehouseStaff 403).
+- `DemoSeedingTests`: exactly the seeded Completed and Approved jobs are signed and their signatures download as valid PNGs; re-running the seeder signs nothing twice.
+
+**Frontend (Vitest)**
+- `Signature.test.tsx`: Complete stays disabled until the customer has signed; drawing on the pad and saving uploads `multipart/form-data` (the PNG and the job's `rowVersion`, no hand-set Content-Type), then shows the stored signature and enables Complete; Undo and Clear; a refused upload shows the reason and keeps the strokes; *Sign again* / *Keep the old one*; read-only signature on a completed job; the office page fetches the image with the bearer token, shows *Customer signed* on the timeline, says *Not signed yet* (without fetching) and explains a failed load.
+- `TechnicianView.test.tsx`: the diagnosis-and-complete test now starts from a signed job.
+
+**Docker smoke**
+- Completing without a signature is a 400; WarehouseStaff cannot upload (403); a non-PNG file declared as `image/png` is a 400; an unsigned job has nothing to download (404); the technician signs (multipart, 200) and the job shows `hasSignature`; complete and approve; the Manager downloads the exact bytes back from Azurite through nginx; WarehouseStaff cannot read it (403); a seeded Completed job's signature downloads as a PNG.
 
 ## Running
 

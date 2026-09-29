@@ -23,6 +23,24 @@ services:
       retries: 20
       start_period: 20s
 
+  # Blob storage emulator (Phase 8, Open Question 2 → Azurite): job files — the customer signature, later photos
+  # and reports — live here, never in SQL. The browser never talks to it: files go through the API.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.36.0
+    # Blob service only. --skipApiVersionCheck lets a newer Azure.Storage.Blobs SDK use the emulator.
+    command: azurite-blob --blobHost 0.0.0.0 --location /data --skipApiVersionCheck
+    ports:
+      # For the manual dev setup (`docker compose up -d azurite` + "UseDevelopmentStorage=true"). This machine only.
+      - "127.0.0.1:${AZURITE_HOST_PORT:-10000}:10000"
+    volumes:
+      - blobdata:/data
+    healthcheck:
+      # The image has node but no curl; a TCP connect to the blob port is enough to know it is listening.
+      test: ["CMD", "node", "-e", "require('net').connect(10000, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     image: sarawakbizops-api
     build:
@@ -31,10 +49,15 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+      azurite:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Server=sqlserver;Database=SarawakBizOpsDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Demo_Passw0rd!};TrustServerCertificate=True;MultipleActiveResultSets=true
       Jwt__Key: ${JWT_KEY:-demo-only-signing-key-do-not-use-in-production-0123456789}
+      # Azurite's built-in development account. Its key is published by Microsoft for the emulator only;
+      # it is not a secret and grants nothing outside this compose network.
+      Storage__ConnectionString: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       # Demo mode: create the schema, the demo accounts and the sample data at startup.
       Database__MigrateOnStartup: "true"
       Seed__Demo: "true"
@@ -76,3 +99,4 @@ services:
 
 volumes:
   sqldata:
+  blobdata:

@@ -79,6 +79,20 @@ with_rv() { # $1 = token, $2 = record path (e.g. /service-requests/7), $3 = opti
   rv="$(api "$1" GET "$2" | jq -er '.rowVersion')" || fail "could not read the rowVersion of $2"
   jq -nc --arg rv "$rv" --argjson extra "${3:-"{}"}" '$extra + {rowVersion:$rv}'
 }
+# Phase 8: a customer signature is a multipart upload (the PNG plus the job's rowVersion), not JSON.
+signature_png="$(mktemp)"
+trap 'rm -f "$signature_png"' EXIT
+# A valid 1x1 PNG, standing in for what the canvas exports.
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' \
+  | base64 -d > "$signature_png"
+sign_status() { # $1 = token, $2 = work order id, $3 = file, $4 = declared type -> prints the HTTP status
+  local rv
+  rv="$(api "$1" GET "/work-orders/$2" | jq -r '.rowVersion // "AAAAAAAAAAA="')"
+  curl -sS -o /dev/null -w '%{http_code}' -X POST "$BASE_URL/api/work-orders/$2/signature" \
+    -H "Authorization: Bearer $1" -F "file=@-;filename=signature.png;type=$4" -F "rowVersion=$rv" < "$3"
+  # The file goes in on stdin: bash opens the path, so a native Windows curl (Git Bash) never has to.
+}
+
 new_body() { jq -nc --argjson c "$1" --argjson e "$equipment_id" --arg p "$2" \
   '{customerId:$c, equipmentId:$e, problemDescription:$p, priority:"High"}'; }
 
@@ -134,6 +148,20 @@ api "$tech_token" PATCH "/work-orders/$work_order_id/diagnosis" \
   | jq -e '.diagnosis == "Smoke test diagnosis"' >/dev/null \
   || fail "technician could not save the diagnosis"
 
+# Phase 8 (BR-03, AC-06): no completion without the customer's signature; only a real PNG is accepted.
+[ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 400 ] \
+  || fail "completing without a customer signature must be a 400 (AC-06)"
+[ "$(sign_status "$warehouse_token" "$work_order_id" "$signature_png" image/png)" = 403 ] \
+  || fail "WarehouseStaff must not be able to upload a signature"
+[ "$(sign_status "$tech_token" "$work_order_id" "${BASH_SOURCE[0]}" image/png)" = 400 ] \
+  || fail "a file that is not a PNG must be refused, whatever it claims to be"
+[ "$(status_of "$token" GET "/work-orders/$work_order_id/signature")" = 404 ] \
+  || fail "an unsigned job must have no signature to download"
+[ "$(sign_status "$tech_token" "$work_order_id" "$signature_png" image/png)" = 200 ] \
+  || fail "technician could not upload the customer's signature"
+api "$tech_token" GET "/work-orders/$work_order_id" | jq -e '.hasSignature == true and .signedAt != null' >/dev/null \
+  || fail "the job must show that the customer signed"
+
 api "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)" | jq -e '.status == "Completed"' >/dev/null \
   || fail "technician could not complete the job"
 
@@ -141,7 +169,19 @@ api "$token" POST "/work-orders/$work_order_id/approve" "$(wo_rv)" | jq -e '.sta
   || fail "manager could not approve the completed job"
 [ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 409 ] \
   || fail "an approved job must be locked against further technician action (AC-07/BR-06)"
-echo "  ok: assigned, started, diagnosed, completed and approved; wrong roles and invalid moves were refused"
+# The signature is stored in Azurite and only reachable through the API: the Manager downloads the exact bytes.
+curl -fsS "$BASE_URL/api/work-orders/$work_order_id/signature" -H "Authorization: Bearer $token" \
+  | cmp -s - "$signature_png" || fail "the Manager must be able to download the stored signature byte for byte"
+[ "$(status_of "$warehouse_token" GET "/work-orders/$work_order_id/signature")" = 403 ] \
+  || fail "WarehouseStaff must not be able to read a signature"
+echo "  ok: assigned, started, diagnosed, signed, completed and approved; wrong roles and invalid moves were refused"
+
+echo "Seeded completed jobs carry a stored signature..."
+seeded_signed="$(api "$token" GET "/work-orders?status=Completed" | jq -er 'map(select(.hasSignature))[0].id')" \
+  || fail "the seeded Completed job must be signed (BR-03)"
+curl -fsS "$BASE_URL/api/work-orders/$seeded_signed/signature" -H "Authorization: Bearer $token" | head -c 8 | od -An -tx1 \
+  | tr -d ' \n' | grep -q '^89504e470d0a1a0a$' || fail "the seeded signature must download as a PNG"
+echo "  ok: work order #$seeded_signed's signature downloads as a PNG"
 
 # Phase 6 demo walk: the warehouse runs the parts catalogue and the stock ledger; other roles cannot.
 echo "Parts and stock: warehouse adds a part, receives, adjusts; low stock and history; wrong roles refused..."
