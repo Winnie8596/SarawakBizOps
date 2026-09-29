@@ -1,4 +1,4 @@
-import { apiFetch, apiFetchBlob } from './client'
+import { apiFetch, apiFetchBlob, apiUpload } from './client'
 import type { DiagnosisInput, PendingPartsInput, WorkOrder, WorkOrderFilters } from '../types'
 
 export function getWorkOrders(token: string, filters: WorkOrderFilters = {}): Promise<WorkOrder[]> {
@@ -102,6 +102,33 @@ export function uploadSignature(token: string, id: number, png: Blob, rowVersion
 // There is no public URL for the image: it is only ever read through this authorized endpoint.
 export function getSignature(token: string, id: number): Promise<Blob> {
   return apiFetchBlob(`/work-orders/${id}/signature`, { token })
+}
+
+// ---- Phase 9: photos taken on the job (assigned technician, InProgress only) ----
+
+// One photo per request with the job's rowVersion; the queue on the Photos step sends them one after another,
+// each with the rowVersion the previous upload returned. Progress is reported as a fraction (0–1).
+export function uploadWorkOrderPhoto(
+  token: string, id: number, photo: Blob, rowVersion: string, onProgress?: (fraction: number) => void
+): Promise<WorkOrder> {
+  const form = new FormData()
+  form.append('file', photo, photo instanceof File ? photo.name : 'photo.jpg')
+  form.append('rowVersion', rowVersion)
+  return apiUpload<WorkOrder>(`/work-orders/${id}/photos`, { token, body: form, onProgress })
+}
+
+// Only before completion; afterwards the photos are part of the record the Manager approves.
+export function removeWorkOrderPhoto(token: string, id: number, photoId: number, rowVersion: string): Promise<WorkOrder> {
+  return apiFetch<WorkOrder>(`/work-orders/${id}/photos/${photoId}`, {
+    method: 'DELETE',
+    token,
+    body: JSON.stringify({ rowVersion })
+  })
+}
+
+// Like the signature, a photo has no public URL: it is only ever read through this authorized endpoint.
+export function getWorkOrderPhoto(token: string, id: number, photoId: number): Promise<Blob> {
+  return apiFetchBlob(`/work-orders/${id}/photos/${photoId}`, { token })
 }
 
 // Manager only, mirroring approve (plan's demo script: "a Manager cancels an assigned job").

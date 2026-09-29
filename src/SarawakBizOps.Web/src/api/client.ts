@@ -85,6 +85,54 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   return (isJson ? await response.json() : undefined) as T
 }
 
+interface UploadOptions {
+  token?: string | null
+  body: FormData
+  /** Called with the fraction of the request body sent so far (0–1). */
+  onProgress?: (fraction: number) => void
+}
+
+/**
+ * A multipart upload that reports progress (Phase 9's job photos). `fetch` cannot report upload progress, so
+ * this one call uses XMLHttpRequest; errors come back as the same ApiError as every other call.
+ */
+export function apiUpload<T>(path: string, { token, body, onProgress }: UploadOptions): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_BASE_URL}${path}`)
+    // No Content-Type: the browser sets multipart/form-data with its boundary.
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total)
+    }
+
+    xhr.onload = () => {
+      const isJson = xhr.getResponseHeader('content-type')?.includes('json')
+      let parsed: unknown
+      try {
+        parsed = isJson && xhr.responseText ? JSON.parse(xhr.responseText) : undefined
+      } catch {
+        parsed = undefined
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parsed as T)
+        return
+      }
+
+      const problem = parsed as ProblemDetails | undefined
+      if (xhr.status === 401 && token) onUnauthorized?.()
+      reject(new ApiError(xhr.status, messageFromProblem(xhr.status, problem), problem?.errors))
+    }
+
+    // Network failure (no response at all): status 0, so it is never mistaken for a 409.
+    xhr.onerror = () => reject(new ApiError(0, 'The upload did not reach the server. Check the connection and try again.'))
+
+    xhr.send(body)
+  })
+}
+
 /** For files served through the API (e.g. the signature image): the bearer token rides along, which a plain
  *  `<img src>` could not do, so the caller turns the Blob into an object URL. */
 export async function apiFetchBlob(path: string, options: RequestOptions = {}): Promise<Blob> {

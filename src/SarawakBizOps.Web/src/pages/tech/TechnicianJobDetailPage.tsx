@@ -6,6 +6,7 @@ import {
   completeWorkOrder,
   getWorkOrder,
   markPendingParts,
+  removeWorkOrderPhoto,
   resumeWorkOrder,
   returnWorkOrderPart,
   saveDiagnosis,
@@ -13,7 +14,7 @@ import {
   uploadSignature
 } from '../../api/workOrders'
 import { ApiError } from '../../api/client'
-import type { WorkOrder, WorkOrderPart } from '../../types'
+import type { WorkOrder, WorkOrderPart, WorkOrderPhoto } from '../../types'
 import { PriorityBadge } from '../../components/PriorityBadge'
 import { StatusBadge } from '../../components/StatusBadge'
 import { ConflictBanner } from '../../components/ConflictBanner'
@@ -22,9 +23,10 @@ import { formatDateTime, formatQuantity } from '../../utils/format'
 import { SignaturePad } from '../../components/SignaturePad'
 import { SignatureImage } from '../../components/SignatureImage'
 import { JobPartsSection } from './JobPartsSection'
+import { JobPhotosSection } from './JobPhotosSection'
 
-// One screen, few taps (NFR-04): Start; add parts; type the diagnosis and work performed; the customer signs;
-// Complete. The sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
+// One screen, few taps (NFR-04): Start; add parts; take photos; type the diagnosis and work performed; the
+// customer signs; Complete. The sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
 export function TechnicianJobDetailPage() {
   const { auth } = useAuth()
   const { id } = useParams()
@@ -41,7 +43,10 @@ export function TechnicianJobDetailPage() {
   const [resigning, setResigning] = useState(false)
 
   const reload = () => getWorkOrder(auth!.token, jobId)
-  const { busy, error: actionError, run } = useGuardedAction(reload)
+  const { busy: actionBusy, error: actionError, run } = useGuardedAction(reload)
+  // Photo uploads carry the job's rowVersion forward one after another, so every other action waits for them.
+  const [photosUploading, setPhotosUploading] = useState(false)
+  const busy = actionBusy || photosUploading
 
   useEffect(() => {
     if (!auth) return
@@ -123,6 +128,23 @@ export function TechnicianJobDetailPage() {
     )
     if (saved) setResigning(false)
     return saved
+  }
+
+  function handleRemovePhoto(photo: WorkOrderPhoto) {
+    void runSucceeded(
+      () => removeWorkOrderPhoto(auth!.token, jobId, photo.id, job!.rowVersion),
+      'Could not remove this photo.'
+    )
+  }
+
+  async function reloadAfterPhotoConflict(): Promise<WorkOrder | null> {
+    try {
+      const fresh = await reload()
+      setJob(fresh)
+      return fresh
+    } catch {
+      return null
+    }
   }
 
   function handleResume() {
@@ -230,6 +252,18 @@ export function TechnicianJobDetailPage() {
         />
       )}
 
+      {job.status !== 'Assigned' && (
+        <JobPhotosSection
+          job={job}
+          editable={job.status === 'InProgress'}
+          busy={actionBusy}
+          onUploaded={updated => setJob(updated)}
+          onRemove={handleRemovePhoto}
+          onConflict={reloadAfterPhotoConflict}
+          onUploadingChange={setPhotosUploading}
+        />
+      )}
+
       {job.status === 'InProgress' && (
         <form onSubmit={handleComplete}>
           <div className="panel">
@@ -299,7 +333,7 @@ export function TechnicianJobDetailPage() {
               className="btn btn-primary tech-primary-btn"
               disabled={busy || diagnosis.trim() === '' || workPerformed.trim() === '' || !job.hasSignature}
             >
-              {busy ? 'Completing…' : 'Complete job'}
+              {actionBusy ? 'Completing…' : photosUploading ? 'Uploading photos…' : 'Complete job'}
             </button>
           </div>
         </form>

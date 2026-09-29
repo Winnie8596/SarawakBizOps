@@ -177,6 +177,8 @@ export interface WorkOrder {
   /** Phase 8: whether the customer has signed (BR-03). The image is fetched from /work-orders/{id}/signature. */
   hasSignature: boolean
   signedAt?: string | null
+  /** Phase 9: photos taken on the job, oldest first. Each image is fetched from /work-orders/{id}/photos/{photoId}. */
+  photos: WorkOrderPhoto[]
   cancelledByName?: string | null
   cancelledAt?: string | null
   cancellationReason?: string | null
@@ -206,6 +208,15 @@ export interface WorkOrderPart {
   unitPrice: number
   lineTotal: number
   createdAt: string
+}
+
+/** One photo on a job. `contentType` was decided by the server from the file's bytes. */
+export interface WorkOrderPhoto {
+  id: number
+  contentType: string
+  sizeBytes: number
+  uploadedByName: string
+  uploadedAt: string
 }
 
 export interface PendingPartsInput {

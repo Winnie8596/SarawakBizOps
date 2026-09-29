@@ -1,5 +1,5 @@
 import type {
-  Customer, Equipment, InventoryTransaction, Part, ServiceRequest, Technician, WorkOrder, WorkOrderPart
+  Customer, Equipment, InventoryTransaction, Part, ServiceRequest, Technician, WorkOrder, WorkOrderPart, WorkOrderPhoto
 } from '../types'
 
 export const customers: Customer[] = [
@@ -69,12 +69,24 @@ export function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     notes: null,
     hasSignature: false,
     signedAt: null,
+    photos: [],
     cancelledByName: null,
     cancelledAt: null,
     cancellationReason: null,
     parts: [],
     partsTotal: 0,
     rowVersion: 'AAAAAAAAB9E=',
+    ...overrides
+  }
+}
+
+export function workOrderPhoto(overrides: Partial<WorkOrderPhoto> = {}): WorkOrderPhoto {
+  return {
+    id: 801,
+    contentType: 'image/jpeg',
+    sizeBytes: 245_760,
+    uploadedByName: 'Ahmad Bujang',
+    uploadedAt: '2026-09-21T01:30:00',
     ...overrides
   }
 }

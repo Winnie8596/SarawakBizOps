@@ -9,6 +9,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { ConflictBanner } from '../components/ConflictBanner'
 import { StatusTimeline } from '../components/StatusTimeline'
 import { SignatureImage } from '../components/SignatureImage'
+import { JobPhotoGallery } from '../components/JobPhotoGallery'
 import { useGuardedAction } from '../hooks/useGuardedAction'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
@@ -181,6 +182,15 @@ export function WorkOrderDetailPage() {
               </tr>
             </tfoot>
           </table>
+        )}
+      </div>
+
+      <div className="panel">
+        <h2 className="panel-title">Photos</h2>
+        {workOrder.photos.length === 0 ? (
+          <p className="form-hint">No photos taken on this job.</p>
+        ) : (
+          <JobPhotoGallery workOrderId={workOrder.id} photos={workOrder.photos} />
         )}
       </div>
 
