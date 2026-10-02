@@ -64,6 +64,12 @@ services:
       Seed__DemoPassword: ${DEMO_PASSWORD:-Demo!2026}
       # nginx talks plain HTTP to the API; there is no TLS in the demo setup.
       Hosting__UseHttpsRedirection: "false"
+      # AI assistant (Phase 13): the free, offline mock unless .env picks a real OpenAI-compatible provider.
+      # The key comes only from .env (AI_API_KEY), never from this file.
+      Ai__Provider: ${AI_PROVIDER:-Mock}
+      Ai__BaseUrl: ${AI_BASE_URL:-}
+      Ai__Model: ${AI_MODEL:-}
+      Ai__ApiKey: ${AI_API_KEY:-}
       # Keep `docker compose logs` readable: EF Core logs every SQL command at Information otherwise.
       Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
     healthcheck:

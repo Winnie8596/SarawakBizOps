@@ -364,4 +364,25 @@ jq -e '.view == "ServiceQueue" and has("lowStock") == false and has("topPartsByU
 [ "$(status_of "$tech_token" GET /dashboard/summary)" = 403 ] || fail "a Technician has My Jobs, not a dashboard"
 echo "  ok: $(jq -r '"to assignment \(.averageTimeToAssignment.averageHours) h, to completion \(.averageCompletionDuration.averageHours) h, \(.repeatedFailures.equipmentCount) repeat offenders"' <<<"$dashboard")"
 
+# Phase 13 demo walk: the technician asks the AI assistant (the compose default is the deterministic mock — no key,
+# no cost) about the seeded in-progress compressor job. The answer is labelled, grounded in that machine's own
+# earlier overload trip, and asking changes nothing.
+echo "AI technician assistant (mock): labelled, grounded in the job's own history, read-only, role-gated..."
+ai_job="$(api "$tech_token" GET /work-orders/mine | jq -c 'map(select(.status == "InProgress" and .equipmentSerialNumber == "KCC-CMP-002"))[0]')"
+ai_job_id="$(jq -er '.id' <<<"$ai_job")" || fail "expected the seeded in-progress compressor job"
+ai_body="$(jq -nc --argjson w "$ai_job_id" '{workOrderId:$w, observations:"Relay housing is warm to the touch."}')"
+assistance="$(api "$tech_token" POST /ai/technician-assistant "$ai_body")"
+jq -e '(.disclaimer | startswith("AI-generated assistance — not a certified diagnosis"))
+  and .generatedBy == "Demo mock assistant" and (.possibleCauses | length) >= 1 and (.suggestedChecks | length) >= 1
+  and any(.relevantPastCases[]; .problemDescription | test("trips on overload"))
+  and any(.relevantParts[]; .partNumber == "REL-OVL-25A")' \
+  <<<"$assistance" >/dev/null || fail "the assistant must answer with labelled, grounded suggestions, got: $assistance"
+[ "$(api "$tech_token" GET "/work-orders/$ai_job_id" | jq -r '.rowVersion')" = "$(jq -r '.rowVersion' <<<"$ai_job")" ] \
+  || fail "asking the assistant must not change the job"
+[ "$(status_of "$token" POST /ai/technician-assistant "$ai_body")" = 200 ] || fail "a Manager may ask about any job"
+for t in "$staff_token" "$warehouse_token"; do
+  [ "$(status_of "$t" POST /ai/technician-assistant "$ai_body")" = 403 ] || fail "only Technicians and Managers may ask the assistant"
+done
+echo "  ok: $(jq -r '"\(.possibleCauses[0].cause) (\(.possibleCauses[0].likelihood)); \(.relevantPastCases | length) related past case(s) of \(.pastCasesConsidered)"' <<<"$assistance")"
+
 echo "Smoke test passed."

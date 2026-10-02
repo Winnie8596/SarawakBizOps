@@ -33,7 +33,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…`; dashboard (Phase 11): `AnalyticsTests.Low_stock_summary_counts_active_parts_at_or_below_minimum_and_agrees_with_the_low_stock_list`, `A_part_that_falls_low_appears_on_the_Manager_dashboard`, `DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`; UI: `Dashboard.test.tsx` › `shows the server-computed tiles and charts to a Manager` | **Done** (API Phase 6, dashboard Phase 11) |
 | AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views, + the Phase 13 `POST /ai/technician-assistant`, the job's own Technician or a Manager); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -230,7 +230,7 @@ Analytics depth and role dashboards (PRD §6.9, §5). The plan's Phase 12 test l
   - `RequestQueue` — New and Approved counted, the oldest open first, rejected exactly 30 days ago still recent and a second more not, most recent rejection first;
   - **role-shaped payloads** through the API — the Manager and Admin get exactly the Manager fields, WarehouseStaff exactly the stock fields (no statuses, turnaround or queue), ServiceStaff exactly the queue fields (no stock or costs), a Technician 403;
   - a request raised through the API joins the service queue, and the queue's tiles match its series.
-- `DemoSeedingTests`: **every Phase 12 metric equals the hand-computed value of the seed** — 47.74 h to assignment over 14 jobs, 22.8 h to completion over 10, the filling line and the pump with 3 fault reports each, the four parts used in cost order, the warehouse view (11 active, 4 low, 1 out, the belt job waiting and short), the service queue (3 / 2 / 1, the five oldest in order, the conveyor rejection) — and the two averages cross-checked from the raw rows in C#, independently of the SQL. The NFR-03 latency check now times the larger summary.
+- `DemoSeedingTests`: **every Phase 12 metric equals the hand-computed value of the seed** — since Phase 13's two extra history jobs, 47.03 h to assignment over 16 jobs, 22 h to completion over 12, the filling line, the compressor and the pump with 3 fault reports each, the four parts used in cost order, the warehouse view (11 active, 4 low, 1 out, the belt job waiting and short), the service queue (3 / 2 / 1, the five oldest in order, the conveyor rejection) — and the two averages cross-checked from the raw rows in C#, independently of the SQL. The NFR-03 latency check now times the larger summary.
 - `EndpointAccessTests`: the `GET /dashboard/summary` row now allows Admin, Manager, ServiceStaff and WarehouseStaff (a Technician and anonymous are refused).
 
 **Frontend (Vitest)**
@@ -238,6 +238,37 @@ Analytics depth and role dashboards (PRD §6.9, §5). The plan's Phase 12 test l
 
 **Docker smoke**
 - The Manager's summary carries every PRD §6.9 metric (averages over at least the seeded jobs, at least two repeat offenders each with 3 or more reports, parts in cost order); WarehouseStaff get the stock view without Manager fields, with the same low-stock count as the Manager and one waiting job per PendingParts job; ServiceStaff get the queue without stock, counting the New and Approved requests; a Technician gets 403.
+
+## Phase 13 test inventory
+
+The AI technician assistant (PRD §6.10 AI-01, SDD §14, NFR-09), on the **deterministic mock** — no test or CI run
+calls a real provider. The plan's Phase 13 test list is covered as below.
+
+**Backend (xUnit)**
+- `AiRulesTests` (unit, no database):
+  - **schema validation** — a well-formed answer is accepted; empty, non-JSON, a JSON array, a missing or mistyped list are refused with our own reason; an answer with no usable cause (blank, unknown likelihood) or no usable check is refused; ids that were not offered (another customer's job, an invented part), duplicates, string ids and non-objects are dropped; likelihood is normalised, lists and texts are capped; an oversized answer is refused unread; a ```json fence is read;
+  - the schema is strict (every object lists all its properties as required, nothing extra);
+  - **free text is data, never instructions** — the problem and the technician's notes appear only in the user message's JSON, never in the system prompt;
+  - the mock answers deterministically in the schema with offered ids only, still answers with no known symptom, and refuses a schema it does not know;
+  - the OpenAI-compatible client (against a fake HTTP handler) posts a strict `json_schema` chat completion with the key as a bearer token, supports plain JSON mode and no key, turns HTTP errors and non-completions into its own wording (no provider body), and refuses an answer cut off at the token limit.
+- `TechnicianAssistantTests` (integration, real SQL Server):
+  - the assigned technician gets labelled suggestions (server-set disclaimer, *Demo mock assistant*) grounded in **that equipment's own history** — the related past job chosen, the unrelated one left out, its facts read from the database;
+  - equipment with no history gets suggestions and no past cases;
+  - **another technician gets 404** on a job that is not theirs (BR-02); a Manager may ask about any job; bad ids and over-long notes are 400;
+  - **no other customer's data reaches the model** whatever the technician types — the recorded prompt has none of another customer's job, no customer name, no serial number, and the injection attempt stays out of the system prompt;
+  - **asking never changes business data** — the job's RowVersion, status, diagnosis and notes and the counts of jobs, requests, part lines, ledger rows and stock are identical before and after;
+  - the AI data access refuses **every kind of write** (ExecuteDelete, ExecuteUpdate, SaveChanges);
+  - a throwing provider, invalid JSON, the wrong shape and an empty answer are each a **controlled 503** with our message (no provider text); a provider that does not answer is **cut off at the timeout**;
+  - ids the model invents are dropped and the facts come from the database;
+  - the **per-user rate limit** answers 429 ProblemDetails with Retry-After, and another user is unaffected.
+- `DemoSeedingTests`: on the demo seed, the in-progress compressor job's assistant considers its two earlier jobs and points at the overload trip, not the oil carry-over, with the overload relay among the parts; the seed counts updated for the two Phase 13 history jobs.
+- `EndpointAccessTests`: one new row — `POST /ai/technician-assistant` (Technician, as the job's owner, and Manager).
+
+**Frontend (Vitest)**
+- `Assistant.test.tsx`: on the technician's Diagnosis step, *Get suggestions* sends the job and the optional observations and shows the disclaimer, causes with likelihood, checks, earlier jobs (not linked for a technician) and parts with stock; **Copy to notes** appends a labelled block to the notes field only — the diagnosis stays empty and no write call is made; a 503 shows the unavailable message and the job carries on; a 429 shows the rate-limit message; an empty history reads as a sentence; not offered before the job is started. On the office page a Manager gets the panel on an open job with earlier jobs linked; ServiceStaff do not, nor does anyone on a finished job.
+
+**Docker smoke**
+- The technician asks about the seeded in-progress compressor job: the answer carries the disclaimer, comes from the mock, points at the earlier overload trip and the overload relay; the job's RowVersion is unchanged; a Manager may ask; ServiceStaff and WarehouseStaff get 403.
 
 ## Running
 

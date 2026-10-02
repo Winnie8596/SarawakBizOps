@@ -523,8 +523,25 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests (mock provider) | Schema-validation failure handling; provider timeout/exception → controlled error; a technician **cannot** pull another customer's history through the assistant; **AI endpoints never modify DB state** (assert counts/row versions unchanged); access rows. |
 | Ops & docs | README "AI boundaries" section; **no key or real provider response in the repo**. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| AI provider (Open Question 1) | **Mock by default everywhere** (dev, tests, CI, Docker, the public demo) plus **one real client for any OpenAI-compatible `/chat/completions` API**, hand-rolled over `HttpClient` with no SDK (D-06). One client reaches Gemini's free tier, Groq, a local Ollama, OpenAI and Azure OpenAI by configuration alone (`Ai:Provider`, `BaseUrl`, `Model`, key from user-secrets / `Ai__ApiKey`); a misconfigured real provider stops startup with a hint. An Anthropic-native client was not needed for this phase: the seam is `ILlmClient`, so adding one later touches nothing else. |
+| The seam | `ILlmClient.CompleteStructuredAsync(LlmRequest(systemPrompt, userContent, schemaName, schema), ct)` returns the model's **raw JSON text**; building the context and checking the answer belong to `AiService`, so a provider sees only what the caller chose to send. |
+| The mock | Deterministic keyword rules over the **same JSON context** a model would get, answering in the same schema — so context building, validation, grounding and the UI all run for real. Named *Demo mock assistant* in the UI; it does not pretend to be intelligent. |
+| Bounded context | Built from the one job the caller may read: problem, status, priority, diagnosis so far, the technician's observations, equipment type/brand/model/installed/status, **that equipment's own** last 5 Completed/Approved jobs (one customer, BR-10), and up to 40 active parts (those used on this equipment before first). No customer identity, serial number or location. Every text and list capped. |
+| Prompt injection | The system prompt is a constant with no user text; user text travels as JSON string values in the user message, which the prompt says to treat as data. Tested by recording the exact request. |
+| Output validation | Pure `TechnicianAssistantOutput.Validate`: the whole answer is refused (→ 503) if it is not the schema's object, oversized (32 000 chars), or has no usable cause or check; within it, bad items are dropped (unknown likelihood, ids **not offered**, duplicates) and texts capped. Facts beside a past case or part (dates, problem, diagnosis, stock) are read from the database; only *why* is the model's. The **disclaimer is set by the server**, not asked of the model. |
+| Read-only | `AiReadOnlyData`: its own `ApplicationDbContext` exposing only `IQueryable`s, no tracking, and an interceptor that throws on `SaveChanges` and on any non-`SELECT` command (so `ExecuteUpdate`/`ExecuteDelete` fail before SQL Server). |
+| Failure, timeout, rate limit | Provider exception, timeout (`Ai:TimeoutSeconds`, 20) or invalid answer → `ServiceErrorKind.Unavailable` → **503** with our own message; logs carry the job id, provider, timing and our reason, never the prompt, answer, provider body or key. Per-user fixed window (`Ai:PermitsPerMinute`, 10) via ASP.NET Core's rate limiter after authorization → **429** ProblemDetails with Retry-After. |
+| Ownership | A Technician asking about another technician's job gets **404** (BR-02, like `GET /work-orders/{id}`); a Manager may ask about any job. |
+| UI | One `AssistantPanel`: on the technician's job page while **InProgress** (the Diagnosis step), and on the office work-order page for a **Manager** while the job is Assigned, InProgress or PendingParts (earlier jobs linked there; a technician may not be able to open them). *Copy to notes* appends a labelled block to the **notes** field (editable, saved only with the job), never the diagnosis; the office panel copies to the clipboard. Answers are not stored. |
+| Demo seed | Two more approved history jobs: the compressor's earlier **overload trip** (so the live short-cycling compressor job has a related past case and an unrelated one, the oil carry-over, to leave out) and the band saw's noisy guide bearings. The compressor thereby joins Phase 12's repeated failures, and the seed's hand-computed metrics were updated (47.03 h over 16, 22 h over 12). Existing databases just gain the two rows (the seed inserts missing rows only). |
+| Git | Branch `phase-13-ai-assistant` from the Phase 12 commit; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] Works end to end with the mock in Docker; switching to a real provider is configuration only.
+- [x] Works end to end with the mock in Docker; switching to a real provider is configuration only. *(`scripts/compose-smoke.sh` on a fresh compose stack: the technician's assistant on the seeded compressor job is labelled, from the mock, grounded in the earlier overload trip, leaves the job's RowVersion unchanged and refuses ServiceStaff/WarehouseStaff; `TechnicianAssistantTests` and `AiRulesTests` on SQL Server and a fake HTTP handler. The real client is exercised only against the fake handler — no real provider was called. Not clicked through by hand in a real browser in this session.)*
 
 ---
 
@@ -631,7 +648,7 @@ Because every phase is a working slice, cutting never leaves the app broken. Dro
 
 | # | Open question (PRD §13) | Decide by | Default if undecided |
 |---|---|---|---|
-| 1 | AI provider | Start of Phase 13 (only needed for a real client) | Mock only |
+| 1 | AI provider | Start of Phase 13 (only needed for a real client) | **Decided (Phase 13):** mock by default, plus one OpenAI-compatible client selected by configuration (see Phase 13 decisions) |
 | 2 | Azurite vs MinIO | Start of Phase 8 | Azurite (Azure Blob SDK) |
 | 3 | PDF library / license check | Start of Phase 10 | **Decided (Phase 10):** no library — a hand-rolled PDF writer (see Phase 10 decisions); recorded in the README |
 | 4 | Live deployment | Phase 15 | Skip |
