@@ -78,32 +78,34 @@ export function WorkOrdersPage() {
             : 'Assign an approved service request to a technician to start one.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Customer</th>
-              <th>Equipment</th>
-              <th>Technician</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th>Assigned (MYT)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {workOrders.map(w => (
-              <tr key={w.id}>
-                <td><Link to={`/work-orders/${w.id}`}>#{w.id}</Link></td>
-                <td>{w.customerName}</td>
-                <td><span className="mono">{w.equipmentSerialNumber}</span> · {w.equipmentType}</td>
-                <td>{w.technicianName}</td>
-                <td><PriorityBadge priority={w.priority} /></td>
-                <td><StatusBadge status={w.status} /></td>
-                <td className="mono">{w.assignedAt ? formatDateTime(w.assignedAt) : '—'}</td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Customer</th>
+                <th>Equipment</th>
+                <th>Technician</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Assigned (MYT)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {workOrders.map(w => (
+                <tr key={w.id}>
+                  <td><Link to={`/work-orders/${w.id}`}>#{w.id}</Link></td>
+                  <td>{w.customerName}</td>
+                  <td><span className="mono">{w.equipmentSerialNumber}</span> · {w.equipmentType}</td>
+                  <td>{w.technicianName}</td>
+                  <td><PriorityBadge priority={w.priority} /></td>
+                  <td><StatusBadge status={w.status} /></td>
+                  <td className="mono">{w.assignedAt ? formatDateTime(w.assignedAt) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

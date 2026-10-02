@@ -167,23 +167,25 @@ function Answer({ answer }: { answer: ManagerInsight }) {
             {answer.periodLabel === 'Now' ? 'as of now' : period ? `· ${period}` : `· ${answer.periodLabel}`}
           </span>
         </h2>
-        <table className="data-table">
-          <caption className="visually-hidden">Figures computed by the analytics</caption>
-          <thead>
-            <tr>
-              <th scope="col">Figure</th>
-              <th scope="col" className="num">Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {answer.figures.map((f, i) => (
-              <tr key={i}>
-                <td>{f.label}</td>
-                <td className="num">{formatFigure(f)}</td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <caption className="visually-hidden">Figures computed by the analytics</caption>
+            <thead>
+              <tr>
+                <th scope="col">Figure</th>
+                <th scope="col" className="num">Value</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {answer.figures.map((f, i) => (
+                <tr key={i}>
+                  <td>{f.label}</td>
+                  <td className="num">{formatFigure(f)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {answer.definition && <p className="form-hint">How it is counted: {answer.definition}</p>}
       </section>
     </div>

@@ -431,57 +431,59 @@ export function InventoryPage() {
               : canEdit ? 'Add the first part to start tracking stock.' : 'Ask the warehouse to add parts.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Part no.</th>
-              <th>Name</th>
-              <th className="num">On hand</th>
-              <th className="num">Minimum</th>
-              <th className="num">Unit cost</th>
-              <th>Stock</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {parts.map(part => (
-              <tr key={part.id} className={part.isLowStock ? 'row-warn' : undefined}>
-                <td className="mono">{part.partNumber}</td>
-                <td>{part.name}</td>
-                <td className="num mono">{formatQuantity(part.quantityOnHand)} {part.unit}</td>
-                <td className="num mono">{formatQuantity(part.minimumStockLevel)}</td>
-                <td className="num mono">{formatMoney(part.unitCost)}</td>
-                <td>
-                  {!part.isActive
-                    ? <span className="status-badge tone-grey">Inactive</span>
-                    : part.isLowStock
-                      ? <span className="status-badge tone-red">Low stock</span>
-                      : <span className="status-badge tone-green">OK</span>}
-                </td>
-                <td>
-                  <div className="row-actions">
-                    {canEdit && part.isActive && (
-                      <button className="btn btn-link" onClick={() => startMovement(part, 'Receive')}>
-                        Receive
-                      </button>
-                    )}
-                    {canEdit && (
-                      <button className="btn btn-link" onClick={() => startMovement(part, 'Adjustment')}>
-                        Adjust
-                      </button>
-                    )}
-                    {canEdit && (
-                      <button className="btn btn-link" onClick={() => startEdit(part)}>
-                        Edit
-                      </button>
-                    )}
-                    <Link className="btn-link" to={`/inventory/history?partId=${part.id}`}>History</Link>
-                  </div>
-                </td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Part no.</th>
+                <th>Name</th>
+                <th className="num">On hand</th>
+                <th className="num">Minimum</th>
+                <th className="num">Unit cost</th>
+                <th>Stock</th>
+                <th aria-label="Actions" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {parts.map(part => (
+                <tr key={part.id} className={part.isLowStock ? 'row-warn' : undefined}>
+                  <td className="mono">{part.partNumber}</td>
+                  <td>{part.name}</td>
+                  <td className="num mono">{formatQuantity(part.quantityOnHand)} {part.unit}</td>
+                  <td className="num mono">{formatQuantity(part.minimumStockLevel)}</td>
+                  <td className="num mono">{formatMoney(part.unitCost)}</td>
+                  <td>
+                    {!part.isActive
+                      ? <span className="status-badge tone-grey">Inactive</span>
+                      : part.isLowStock
+                        ? <span className="status-badge tone-red">Low stock</span>
+                        : <span className="status-badge tone-green">OK</span>}
+                  </td>
+                  <td>
+                    <div className="row-actions">
+                      {canEdit && part.isActive && (
+                        <button className="btn btn-link" onClick={() => startMovement(part, 'Receive')}>
+                          Receive
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button className="btn btn-link" onClick={() => startMovement(part, 'Adjustment')}>
+                          Adjust
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button className="btn btn-link" onClick={() => startEdit(part)}>
+                          Edit
+                        </button>
+                      )}
+                      <Link className="btn-link" to={`/inventory/history?partId=${part.id}`}>History</Link>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

@@ -180,32 +180,34 @@ export function WorkOrderDetailPage() {
         {workOrder.parts.length === 0 ? (
           <p className="form-hint">No parts used on this job.</p>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Part</th>
-                <th className="num">Quantity</th>
-                <th className="num">Unit price</th>
-                <th className="num">Line total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workOrder.parts.map(line => (
-                <tr key={line.id}>
-                  <td><span className="mono">{line.partNumber}</span> {line.partName}</td>
-                  <td className="num">{formatQuantity(line.quantity)} {line.unit}</td>
-                  <td className="num">{formatMoney(line.unitPrice)}</td>
-                  <td className="num">{formatMoney(line.lineTotal)}</td>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Part</th>
+                  <th className="num">Quantity</th>
+                  <th className="num">Unit price</th>
+                  <th className="num">Line total</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th colSpan={3}>Parts total</th>
-                <td className="num"><strong>{formatMoney(workOrder.partsTotal)}</strong></td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {workOrder.parts.map(line => (
+                  <tr key={line.id}>
+                    <td><span className="mono">{line.partNumber}</span> {line.partName}</td>
+                    <td className="num">{formatQuantity(line.quantity)} {line.unit}</td>
+                    <td className="num">{formatMoney(line.unitPrice)}</td>
+                    <td className="num">{formatMoney(line.lineTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colSpan={3}>Parts total</th>
+                  <td className="num"><strong>{formatMoney(workOrder.partsTotal)}</strong></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         )}
       </div>
 

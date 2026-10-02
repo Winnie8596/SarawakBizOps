@@ -196,29 +196,31 @@ function RepeatedFailures({ summary }: { summary: ManagerDashboard }) {
         {equipmentCount} {equipmentCount === 1 ? 'piece' : 'pieces'} of equipment with {minimumRequests} or more
         fault reports (cancelled and rejected requests not counted).
       </p>
-      <table className="data-table">
-        <caption className="visually-hidden">Equipment with repeated fault reports</caption>
-        <thead>
-          <tr>
-            <th>Equipment</th>
-            <th className="num">Reports</th>
-            <th>Last reported</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map(item => (
-            <tr key={item.equipmentId}>
-              <td>
-                <Link to={`/equipment/${item.equipmentId}`} className="mono">{item.serialNumber}</Link>
-                <br />
-                <span className="muted">{item.equipmentType} · {item.customerName}</span>
-              </td>
-              <td className="num">{item.requestCount}</td>
-              <td>{formatDateTime(item.lastReportedAt)}</td>
+      <div className="table-scroll">
+        <table className="data-table">
+          <caption className="visually-hidden">Equipment with repeated fault reports</caption>
+          <thead>
+            <tr>
+              <th>Equipment</th>
+              <th className="num">Reports</th>
+              <th>Last reported</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.equipmentId}>
+                <td>
+                  <Link to={`/equipment/${item.equipmentId}`} className="mono">{item.serialNumber}</Link>
+                  <br />
+                  <span className="muted">{item.equipmentType} · {item.customerName}</span>
+                </td>
+                <td className="num">{item.requestCount}</td>
+                <td>{formatDateTime(item.lastReportedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   )
 }
@@ -249,43 +251,45 @@ function WarehouseView({ summary }: { summary: WarehouseDashboard }) {
                 {waiting.count} {waiting.count === 1 ? 'job is' : 'jobs are'} paused for a part
                 {waiting.readyToResume > 0 && <>; {waiting.readyToResume} can resume now</>}. Longest wait first.
               </p>
-              <table className="data-table">
-                <caption className="visually-hidden">Jobs paused waiting for a part</caption>
-                <thead>
-                  <tr>
-                    <th>Job</th>
-                    <th>Part</th>
-                    <th className="num">Needed</th>
-                    <th className="num">On hand</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {waiting.items.map(job => (
-                    <tr key={job.workOrderId} className={job.inStock ? undefined : 'row-warn'}>
-                      <td>
-                        #{job.workOrderId}
-                        {job.waitingSince && (
-                          <>
-                            <br />
-                            <span className="muted">since {formatDateTime(job.waitingSince)}</span>
-                          </>
-                        )}
-                      </td>
-                      <td>
-                        <span className="mono">{job.partNumber}</span>
-                        <br />
-                        <span className="muted">{job.name}</span>
-                      </td>
-                      <td className="num">{formatQuantity(job.quantityNeeded)} {job.unit}</td>
-                      <td className="num">
-                        {formatQuantity(job.quantityOnHand)} {job.unit}
-                        <br />
-                        <span className="muted">{job.inStock ? 'In stock' : 'Short'}</span>
-                      </td>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <caption className="visually-hidden">Jobs paused waiting for a part</caption>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Part</th>
+                      <th className="num">Needed</th>
+                      <th className="num">On hand</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {waiting.items.map(job => (
+                      <tr key={job.workOrderId} className={job.inStock ? undefined : 'row-warn'}>
+                        <td>
+                          #{job.workOrderId}
+                          {job.waitingSince && (
+                            <>
+                              <br />
+                              <span className="muted">since {formatDateTime(job.waitingSince)}</span>
+                            </>
+                          )}
+                        </td>
+                        <td>
+                          <span className="mono">{job.partNumber}</span>
+                          <br />
+                          <span className="muted">{job.name}</span>
+                        </td>
+                        <td className="num">{formatQuantity(job.quantityNeeded)} {job.unit}</td>
+                        <td className="num">
+                          {formatQuantity(job.quantityOnHand)} {job.unit}
+                          <br />
+                          <span className="muted">{job.inStock ? 'In stock' : 'Short'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </section>
@@ -333,31 +337,33 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
           {queue.oldestOpen.length === 0 ? (
             <p className="chart-empty">Nothing is waiting for review or assignment.</p>
           ) : (
-            <table className="data-table">
-              <caption className="visually-hidden">Open requests, the longest-waiting first</caption>
-              <thead>
-                <tr>
-                  <th>Request</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Raised</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queue.oldestOpen.map(r => (
-                  <tr key={r.id}>
-                    <td>
-                      <Link to={`/service-requests/${r.id}`}>#{r.id}</Link> <span className="mono">{r.equipmentSerialNumber}</span>
-                      <br />
-                      <span className="muted">{r.equipmentType} · {r.customerName}</span>
-                    </td>
-                    <td><PriorityBadge priority={r.priority} /></td>
-                    <td><StatusBadge status={r.status} /></td>
-                    <td>{formatDateTime(r.createdAt)}</td>
+            <div className="table-scroll">
+              <table className="data-table">
+                <caption className="visually-hidden">Open requests, the longest-waiting first</caption>
+                <thead>
+                  <tr>
+                    <th>Request</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Raised</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {queue.oldestOpen.map(r => (
+                    <tr key={r.id}>
+                      <td>
+                        <Link to={`/service-requests/${r.id}`}>#{r.id}</Link> <span className="mono">{r.equipmentSerialNumber}</span>
+                        <br />
+                        <span className="muted">{r.equipmentType} · {r.customerName}</span>
+                      </td>
+                      <td><PriorityBadge priority={r.priority} /></td>
+                      <td><StatusBadge status={r.status} /></td>
+                      <td>{formatDateTime(r.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
@@ -405,31 +411,33 @@ function PartsUsage({ parts, period }: { parts: PartUsage[]; period: string }) {
   if (parts.length === 0) return <p className="chart-empty">No parts were used on jobs in {period}.</p>
 
   return (
-    <table className="data-table">
-      <caption className="visually-hidden">Parts used on jobs, costliest first</caption>
-      <thead>
-        <tr>
-          <th>Part</th>
-          <th className="num">Used</th>
-          <th className="num">Jobs</th>
-          <th className="num">Cost</th>
-        </tr>
-      </thead>
-      <tbody>
-        {parts.map(part => (
-          <tr key={part.partId}>
-            <td>
-              <span className="mono">{part.partNumber}</span>
-              <br />
-              <span className="muted">{part.name}</span>
-            </td>
-            <td className="num">{formatQuantity(part.quantity)} {part.unit}</td>
-            <td className="num">{part.jobCount}</td>
-            <td className="num">{formatMoney(part.cost)}</td>
+    <div className="table-scroll">
+      <table className="data-table">
+        <caption className="visually-hidden">Parts used on jobs, costliest first</caption>
+        <thead>
+          <tr>
+            <th>Part</th>
+            <th className="num">Used</th>
+            <th className="num">Jobs</th>
+            <th className="num">Cost</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {parts.map(part => (
+            <tr key={part.partId}>
+              <td>
+                <span className="mono">{part.partNumber}</span>
+                <br />
+                <span className="muted">{part.name}</span>
+              </td>
+              <td className="num">{formatQuantity(part.quantity)} {part.unit}</td>
+              <td className="num">{part.jobCount}</td>
+              <td className="num">{formatMoney(part.cost)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -443,28 +451,30 @@ function LowStock({ lowStock }: { lowStock: LowStockSummary }) {
         {count} active {count === 1 ? 'part is' : 'parts are'} at or below the minimum
         {outOfStock > 0 && <>; {outOfStock} out of stock</>}.
       </p>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Part</th>
-            <th className="num">On hand</th>
-            <th className="num">Minimum</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map(item => (
-            <tr key={item.partId} className={item.quantityOnHand <= 0 ? 'row-warn' : undefined}>
-              <td>
-                <span className="mono">{item.partNumber}</span>
-                <br />
-                <span className="muted">{item.name}</span>
-              </td>
-              <td className="num">{formatQuantity(item.quantityOnHand)} {item.unit}</td>
-              <td className="num">{formatQuantity(item.minimumStockLevel)} {item.unit}</td>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Part</th>
+              <th className="num">On hand</th>
+              <th className="num">Minimum</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr key={item.partId} className={item.quantityOnHand <= 0 ? 'row-warn' : undefined}>
+                <td>
+                  <span className="mono">{item.partNumber}</span>
+                  <br />
+                  <span className="muted">{item.name}</span>
+                </td>
+                <td className="num">{formatQuantity(item.quantityOnHand)} {item.unit}</td>
+                <td className="num">{formatQuantity(item.minimumStockLevel)} {item.unit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="panel-actions">
         <Link to="/inventory">{count > items.length ? `View all ${count} in Inventory` : 'Open Inventory'}</Link>
       </p>

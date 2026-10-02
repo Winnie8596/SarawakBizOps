@@ -385,6 +385,16 @@ select {
   white-space: nowrap;
 }
 
+/* Every data table sits in one of these: a table wider than the screen scrolls on its own instead of pushing the
+   whole page sideways on a phone. */
+.table-scroll {
+  position: relative; /* keeps visually hidden header text inside the box, not off the page's right edge */
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius);
+}
+
 /* A row that needs attention (e.g. a part at or below its minimum stock level). */
 .data-table tr.row-warn td {
   background: var(--red-100);
@@ -553,21 +563,54 @@ select {
     min-height: 44px;
   }
 
-  /* The user and the account buttons wrap below the title instead of overflowing a fixed-height bar. */
+  /* The header bar above already names the app, so the top bar is just the user and their account buttons. */
   .topbar {
     height: auto;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-    padding: 10px 16px;
+    padding: 8px 16px;
   }
 
+  .topbar-title {
+    display: none;
+  }
+
+  /* Two rows: the name and role, then the two account buttons. */
   .topbar-user {
-    flex-wrap: wrap;
-    gap: 8px;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 6px 8px;
   }
 
   .topbar-user .btn {
+    display: inline-flex;
+    align-items: center;
     min-height: 44px;
+    padding: 0 12px;
+    white-space: nowrap;
+    justify-self: start;
+  }
+
+  .topbar-user .btn:last-child {
+    justify-self: end;
+  }
+
+  /* Inline filters line up as label | control, the control taking the rest of the width. */
+  .field-inline {
+    display: grid;
+    grid-template-columns: 7.5em minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .field-inline select,
+  .field-inline input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Codes such as report and part numbers stay on one line; the table scrolls instead. */
+  .data-table .mono {
+    white-space: nowrap;
   }
 
   .field-grid {
@@ -575,7 +618,27 @@ select {
   }
 
   .page {
-    padding: 20px;
+    padding: 16px;
+  }
+
+  /* Headers, toolbars and action rows wrap rather than overflow. */
+  .page-header,
+  .panel-actions,
+  .toolbar {
+    flex-wrap: wrap;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+  }
+
+  .stat-card {
+    min-width: 0;
   }
 }
 
@@ -1319,5 +1382,15 @@ a.stat-card-link:focus-visible {
   .insight-form .btn,
   .insight-examples .btn {
     min-height: 44px;
+  }
+
+  .insight-examples li,
+  .insight-examples .btn {
+    width: 100%;
+  }
+
+  .insight-examples .btn {
+    text-align: left;
+    justify-content: flex-start;
   }
 }

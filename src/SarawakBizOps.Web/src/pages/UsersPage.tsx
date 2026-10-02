@@ -253,46 +253,48 @@ export function UsersPage() {
       ) : users.length === 0 ? (
         <EmptyState title="No users" description="Create the first user account." />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(user => {
-              const isSelf = user.id === auth?.userId
-              return (
-                <tr key={user.id}>
-                  <td>{user.fullName}{isSelf && <span className="you-tag"> (you)</span>}</td>
-                  <td>{user.email}</td>
-                  <td>{user.role}</td>
-                  <td><StatusBadge status={user.isActive ? 'Active' : 'Inactive'} /></td>
-                  <td>
-                    <div className="row-actions">
-                    {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
-                    {isSelf ? (
-                      <span className="you-tag">Your account: can't edit or deactivate yourself</span>
-                    ) : (
-                      <>
-                        <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>Edit</button>
-                        <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
-                          {user.isActive ? 'Deactivate' : 'Reactivate'}
-                        </button>
-                      </>
-                    )}
-                    <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>Reset password</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(user => {
+                const isSelf = user.id === auth?.userId
+                return (
+                  <tr key={user.id}>
+                    <td>{user.fullName}{isSelf && <span className="you-tag"> (you)</span>}</td>
+                    <td>{user.email}</td>
+                    <td>{user.role}</td>
+                    <td><StatusBadge status={user.isActive ? 'Active' : 'Inactive'} /></td>
+                    <td>
+                      <div className="row-actions">
+                      {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
+                      {isSelf ? (
+                        <span className="you-tag">Your account: can't edit or deactivate yourself</span>
+                      ) : (
+                        <>
+                          <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>Edit</button>
+                          <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
+                            {user.isActive ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        </>
+                      )}
+                      <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>Reset password</button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

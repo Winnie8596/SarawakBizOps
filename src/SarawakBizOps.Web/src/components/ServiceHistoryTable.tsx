@@ -24,31 +24,33 @@ export function ServiceHistoryTable({ history, loading, error }: ServiceHistoryT
   }
 
   return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Date (MYT)</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Priority</th>
-          <th>Summary</th>
-        </tr>
-      </thead>
-      <tbody>
-        {history.items.map(item => (
-          <tr key={`${item.type}-${item.id}`}>
-            <td className="mono">{formatDateTime(item.occurredAtUtc)}</td>
-            <td>
-              {item.type === 'ServiceRequest'
-                ? <Link to={`/service-requests/${item.id}`}>Service Request #{item.id}</Link>
-                : <>{item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}</>}
-            </td>
-            <td><StatusBadge status={item.status} /></td>
-            <td>{item.priority}</td>
-            <td>{item.summary}</td>
+    <div className="table-scroll">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Date (MYT)</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Summary</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {history.items.map(item => (
+            <tr key={`${item.type}-${item.id}`}>
+              <td className="mono">{formatDateTime(item.occurredAtUtc)}</td>
+              <td>
+                {item.type === 'ServiceRequest'
+                  ? <Link to={`/service-requests/${item.id}`}>Service Request #{item.id}</Link>
+                  : <>{item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}</>}
+              </td>
+              <td><StatusBadge status={item.status} /></td>
+              <td>{item.priority}</td>
+              <td>{item.summary}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

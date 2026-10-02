@@ -59,23 +59,25 @@ export function ReportsPage() {
           description="A Manager generates a job’s report from its work-order page once the technician has completed it."
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Report no.</th>
-              <th>Work order</th>
-              <th>Customer</th>
-              <th>Equipment</th>
-              <th>Technician</th>
-              <th>Generated (MYT)</th>
-              <th>State</th>
-              <th><span className="visually-hidden">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {reports.map(report => <ReportRow key={report.id} report={report} />)}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Report no.</th>
+                <th>Work order</th>
+                <th>Customer</th>
+                <th>Equipment</th>
+                <th>Technician</th>
+                <th>Generated (MYT)</th>
+                <th>State</th>
+                <th><span className="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reports.map(report => <ReportRow key={report.id} report={report} />)}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

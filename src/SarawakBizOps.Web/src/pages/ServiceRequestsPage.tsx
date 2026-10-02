@@ -323,32 +323,34 @@ export function ServiceRequestsPage() {
               : 'Service Staff raise requests when a customer reports a fault.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Raised (MYT)</th>
-              <th>Customer</th>
-              <th>Equipment</th>
-              <th>Problem</th>
-              <th>Priority</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {requests.map(r => (
-              <tr key={r.id}>
-                <td><Link to={`/service-requests/${r.id}`}>#{r.id}</Link></td>
-                <td className="mono">{formatDateTime(r.createdAt)}</td>
-                <td>{r.customerName}</td>
-                <td><span className="mono">{r.equipmentSerialNumber}</span> · {r.equipmentType}</td>
-                <td>{summarise(r.problemDescription)}</td>
-                <td><PriorityBadge priority={r.priority} /></td>
-                <td><StatusBadge status={r.status} /></td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Raised (MYT)</th>
+                <th>Customer</th>
+                <th>Equipment</th>
+                <th>Problem</th>
+                <th>Priority</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {requests.map(r => (
+                <tr key={r.id}>
+                  <td><Link to={`/service-requests/${r.id}`}>#{r.id}</Link></td>
+                  <td className="mono">{formatDateTime(r.createdAt)}</td>
+                  <td>{r.customerName}</td>
+                  <td><span className="mono">{r.equipmentSerialNumber}</span> · {r.equipmentType}</td>
+                  <td>{summarise(r.problemDescription)}</td>
+                  <td><PriorityBadge priority={r.priority} /></td>
+                  <td><StatusBadge status={r.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

@@ -148,40 +148,42 @@ export function InventoryHistoryPage() {
             : 'Receiving a delivery on the Inventory page creates the first entry.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>When (MYT)</th>
-              <th>Part</th>
-              <th>Type</th>
-              <th className="num">Quantity</th>
-              <th>Work order</th>
-              <th>By</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(t => (
-              <tr key={t.id}>
-                <td className="mono">{formatDateTime(t.createdAt)}</td>
-                <td><span className="mono">{t.partNumber}</span> · {t.partName}</td>
-                <td><span className={`status-badge ${TYPE_TONE[t.transactionType] ?? 'tone-grey'}`}>{t.transactionType}</span></td>
-                <td className="num mono">
-                  {t.quantity > 0 ? '+' : ''}{formatQuantity(t.quantity)} {t.unit}
-                </td>
-                <td>
-                  {t.workOrderId == null
-                    ? '—'
-                    : canOpenWorkOrders
-                      ? <Link to={`/work-orders/${t.workOrderId}`}>#{t.workOrderId}</Link>
-                      : `#${t.workOrderId}`}
-                </td>
-                <td>{t.createdByName}</td>
-                <td className="prose">{t.notes || '—'}</td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>When (MYT)</th>
+                <th>Part</th>
+                <th>Type</th>
+                <th className="num">Quantity</th>
+                <th>Work order</th>
+                <th>By</th>
+                <th>Notes</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(t => (
+                <tr key={t.id}>
+                  <td className="mono">{formatDateTime(t.createdAt)}</td>
+                  <td><span className="mono">{t.partNumber}</span> · {t.partName}</td>
+                  <td><span className={`status-badge ${TYPE_TONE[t.transactionType] ?? 'tone-grey'}`}>{t.transactionType}</span></td>
+                  <td className="num mono">
+                    {t.quantity > 0 ? '+' : ''}{formatQuantity(t.quantity)} {t.unit}
+                  </td>
+                  <td>
+                    {t.workOrderId == null
+                      ? '—'
+                      : canOpenWorkOrders
+                        ? <Link to={`/work-orders/${t.workOrderId}`}>#{t.workOrderId}</Link>
+                        : `#${t.workOrderId}`}
+                  </td>
+                  <td>{t.createdByName}</td>
+                  <td className="prose">{t.notes || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

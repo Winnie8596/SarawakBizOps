@@ -192,37 +192,39 @@ export function CustomersPage() {
             : 'Ask a Service Staff member or Admin to add one.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Company</th>
-              <th>Contact</th>
-              <th>Phone</th>
-              <th>Email</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {customers.map(customer => (
-              <tr key={customer.id}>
-                <td><Link to={`/customers/${customer.id}`}>{customer.companyName}</Link></td>
-                <td>{customer.contactPerson || '—'}</td>
-                <td className="mono">{customer.phone || '—'}</td>
-                <td>{customer.email || '—'}</td>
-                <td>
-                  <div className="row-actions">
-                    <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
-                    {canEdit && (
-                      <button className="btn btn-link" onClick={() => startEdit(customer)}>
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                </td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Contact</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th aria-label="Actions" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {customers.map(customer => (
+                <tr key={customer.id}>
+                  <td><Link to={`/customers/${customer.id}`}>{customer.companyName}</Link></td>
+                  <td>{customer.contactPerson || '—'}</td>
+                  <td className="mono">{customer.phone || '—'}</td>
+                  <td>{customer.email || '—'}</td>
+                  <td>
+                    <div className="row-actions">
+                      <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
+                      {canEdit && (
+                        <button className="btn btn-link" onClick={() => startEdit(customer)}>
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

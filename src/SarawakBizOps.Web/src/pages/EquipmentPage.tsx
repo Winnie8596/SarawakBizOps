@@ -246,37 +246,39 @@ export function EquipmentPage() {
             : 'Ask a Service Staff member or Admin to register one.'}
         />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Serial number</th>
-              <th>Type</th>
-              <th>Customer</th>
-              <th>Status</th>
-              <th>Location</th>
-              <th aria-label="Actions" />
-            </tr>
-          </thead>
-          <tbody>
-            {equipment.map(item => (
-              <tr key={item.id}>
-                <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
-                <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
-                <td>{customerName(item.customerId)}</td>
-                <td><StatusBadge status={item.status} /></td>
-                <td>{item.location || '—'}</td>
-                <td>
-                  <div className="row-actions">
-                    <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
-                    {canEdit && (
-                      <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
-                    )}
-                  </div>
-                </td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Serial number</th>
+                <th>Type</th>
+                <th>Customer</th>
+                <th>Status</th>
+                <th>Location</th>
+                <th aria-label="Actions" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {equipment.map(item => (
+                <tr key={item.id}>
+                  <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
+                  <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
+                  <td>{customerName(item.customerId)}</td>
+                  <td><StatusBadge status={item.status} /></td>
+                  <td>{item.location || '—'}</td>
+                  <td>
+                    <div className="row-actions">
+                      <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
+                      {canEdit && (
+                        <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

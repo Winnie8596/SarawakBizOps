@@ -86,26 +86,28 @@ export function CustomerDetailPage() {
       {equipment.length === 0 ? (
         <EmptyState title="No equipment registered for this customer" />
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Serial number</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Location</th>
-            </tr>
-          </thead>
-          <tbody>
-            {equipment.map(item => (
-              <tr key={item.id}>
-                <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
-                <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
-                <td><StatusBadge status={item.status} /></td>
-                <td>{item.location || '—'}</td>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Serial number</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Location</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {equipment.map(item => (
+                <tr key={item.id}>
+                  <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
+                  <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
+                  <td><StatusBadge status={item.status} /></td>
+                  <td>{item.location || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <h2 className="section-title">Service history</h2>
