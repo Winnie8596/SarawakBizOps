@@ -87,6 +87,36 @@ select {
   gap: 2px;
 }
 
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Phones only (see Responsive): opens and closes the links. */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--amber-600);
+  outline-offset: -2px;
+}
+
 .sidebar-link {
   color: #a9bbcd;
   text-decoration: none;
@@ -491,38 +521,36 @@ select {
     flex-direction: column;
   }
 
-  /* The sidebar becomes a header: the brand, then the links as one swipeable strip. They never squeeze or spill
-     off the screen, however many links a role has (a Manager has eight). */
+  /* The sidebar becomes a header bar: the brand and a menu button; the links open below it as a list. */
   .sidebar {
     width: 100%;
-    padding: 12px 0 0 0;
+    padding: 0;
+  }
+
+  .sidebar-header {
+    padding: 4px 8px 4px 16px;
   }
 
   .sidebar-brand {
-    padding: 0 16px 8px 16px;
+    padding: 0;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
   }
 
   .sidebar-nav {
-    flex-direction: row;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    display: none;
+    padding-bottom: 8px;
   }
 
-  .sidebar-nav::-webkit-scrollbar {
-    display: none;
+  .sidebar-nav.is-open {
+    display: flex;
   }
 
   .sidebar-link {
-    flex-shrink: 0;
-    white-space: nowrap;
-    padding: 12px 14px;
-    border-left: none;
-    border-bottom: 3px solid transparent;
-  }
-
-  .sidebar-link.is-active {
-    border-bottom-color: var(--amber-600);
+    padding: 12px 16px;
+    min-height: 44px;
   }
 
   /* The user and the account buttons wrap below the title instead of overflowing a fixed-height bar. */

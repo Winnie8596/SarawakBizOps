@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { RoleBadge } from '../components/RoleBadge'
 import { INVENTORY_ROLES, OFFICE_ROLES } from '../auth/roles'
@@ -20,6 +21,14 @@ const navItems: { to: string; label: string; end: boolean; roles?: readonly stri
 export function AppLayout() {
   const { auth, logout, hasRole } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Phones only: the links sit behind a menu button (CSS shows them always on wider screens).
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // Opening a page closes the menu, whether by a link or by the browser's back button.
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [location.pathname])
 
   function handleLogout() {
     logout()
@@ -31,8 +40,20 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">SarawakBizOps</div>
-        <nav className="sidebar-nav">
+        <div className="sidebar-header">
+          <div className="sidebar-brand">SarawakBizOps</div>
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-expanded={menuOpen}
+            aria-controls="sidebar-nav"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            onClick={() => setMenuOpen(open => !open)}
+          >
+            <span aria-hidden="true">{menuOpen ? '✕' : '☰'}</span>
+          </button>
+        </div>
+        <nav id="sidebar-nav" className={`sidebar-nav${menuOpen ? ' is-open' : ''}`} aria-label="Main">
           {visibleItems.map(item => (
             <NavLink
               key={item.to}

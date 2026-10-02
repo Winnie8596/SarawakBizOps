@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { renderApp, signInAs, stubApi } from './utils'
 
@@ -97,5 +98,27 @@ describe('Sidebar', () => {
 
     await screen.findByRole('heading', { name: 'My Jobs' })
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+  })
+})
+
+describe('Menu button (phones)', () => {
+  it('opens and closes the links, and closes once a page is opened', async () => {
+    signInAs('Manager')
+    quiet()
+    renderApp('/customers')
+
+    const toggle = await screen.findByRole('button', { name: 'Open menu' })
+    const nav = screen.getByRole('navigation', { name: 'Main' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(toggle).toHaveAttribute('aria-controls', nav.id)
+    expect(nav).not.toHaveClass('is-open')
+
+    await userEvent.click(toggle)
+    expect(screen.getByRole('button', { name: 'Close menu' })).toHaveAttribute('aria-expanded', 'true')
+    expect(nav).toHaveClass('is-open')
+
+    await userEvent.click(within(nav).getByRole('link', { name: 'Equipment' }))
+    expect(await screen.findByRole('button', { name: 'Open menu' })).toHaveAttribute('aria-expanded', 'false')
+    expect(nav).not.toHaveClass('is-open')
   })
 })
