@@ -15,6 +15,7 @@ import { ServiceRequestDetailPage } from './pages/ServiceRequestDetailPage'
 import { WorkOrdersPage } from './pages/WorkOrdersPage'
 import { WorkOrderDetailPage } from './pages/WorkOrderDetailPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { ManagerInsightsPage } from './pages/ManagerInsightsPage'
 import { TechnicianJobsPage } from './pages/tech/TechnicianJobsPage'
 import { TechnicianJobDetailPage } from './pages/tech/TechnicianJobDetailPage'
 import { InventoryPage } from './pages/InventoryPage'
@@ -64,6 +65,11 @@ export default function App() {
             <Route element={<ProtectedRoute roles={[...INVENTORY_ROLES]} />}>
               <Route path="/inventory" element={<InventoryPage />} />
               <Route path="/inventory/history" element={<InventoryHistoryPage />} />
+            </Route>
+
+            {/* Phase 14: the Manager AI (the API allows the Manager role only). */}
+            <Route element={<ProtectedRoute roles={['Manager']} />}>
+              <Route path="/insights" element={<ManagerInsightsPage />} />
             </Route>
 
             <Route element={<ProtectedRoute roles={['Admin']} />}>

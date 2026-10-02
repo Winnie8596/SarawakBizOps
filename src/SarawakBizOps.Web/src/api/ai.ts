@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { TechnicianAssistance } from '../types'
+import type { ManagerInsight, ManagerInsightTopic, TechnicianAssistance } from '../types'
 
 // ---- Phase 13: the AI technician assistant ----
 
@@ -14,5 +14,21 @@ export function getTechnicianAssistance(
     method: 'POST',
     token,
     body: JSON.stringify({ workOrderId, observations: observations || undefined })
+  })
+}
+
+// ---- Phase 14: AI Manager Insights (Manager only) ----
+
+// What can be asked, with an example question each. No model call, so it does not count against the AI rate limit.
+export function getManagerInsightTopics(token: string): Promise<ManagerInsightTopic[]> {
+  return apiFetch<ManagerInsightTopic[]>('/ai/manager-insights/topics', { token })
+}
+
+// Always 200 — an answer or a refusal (see ManagerInsight); asking too often is a 429.
+export function askManagerInsights(token: string, question: string): Promise<ManagerInsight> {
+  return apiFetch<ManagerInsight>('/ai/manager-insights', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ question })
   })
 }

@@ -545,3 +545,41 @@ export interface TechnicianAssistance {
   relevantPastCases: AssistantPastCase[]
   relevantParts: AssistantPart[]
 }
+
+// ---- Phase 14: AI Manager Insights (AI-02, AC-10) ----
+
+export interface ManagerInsightTopic {
+  id: string
+  title: string
+  description: string
+  exampleQuestion: string
+}
+
+/** A figure an analytics operation computed. `value` is null when there was nothing to measure. */
+export interface ManagerInsightFigure {
+  label: string
+  value: number | null
+  unit: string
+}
+
+/**
+ * The server answers every question with 200: `Answered` (the figures, and the model's wording of them when it gave
+ * a usable one) or `Refused` (why, and what can be asked instead).
+ */
+export interface ManagerInsight {
+  outcome: 'Answered' | 'Refused'
+  question: string
+  generatedAt: string
+  topic: ManagerInsightTopic | null
+  periodLabel: string | null
+  period: AnalyticsPeriod | null
+  definition: string | null
+  note: string | null
+  figures: ManagerInsightFigure[]
+  summary: string | null
+  summaryUnavailableReason: string | null
+  disclaimer: string | null
+  generatedBy: string | null
+  refusalReason: string | null
+  supportedTopics: ManagerInsightTopic[]
+}

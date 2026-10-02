@@ -78,7 +78,7 @@ describe('Protected routes', () => {
 describe('Sidebar', () => {
   it.each([
     ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory', 'Users']],
-    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory']],
+    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'AI Insights', 'Inventory']],
     ['ServiceStaff', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports']],
     ['WarehouseStaff', ['Dashboard', 'Inventory']]
   ])('offers %s only the pages that role can open', async (role, expected) => {

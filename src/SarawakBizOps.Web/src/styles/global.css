@@ -1206,3 +1206,50 @@ a.stat-card-link:focus-visible {
     min-height: 44px;
   }
 }
+
+/* ---------- AI Manager Insights (Phase 14) ---------- */
+.insight-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.insight-form .field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.insight-examples {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+/* The summary beside the figures it was written from; side by side when there is room. */
+.insight-answer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 0 24px;
+  align-items: start;
+}
+
+.insight-summary {
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0 0 12px 0;
+}
+
+@media (max-width: 720px) {
+  .insight-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .insight-form .btn,
+  .insight-examples .btn {
+    min-height: 44px;
+  }
+}

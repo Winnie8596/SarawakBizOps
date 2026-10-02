@@ -12,6 +12,7 @@ const navItems: { to: string; label: string; end: boolean; roles?: readonly stri
   { to: '/service-requests', label: 'Service Requests', end: false, roles: OFFICE_ROLES },
   { to: '/work-orders', label: 'Work Orders', end: false, roles: OFFICE_ROLES },
   { to: '/reports', label: 'Reports', end: false, roles: OFFICE_ROLES },
+  { to: '/insights', label: 'AI Insights', end: false, roles: ['Manager'] },
   { to: '/inventory', label: 'Inventory', end: false, roles: INVENTORY_ROLES },
   { to: '/users', label: 'Users', end: false, roles: ['Admin'] }
 ]
