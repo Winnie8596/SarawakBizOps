@@ -4,7 +4,7 @@ namespace SarawakBizOps.Api.Services.Analytics;
 
 /// <summary>
 /// Phase 11 (PRD §6.9, SDD §14): the dashboard's numbers as <b>named, parameterised operations</b>, each one
-/// query, each independently testable. Phase 14's Manager AI will call these same operations (AC-10: it answers
+/// query, each independently testable. Phase 14's Manager AI calls these same operations (AC-10: it answers
 /// from backend-computed data only), so each keeps a precise, documented definition — see <see cref="AnalyticsRules"/>.
 /// "Now" comes from the injected <see cref="TimeProvider"/>. Phase 12 adds the rest of PRD §6.9 and the per-role
 /// dashboards (PRD §5).

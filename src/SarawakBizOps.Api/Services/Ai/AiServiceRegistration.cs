@@ -52,7 +52,7 @@ public static class AiServiceRegistration
         services.AddSingleton(sp => new AiReadOnlyDataOptions(
             sp.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.")));
-        services.AddScoped<AiReadOnlyData>();
+        services.AddScoped<AiReadOnlyData>(); // Phase 14: also the Manager AI's analytics, over the guarded context
         services.AddScoped<TechnicianAssistantContextBuilder>();
         services.AddScoped<IAiService, AiService>();
 

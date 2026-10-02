@@ -146,7 +146,7 @@ public static class TechnicianAssistantOutput
     }
 
     // A server in plain JSON mode sometimes wraps the object in a ```json fence; the object inside is what counts.
-    private static string StripCodeFence(string raw)
+    internal static string StripCodeFence(string raw)
     {
         var text = raw.Trim();
         if (!text.StartsWith("```", StringComparison.Ordinal)) return text;

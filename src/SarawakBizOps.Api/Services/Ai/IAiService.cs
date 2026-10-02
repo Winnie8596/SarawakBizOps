@@ -14,4 +14,15 @@ public interface IAiService
     /// reported as not found (BR-02), as everywhere else.</summary>
     Task<ServiceResult<TechnicianAssistanceDto>> GetTechnicianAssistanceAsync(
         int workOrderId, string actingUserId, bool requireOwnTechnician, string? observations, CancellationToken ct);
+
+    /// <summary>AI-02 (Phase 14): the topics a Manager can ask about, with an example question each.</summary>
+    IReadOnlyList<ManagerInsightTopicDto> GetManagerInsightTopics();
+
+    /// <summary>
+    /// AI-02 (Phase 14, AC-10). Maps the question to one allow-listed analytics operation by rules, runs it through
+    /// the read-only data access, and asks the model only to word the resulting figures. An unsupported or
+    /// ambiguous question is a <see cref="ManagerInsightOutcomes.Refused"/> answer. A model failure is not an error
+    /// here: the figures are returned without a summary.
+    /// </summary>
+    Task<ManagerInsightDto> AskManagerInsightsAsync(string question, CancellationToken ct);
 }

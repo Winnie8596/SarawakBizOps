@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.Services.Analytics;
 
 namespace SarawakBizOps.Api.Services.Ai;
 
@@ -16,10 +17,16 @@ public sealed class AiReadOnlyData : IDisposable, IAsyncDisposable
 {
     private readonly ApplicationDbContext _db;
 
-    public AiReadOnlyData(AiReadOnlyDataOptions options) => _db = new ApplicationDbContext(options.DbOptions);
+    public AiReadOnlyData(AiReadOnlyDataOptions options, TimeProvider clock)
+    {
+        _db = new ApplicationDbContext(options.DbOptions);
+        // Phase 14: the Manager AI runs the dashboard's own named operations, over this guarded context.
+        Analytics = new AnalyticsService(_db, clock);
+    }
 
     public IQueryable<WorkOrder> WorkOrders => _db.WorkOrders.AsNoTracking();
     public IQueryable<Part> Parts => _db.Parts.AsNoTracking();
+    public IAnalyticsService Analytics { get; }
 
     public void Dispose() => _db.Dispose();
     public ValueTask DisposeAsync() => _db.DisposeAsync();

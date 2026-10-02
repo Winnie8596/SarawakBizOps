@@ -13,17 +13,25 @@ public class AiService : IAiService
     public const string UnavailableMessage =
         "The AI assistant is unavailable right now. Carry on with the job; you can try again later.";
 
+    public const string ManagerDisclaimer = "AI-written summary of the figures beside it. The figures come straight " +
+        "from the system's analytics; the summary may only repeat them — check them before acting.";
+
+    public const string SummaryUnavailableMessage =
+        "The AI summary is unavailable right now. The figures below come straight from the analytics.";
+
     private readonly TechnicianAssistantContextBuilder _contextBuilder;
+    private readonly AiReadOnlyData _data;
     private readonly ILlmClient _llm;
     private readonly AiOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<AiService> _logger;
 
     public AiService(
-        TechnicianAssistantContextBuilder contextBuilder, ILlmClient llm, IOptions<AiOptions> options,
+        TechnicianAssistantContextBuilder contextBuilder, AiReadOnlyData data, ILlmClient llm, IOptions<AiOptions> options,
         TimeProvider clock, ILogger<AiService> logger)
     {
         _contextBuilder = contextBuilder;
+        _data = data;
         _llm = llm;
         _options = options.Value;
         _clock = clock;
@@ -39,7 +47,7 @@ public class AiService : IAiService
             return ServiceResult<TechnicianAssistanceDto>.Fail(ServiceErrorKind.NotFound, "Work order not found.");
         }
 
-        var raw = await AskAsync(TechnicianAssistantPrompt.BuildRequest(input.Context), workOrderId, ct);
+        var raw = await AskAsync(TechnicianAssistantPrompt.BuildRequest(input.Context), $"work order {workOrderId}", ct);
         if (raw is null)
         {
             return ServiceResult<TechnicianAssistanceDto>.Fail(ServiceErrorKind.Unavailable, UnavailableMessage);
@@ -50,8 +58,8 @@ public class AiService : IAiService
         if (answer is null)
         {
             // The reason is ours (never the model's text), so it is safe to log.
-            _logger.LogWarning("AI {Schema} answer for work order {WorkOrderId} rejected: {Reason}",
-                TechnicianAssistantPrompt.SchemaName, workOrderId, error);
+            _logger.LogWarning("AI {Schema} answer for {Subject} rejected: {Reason}",
+                TechnicianAssistantPrompt.SchemaName, $"work order {workOrderId}", error);
             return ServiceResult<TechnicianAssistanceDto>.Fail(ServiceErrorKind.Unavailable, UnavailableMessage);
         }
 
@@ -89,10 +97,77 @@ public class AiService : IAiService
         });
     }
 
+    public IReadOnlyList<ManagerInsightTopicDto> GetManagerInsightTopics()
+        => ManagerInsightTopics.All.Select(ToDto).ToList();
+
+    public async Task<ManagerInsightDto> AskManagerInsightsAsync(string question, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow().UtcDateTime;
+        question = question.Trim();
+        var mapping = ManagerInsightsIntentMapper.Map(question, now);
+
+        if (mapping.Topic is null)
+        {
+            _logger.LogInformation("AI {Schema} question refused by the mapper", ManagerInsightsPrompt.SchemaName);
+            return new ManagerInsightDto
+            {
+                Outcome = ManagerInsightOutcomes.Refused,
+                Question = question,
+                GeneratedAt = now,
+                RefusalReason = mapping.RefusalReason,
+                SupportedTopics = GetManagerInsightTopics().ToList()
+            };
+        }
+
+        // The allow-listed operation, through the read-only data access; these are the only numbers in the answer.
+        var (facts, period) = await ManagerInsightFactsBuilder.BuildAsync(_data.Analytics, mapping.Topic, mapping.Period!, now, ct);
+        var request = ManagerInsightsPrompt.BuildRequest(facts);
+        var subject = $"topic {mapping.Topic.Id}";
+
+        string? summary = null;
+        var raw = await AskAsync(request, subject, ct);
+        if (raw is not null)
+        {
+            (summary, var error) = ManagerInsightsOutput.Validate(raw, request.UserContent);
+            if (summary is null)
+            {
+                _logger.LogWarning("AI {Schema} answer for {Subject} rejected: {Reason}",
+                    ManagerInsightsPrompt.SchemaName, subject, error);
+            }
+        }
+
+        return new ManagerInsightDto
+        {
+            Outcome = ManagerInsightOutcomes.Answered,
+            Question = question,
+            GeneratedAt = now,
+            Topic = ToDto(mapping.Topic),
+            PeriodLabel = facts.Period,
+            Period = period,
+            Definition = facts.Definition,
+            Note = facts.Note,
+            Figures = facts.Figures
+                .Select(f => new ManagerInsightFigureDto { Label = f.Label, Value = f.Value, Unit = f.Unit })
+                .ToList(),
+            Summary = summary,
+            SummaryUnavailableReason = summary is null ? SummaryUnavailableMessage : null,
+            Disclaimer = ManagerDisclaimer,
+            GeneratedBy = summary is null ? null : _llm.DisplayName
+        };
+    }
+
+    private static ManagerInsightTopicDto ToDto(InsightTopic topic) => new()
+    {
+        Id = topic.Id,
+        Title = topic.Title,
+        Description = topic.Description,
+        ExampleQuestion = topic.ExampleQuestion
+    };
+
     /// <summary>Calls the model within the configured timeout. Returns null (after logging) on any failure. Only the
-    /// schema name, the job id, timings, the exception type and our own <see cref="LlmProviderException"/> wording are
+    /// schema name, the subject (a job id or a topic), timings, the exception type and our own <see cref="LlmProviderException"/> wording are
     /// logged — never the prompt, the answer, a provider's error body or the key.</summary>
-    private async Task<string?> AskAsync(LlmRequest request, int workOrderId, CancellationToken ct)
+    private async Task<string?> AskAsync(LlmRequest request, string subject, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.TimeoutSeconds)));
@@ -101,20 +176,20 @@ public class AiService : IAiService
         try
         {
             var raw = await _llm.CompleteStructuredAsync(request, timeout.Token);
-            _logger.LogInformation("AI {Schema} for work order {WorkOrderId} answered by {Provider} in {ElapsedMs} ms",
-                request.SchemaName, workOrderId, _llm.DisplayName, watch.ElapsedMilliseconds);
+            _logger.LogInformation("AI {Schema} for {Subject} answered by {Provider} in {ElapsedMs} ms",
+                request.SchemaName, subject, _llm.DisplayName, watch.ElapsedMilliseconds);
             return raw;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning("AI {Schema} for work order {WorkOrderId} timed out after {ElapsedMs} ms ({Provider})",
-                request.SchemaName, workOrderId, watch.ElapsedMilliseconds, _llm.DisplayName);
+            _logger.LogWarning("AI {Schema} for {Subject} timed out after {ElapsedMs} ms ({Provider})",
+                request.SchemaName, subject, watch.ElapsedMilliseconds, _llm.DisplayName);
             return null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning("AI {Schema} for work order {WorkOrderId} failed with {ExceptionType}: {Reason} ({Provider})",
-                request.SchemaName, workOrderId, ex.GetType().Name,
+            _logger.LogWarning("AI {Schema} for {Subject} failed with {ExceptionType}: {Reason} ({Provider})",
+                request.SchemaName, subject, ex.GetType().Name,
                 ex is LlmProviderException ? ex.Message : "(not logged)", _llm.DisplayName);
             return null;
         }

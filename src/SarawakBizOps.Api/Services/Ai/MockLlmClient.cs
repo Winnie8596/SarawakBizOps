@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace SarawakBizOps.Api.Services.Ai;
@@ -18,6 +19,7 @@ public class MockLlmClient : ILlmClient
         return request.SchemaName switch
         {
             TechnicianAssistantPrompt.SchemaName => Task.FromResult(MockTechnicianAssistant.Answer(request.UserContent)),
+            ManagerInsightsPrompt.SchemaName => Task.FromResult(MockManagerInsights.Answer(request.UserContent)),
             _ => throw new NotSupportedException($"The mock assistant has no answer for '{request.SchemaName}'.")
         };
     }
@@ -168,5 +170,43 @@ public static class MockTechnicianAssistant
             relevantPastCases = pastCases,
             relevantParts = parts
         });
+    }
+}
+
+/// <summary>The mock's Manager summaries (Phase 14): the headline figure and the next few, read out as given — the
+/// same "word the figures, compute nothing" contract a real model is held to by <see cref="ManagerInsightsOutput"/>.</summary>
+public static class MockManagerInsights
+{
+    private const int MoreFigures = 3;
+
+    public static string Answer(string factsJson)
+    {
+        var facts = JsonSerializer.Deserialize<InsightFacts>(factsJson, TechnicianAssistantPrompt.ContextJson)
+            ?? throw new InvalidOperationException("The mock assistant received no figures.");
+
+        string summary;
+        if (facts.Figures.Count == 0)
+        {
+            summary = $"{facts.Topic}, {facts.Period}: there is nothing to report.";
+        }
+        else
+        {
+            var headline = facts.Figures[0];
+            summary = $"{facts.Topic}, {facts.Period}: {headline.Label} — {Format(headline)}.";
+            var more = facts.Figures.Skip(1).Take(MoreFigures).Select(f => $"{f.Label}: {Format(f)}").ToList();
+            if (more.Count > 0)
+            {
+                summary += $" Also {string.Join("; ", more)}.";
+            }
+        }
+
+        return JsonSerializer.Serialize(new { summary }, TechnicianAssistantPrompt.ContextJson);
+    }
+
+    private static string Format(InsightFigure figure)
+    {
+        if (figure.Value is not { } value) return "no data";
+        var number = value.ToString("0.###", CultureInfo.InvariantCulture);
+        return figure.Unit == "RM" ? $"RM {number}" : $"{number} {figure.Unit}";
     }
 }

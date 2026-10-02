@@ -370,7 +370,19 @@ public class EndpointAccessTests
                 var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
                 return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
             },
-            OwnedByTechnician: true)
+            OwnedByTechnician: true),
+
+        // ---- Phase 14: the Manager AI — Manager only (answers and refusals are both 200, ManagerInsightsTests) ----
+        new("GET /api/ai/manager-insights/topics", HttpMethod.Get,
+            _ => "/api/ai/manager-insights/topics", _ => null,
+            new[] { AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("POST /api/ai/manager-insights", HttpMethod.Post,
+            _ => "/api/ai/manager-insights",
+            _ => new ManagerInsightsRequest { Question = "How many jobs are awaiting approval?" },
+            new[] { AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId))
     };
 
     // An InProgress job of the prepared technician with one photo on it.
