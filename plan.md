@@ -560,8 +560,24 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 | Tests (mock provider) | **AC-10:** every number in the answer equals the analytics output (assert the payload sent to the client); unsupported question → refusal; schema/timeout handling; AI never mutates state; access rows. |
 | Ops & docs | Supported question list in the README; test-plan AC-10. |
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Intent mapping | **Rules only** (`ManagerInsightsIntentMapper`, pure): each topic has weighted phrases matched at the start of a word; the highest score wins; no match or a tie is a refusal. The plan's optional LLM classification was not built — rules are deterministic, free and testable, and nine topics do not need a model to choose between them. |
+| The allow-list | **Nine topics, one existing `IAnalyticsService` operation each** (beyond the 3–4 cut-line): jobs completed, work orders by status, open requests, low stock, time to assignment, completion duration, repeated failures, parts usage, jobs waiting for parts. One topic per question; no new analytics operation was added. |
+| Refusing the wrong question | Refused **before** topic matching, so a question is never answered with figures for a different question: breakdowns by technician/customer/person, forecasts, revenue/profit/pay, periods shorter than a month, more than 24 months. Each refusal names its reason and lists the topics. |
+| Periods | Read by the mapper in MYT whole months: this month, last month, last N months (digits or words), quarter, half year, last year, this year; default six (the dashboard's). "Last month" is exact for jobs completed (the first month of a two-month window); the averages, failures and parts usage only measure whole months up to now, so there it covers last month and this one, and the answer's note says so. Snapshot topics ignore the period and say so. |
+| What the model sees | `InsightFacts`: topic, period label, definition and figures `{label, value, unit}` — **not the question** (it only reaches the rules), no raw rows, no customer names or serial numbers (equipment as type and id). The figures returned to the UI are exactly these. |
+| Read-only | `AiReadOnlyData.Analytics`: an `AnalyticsService` over the Phase 13 guarded context, so the operations run under the same SELECT-only interceptor. |
+| AC-10 enforcement | `ManagerInsightsOutput`: the answer is `{ "summary": string }` (≤ 800 chars); **every number in it must be a number in the facts JSON** (or that number rounded to 0–2 decimals). Otherwise the summary is dropped. Numbers written in words are not checked (recorded as a limitation). |
+| Failure shape | **Always 200.** A refusal is `outcome: "Refused"`; a provider error, timeout or a summary that fails the check gives the figures with `summary: null` and *"The AI summary is unavailable right now"* — the figures are the point and are always available. (Phase 13's 503 stays: there the model's answer *is* the content.) |
+| Routes | `POST /api/ai/manager-insights` and `GET /api/ai/manager-insights/topics` (example questions for the page; `[DisableRateLimiting]`, no model call). **Manager only**, as the plan's route says — Admin is not added. |
+| UI | **AI Insights** page (`/insights`, Manager only, sidebar): question box (300 chars), example-question buttons from the topics endpoint, the answer as a summary panel (disclaimer, *who wrote it*, note) beside a figures table with the period and definition; refusals list the topics with clickable examples. Values shown exactly as computed (RM with two decimals). |
+| Git | Branch `phase-14-manager-insights` from the Phase 13 commit; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria**
-- [ ] Both assistants work with the mock; **AC-10** passes; cut-line: at least 3–4 supported questions plus the refusal path.
+- [x] Both assistants work with the mock; **AC-10** passes; cut-line: at least 3–4 supported questions plus the refusal path. *(Nine topics plus the refusal paths. `ManagerInsightsTests` and `ManagerInsightsRulesTests` on SQL Server, the mock and fake providers; all 937 backend and 130 frontend tests pass. `scripts/compose-smoke.sh` passed on a fresh, isolated compose stack: the technician assistant walk and the new insights walk — figures equal to the dashboard's, a revenue question refused, other roles 403. No real provider was called. Not clicked through by hand in a real browser in this session.)*
 
 ---
 

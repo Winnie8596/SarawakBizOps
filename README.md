@@ -44,7 +44,7 @@ Customer report → Service Request → Manager approval → Technician assignme
 | 11 | Manager dashboard: open requests, work orders by status, jobs completed per MYT month, low stock — named analytics operations, hand-rolled charts | Done |
 | 12 | Analytics depth: turnaround averages, repeated failures, parts usage; a dashboard for every office role (Manager, Warehouse, Service queue) | Done |
 | 13 | AI technician assistant: suggestions on the Diagnosis step behind a provider-agnostic interface, deterministic mock by default, read-only and bounded | Done |
-| 14 | AI manager insights | Planned |
+| 14 | AI manager insights: plain-language questions mapped by rules to the analytics operations; the model only words the figures, shown beside it | Done |
 | 15 | Release polish and docs | Planned |
 
 **Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
@@ -64,7 +64,9 @@ listed on a Reports page), the **Manager dashboard** (headline tiles and hand-ro
 analytics operations, months bucketed in Malaysia time; since Phase 12 also turnaround averages, repeated failures
 and parts usage, and role-shaped dashboards for the warehouse and the service desk), the **AI technician
 assistant** (suggestions on the Diagnosis step, labelled and never applied, behind a provider-agnostic `ILlmClient`
-with a deterministic mock by default, read-only data access, a bounded context and a per-user rate limit), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
+with a deterministic mock by default, read-only data access, a bounded context and a per-user rate limit), the
+**AI manager insights** (a Manager's question mapped by rules to one of the dashboard's analytics operations; the
+model is shown only the resulting figures and its summary may repeat only their numbers), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
 Users, Customers, Equipment, Service Requests, Work Orders, Reports, Inventory, detail pages with history, status timeline, a shared
 conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
 workflow.
@@ -345,7 +347,7 @@ every number computed by the API.
 
 ```
 GET /api/dashboard/summary     Manager, Admin (Phase 12: WarehouseStaff and ServiceStaff get their own views, below)
-  IAnalyticsService — named, parameterised operations, one grouped query each (Phase 14's AI will call the same ones):
+  IAnalyticsService — named, parameterised operations, one grouped query each (the Phase 14 AI insights call the same ones):
     OpenRequestsByPriority()        ServiceRequests WHERE Status IN (New, Approved)          GROUP BY Priority
     WorkOrdersByStatus()            WorkOrders                                                GROUP BY Status
     JobsCompletedPerMonth(months)   WorkOrders WHERE CompletedAt in the MYT window
@@ -506,6 +508,71 @@ failures, and the Phase 12 averages move a little (above).
 4. As `manager@…`, open the same work order: the Manager gets the same panel, with the earlier job linked.
 5. The band saw (**RTM-BSW-001**): start it as the technician and ask — its earlier noisy-guide-bearings job comes up.
 
+### AI manager insights (Phase 14)
+
+PRD §6.10 (AI-02), **AC-10**: the Manager AI uses backend-computed data only. On **AI Insights** (sidebar, Manager
+only) the Manager types a question or taps an example; the answer is a short summary *with the figures it was
+written from shown beside it*.
+
+```
+GET  /api/ai/manager-insights/topics   Manager — the supported topics, each with an example question (no rate limit)
+POST /api/ai/manager-insights          Manager
+  { "question": "How many jobs were completed last month?" }      (1–300 characters)
+  200  outcome "Answered": topic, periodLabel/period, definition, note, figures[] {label, value, unit},
+       summary (null + summaryUnavailableReason when the model failed), disclaimer, generatedBy
+  200  outcome "Refused": refusalReason, supportedTopics[]
+  429  asked too often (the same per-user AI limit as the technician assistant)
+```
+
+**How a question is answered — the model never computes a metric.**
+
+1. **Rules, not the model, read the question.** `ManagerInsightsIntentMapper` (pure, unit-tested) scores the
+   question against each topic's weighted phrases and picks the best; no match, or a tie, is a refusal. It also reads
+   the period: *this month*, *last month*, *last 3 months*, *past quarter*, *last year*, *this year*; nothing said is
+   the dashboard's six months. A question the operations cannot answer truthfully is refused for what it is, even when
+   a topic matches: a breakdown by technician or customer, a forecast, revenue/profit/pay, or a period shorter than a
+   month (*today*, *last week*), or more than 24 months.
+2. **An allow-listed operation computes the figures.** Each topic is one of the existing named
+   `IAnalyticsService` operations (below), run through the AI's read-only data access (`AiReadOnlyData.Analytics`, the
+   same guarded, no-tracking context as Phase 13). Totals and derived tiles use the dashboard's own rules
+   (`AnalyticsRules`).
+3. **The model words only those figures.** It is sent the topic, period, definition and figures as JSON — **not the
+   question** and no raw rows, customer names or serial numbers (equipment appears as type and id). Its answer is one
+   `summary` string.
+4. **The summary is checked against the figures.** `ManagerInsightsOutput` refuses a summary containing any number
+   that is not one of the figures' numbers (or that number rounded to fewer decimals, as in "47 hours" for 47.03):
+   no sums, differences, percentages or conversions of its own. A refused summary, a provider error or a timeout does
+   not fail the request — the Manager gets the figures with *"The AI summary is unavailable right now"*.
+
+| Topic | Operation | Period | Example question |
+|---|---|---|---|
+| Jobs completed | `JobsCompletedPerMonth` | yes | How many jobs were completed last month? |
+| Work orders by status | `WorkOrdersByStatus` | now | How many jobs are awaiting approval? |
+| Open service requests | `OpenRequestsByPriority` | now | How many open requests are there by priority? |
+| Low stock | `LowStockSummary` | now | Which parts are low on stock? |
+| Time to assignment | `AverageTimeToAssignment` | yes | How long does it take to assign a request? |
+| Completion duration | `AverageCompletionDuration` | yes | How long do jobs take to complete? |
+| Repeated failures | `RepeatedFailuresByEquipment` (≥ 3 reports) | yes | Which equipment keeps failing? |
+| Parts usage | `TopPartsByUsage` | yes | Which parts did we use the most in the last 3 months? |
+| Jobs waiting for parts | `JobsWaitingForParts` | now | Which jobs are waiting for parts? |
+
+"Last month" on a jobs-completed question is exactly that month. The averages, failures and parts usage are kept
+for whole months up to today, so "last month" there covers last month *and this one*, and the answer says so; a
+snapshot topic answers with current figures and says the period does not apply.
+
+**AI boundaries** are Phase 13's (read-only data access, fixed system prompt with no user text, a checked answer,
+graceful failure, logs without prompts or answers, the per-user rate limit, no key in the repository), plus: the
+question never reaches the model, and the summary's numbers must be the figures' numbers.
+
+**Try it (demo script).** As `manager@sarawakbizops.local`, open **AI Insights**:
+
+1. Tap **How many jobs are awaiting approval?** — the summary (*Demo mock assistant*) reads out the figures, and the
+   table beside it shows *Awaiting your approval (completed)* with the same number as the dashboard's tile.
+2. Type *How many jobs were completed last month?* — one figure, for last month, matching that month's column on
+   the dashboard chart.
+3. Type *What was our revenue last month?* — refused: revenue is not recorded; the supported topics are listed, each
+   example a click away. *Which technician completed the most jobs?* is refused as a breakdown the figures do not have.
+
 ```
 src/
 ├── SarawakBizOps.Api/          ASP.NET Core Web API + EF Core + Identity (+ Dockerfile)
@@ -515,7 +582,7 @@ tests/
 docs/
 └── test-plan.md                Acceptance-criteria map: which test proves which AC
 scripts/
-└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with photos, the signature and the service report), parts and stock, parts on a job, the Manager dashboard, each role's dashboard and the AI assistant on the mock (used by CI)
+└── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with photos, the signature and the service report), parts and stock, parts on a job, the Manager dashboard, each role's dashboard, the AI assistant and the AI manager insights on the mock (used by CI)
 docker-compose.yml              sqlserver + azurite + api + web, one command
 ```
 
@@ -690,9 +757,10 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
   mutating call and a shared conflict banner in the UI, plus the parts catalogue and inventory ledger (receive,
   adjust, low stock, history), parts used on jobs (atomic issue and return, PendingParts/resume) and the customer
   signature (required to complete), job photos, the service report PDF and the dashboards (all PRD §6.9 metrics,
-  one view per office role) and the AI technician assistant; the AI manager insights are planned in
+  one view per office role), the AI technician assistant and the AI manager insights; release polish is planned in
   [`plan.md`](./plan.md). The mock assistant is keyword rules, not intelligence — it shows the pipeline; a real model
-  gives real suggestions. AI answers are not stored (asking again asks again). Photos are optional evidence, not required to complete a job. The dashboards cover a
+  gives real suggestions. The Manager AI understands only the phrasings its rules know (nine topics, one per
+  question, no breakdown by technician or customer), and a summary that writes a number in words is not checked. AI answers are not stored (asking again asks again). Photos are optional evidence, not required to complete a job. The dashboards cover a
   fixed six-month period (no date picker), and the repeated-failures threshold (3) is fixed on the dashboard
   though a parameter of the operation. The signature records *that* the customer signed, not their
   printed name; photos have no captions yet. A signature or photo file whose cleanup delete fails is left orphaned

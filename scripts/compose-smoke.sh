@@ -385,4 +385,23 @@ for t in "$staff_token" "$warehouse_token"; do
 done
 echo "  ok: $(jq -r '"\(.possibleCauses[0].cause) (\(.possibleCauses[0].likelihood)); \(.relevantPastCases | length) related past case(s) of \(.pastCasesConsidered)"' <<<"$assistance")"
 
+# Phase 14 demo walk: the Manager asks the AI insights (AC-10). The figures in each answer are the analytics'
+# own (they equal the dashboard's), the mock's summary words them, an unsupported question is refused with the
+# topics, and only a Manager may ask.
+echo "AI manager insights (mock): figures from the analytics, summarised, refusals, role-gated..."
+topics="$(api "$token" GET /ai/manager-insights/topics)"
+[ "$(jq 'length' <<<"$topics")" = 9 ] || fail "expected the nine supported topics, got: $topics"
+insight="$(api "$token" POST /ai/manager-insights '{"question":"How many jobs are awaiting approval?"}')"
+jq -e --argjson awaiting "$(jq '.kpis.awaitingApproval' <<<"$dashboard")"   '.outcome == "Answered" and .topic.id == "work-orders-by-status" and .generatedBy == "Demo mock assistant"
+  and (.summary | length) > 0 and (.disclaimer | startswith("AI-written summary"))
+  and (.figures[] | select(.label | startswith("Awaiting your approval")) | .value) == $awaiting'   <<<"$insight" >/dev/null || fail "the insight must carry the dashboard's own figure, got: $insight"
+stock_insight="$(api "$token" POST /ai/manager-insights '{"question":"Which parts are low on stock?"}')"
+jq -e --argjson low "$(jq '.lowStock.count' <<<"$dashboard")"   '(.figures[0].value) == $low' <<<"$stock_insight" >/dev/null   || fail "the low-stock insight must equal the dashboard's low-stock count, got: $stock_insight"
+refusal="$(api "$token" POST /ai/manager-insights '{"question":"What was our revenue last month?"}')"
+jq -e '.outcome == "Refused" and (.figures | length) == 0 and (.supportedTopics | length) == 9'   <<<"$refusal" >/dev/null || fail "an unsupported question must be refused with the topics, got: $refusal"
+for t in "$staff_token" "$warehouse_token" "$tech_token"; do
+  [ "$(status_of "$t" POST /ai/manager-insights '{"question":"Which parts are low on stock?"}')" = 403 ]     || fail "only a Manager may ask the insights"
+done
+echo "  ok: $(jq -r '.summary' <<<"$insight")"
+
 echo "Smoke test passed."

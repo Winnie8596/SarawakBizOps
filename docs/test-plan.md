@@ -32,8 +32,8 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-07 | Manager approval locks the work order | 4, 5 | `WorkOrderTests.Approving_a_completed_job_locks_it_against_further_technician_action` (status changes); `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (the central lock guard also covers non-transition edits) | **Done** |
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…`; dashboard (Phase 11): `AnalyticsTests.Low_stock_summary_counts_active_parts_at_or_below_minimum_and_agrees_with_the_low_stock_list`, `A_part_that_falls_low_appears_on_the_Manager_dashboard`, `DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`; UI: `Dashboard.test.tsx` › `shows the server-computed tiles and charts to a Manager` | **Done** (API Phase 6, dashboard Phase 11) |
-| AC-10 | Manager AI uses backend-computed data only | 14 | | Not yet implemented |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views, + the Phase 13 `POST /ai/technician-assistant`, the job's own Technician or a Manager); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-10 | Manager AI uses backend-computed data only | 14 | `ManagerInsightsTests.Every_figure_in_an_answer_is_the_analytics_output_and_exactly_what_the_model_was_sent` (every topic: the figures returned equal the figures the model was sent, the question is not sent, the summary's numbers are the figures'; the figures equal the named operations' own results), `A_summary_with_a_number_the_model_made_up_is_dropped_and_the_figures_still_shown`, `Jobs_completed_last_month_is_that_months_count_and_a_range_lists_every_month` (known answers); `ManagerInsightsRulesTests.A_summary_with_any_number_not_in_the_figures_is_refused`; UI: `ManagerInsights.test.tsx` › `answers an example question with the figures beside the summary`; smoke: the insight's figures equal the dashboard's | **Done** |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views, + the Phase 13 `POST /ai/technician-assistant`, the job's own Technician or a Manager, + the two Phase 14 Manager-only endpoints `GET /ai/manager-insights/topics` and `POST /ai/manager-insights`); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
 
 ## Business rules covered so far
 
@@ -269,6 +269,35 @@ calls a real provider. The plan's Phase 13 test list is covered as below.
 
 **Docker smoke**
 - The technician asks about the seeded in-progress compressor job: the answer carries the disclaimer, comes from the mock, points at the earlier overload trip and the overload relay; the job's RowVersion is unchanged; a Manager may ask; ServiceStaff and WarehouseStaff get 403.
+
+## Phase 14 test inventory
+
+The AI manager insights (PRD §6.10 AI-02, **AC-10**), on the **deterministic mock** or a fake provider — no test or
+CI run calls a real provider. The plan's Phase 14 test list is covered as below.
+
+**Backend (xUnit)**
+- `ManagerInsightsRulesTests` (unit, no database):
+  - the **intent mapper**: twenty phrasings map to the right one of the nine topics, and every topic's own example question maps to it; unsupported questions (small talk, an injection attempt), breakdowns by technician/customer/person, forecasts, revenue, periods shorter than a month and out-of-range months are **refused with their own reason**; a question that matches two topics equally is refused as ambiguous, naming both;
+  - **periods**: default six months, this month, last/previous month, last N months (digits and words), quarter, half year, last year, this year — in Malaysia time (31 Dec 17:00 UTC is already next year);
+  - period labels read like the dashboard ("Oct 2026", "May–Oct 2026", "Nov 2025–Oct 2026");
+  - the **summary check (AC-10)**: numbers repeated exactly, rounded to fewer decimals, with thousands separators, or in words are accepted; a conversion, a sum, a percentage or a wrong rounding is refused; empty, non-JSON, wrongly shaped, blank and oversized answers are refused; a ```json fence is read;
+  - the mock reads out the headline and next figures and passes the check; says *no data* for a null and *nothing to report* for no figures; the prompt carries no user text and the schema asks for a summary only.
+- `ManagerInsightsTests` (integration, real SQL Server):
+  - known answers on scratch databases with a fixed clock: jobs completed last month / last 3 months / this month across the MYT month boundary; work orders by status and low stock as snapshots, with the "period does not apply" note; an average over nothing is null, not zero;
+  - **AC-10** through the API for every topic: the figures returned are exactly the figures the model was sent, the question never reaches the model, the summary's numbers are the figures', and the figures equal `IAnalyticsService`'s own results (jobs completed last month, statuses, low stock, time to assignment with its period, jobs waiting for parts);
+  - an unsupported question is **refused** with all nine topics and **never reaches the model**;
+  - a summary with an invented number is dropped and the figures still shown; a throwing provider, invalid JSON, the wrong shape and an empty answer still give the figures (200, no provider text); a provider that does not answer is **cut off at the timeout**;
+  - **asking never changes business data** (counts, stock and every job's RowVersion unchanged after every topic and a "delete" question);
+  - every analytics operation behind it runs through the **read-only data access**;
+  - blank and over-long questions are 400; the topics endpoint lists the nine topics;
+  - asking shares the per-user AI rate limit (429), listing the topics does not.
+- `EndpointAccessTests`: two new rows — `GET /ai/manager-insights/topics` and `POST /ai/manager-insights` (Manager only).
+
+**Frontend (Vitest)**
+- `ManagerInsights.test.tsx`: *AI Insights* is in a Manager's sidebar only, and Admin, ServiceStaff and WarehouseStaff are bounced from `/insights` without calling the API; an example question asks and shows the disclaimer, the summary and the figures table beside it with the period and definition; with no summary the figures still show (RM with two decimals, *no data* for a missing value); a refusal explains why and lists the topics, each example a click away; a 429 shows its message and keeps the question. `RoleRouting.test.tsx`: the Manager's sidebar gains *AI Insights*.
+
+**Docker smoke**
+- The Manager lists the nine topics; *How many jobs are awaiting approval?* is answered by the mock with the dashboard's own awaiting-approval figure; *Which parts are low on stock?* carries the dashboard's low-stock count; *What was our revenue last month?* is refused with the topics; ServiceStaff, WarehouseStaff and a Technician get 403.
 
 ## Running
 
