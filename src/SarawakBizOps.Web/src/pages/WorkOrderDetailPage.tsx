@@ -12,10 +12,13 @@ import { StatusTimeline } from '../components/StatusTimeline'
 import { SignatureImage } from '../components/SignatureImage'
 import { JobPhotoGallery } from '../components/JobPhotoGallery'
 import { ServiceReportPanel } from '../components/ServiceReportPanel'
+import { AssistantPanel } from '../components/AssistantPanel'
 import { useGuardedAction } from '../hooks/useGuardedAction'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
 const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress', 'PendingParts']
+// Phase 13: the AI assistant helps while the job is still being diagnosed.
+const ASSISTANT_STATUSES = ['Assigned', 'InProgress', 'PendingParts']
 
 export function WorkOrderDetailPage() {
   const { auth, hasRole } = useAuth()
@@ -24,6 +27,7 @@ export function WorkOrderDetailPage() {
   const canApprove = hasRole('Manager')
   const canCancelJob = hasRole('Manager')
   const canGenerateReport = hasRole('Manager')
+  const canAskAssistant = hasRole('Manager')
 
   const [workOrder, setWorkOrder] = useState<WorkOrder | null>(null)
   const [loading, setLoading] = useState(true)
@@ -146,6 +150,10 @@ export function WorkOrderDetailPage() {
           <div><dt>Work performed</dt><dd className="prose">{workOrder.workPerformed}</dd></div>
           {workOrder.notes && <div><dt>Notes</dt><dd className="prose">{workOrder.notes}</dd></div>}
         </dl>
+      )}
+
+      {canAskAssistant && ASSISTANT_STATUSES.includes(workOrder.status) && (
+        <AssistantPanel workOrderId={workOrder.id} linkPastCases />
       )}
 
       {workOrder.status === 'PendingParts' && (

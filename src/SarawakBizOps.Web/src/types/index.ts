@@ -504,3 +504,44 @@ export interface ServiceQueueDashboard {
     recentlyRejected: RejectedRequest[]
   }
 }
+
+// ---- Phase 13: the AI technician assistant (AI-01) ----
+
+export type AssistantLikelihood = 'High' | 'Medium' | 'Low'
+
+export interface AssistantCause {
+  cause: string
+  likelihood: AssistantLikelihood
+  reasoning: string
+}
+
+// An earlier job on the same equipment: the facts come from the database, only whyRelevant from the model.
+export interface AssistantPastCase {
+  workOrderId: number
+  completedAt: string
+  problemDescription: string
+  diagnosis: string
+  whyRelevant: string
+}
+
+export interface AssistantPart {
+  partId: number
+  partNumber: string
+  name: string
+  unit: string
+  quantityOnHand: number
+  whyRelevant: string
+}
+
+// Suggestions only — nothing in it is ever applied to the job. The disclaimer is set by the server on every answer.
+export interface TechnicianAssistance {
+  workOrderId: number
+  disclaimer: string
+  generatedBy: string
+  generatedAt: string
+  pastCasesConsidered: number
+  possibleCauses: AssistantCause[]
+  suggestedChecks: string[]
+  relevantPastCases: AssistantPastCase[]
+  relevantParts: AssistantPart[]
+}

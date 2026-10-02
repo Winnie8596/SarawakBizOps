@@ -1166,3 +1166,43 @@ a.stat-card-link:focus-visible {
 .plain-list li:last-child {
   border-bottom: none;
 }
+
+/* ---------- AI assistant (Phase 13) ---------- */
+.assistant-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* The disclaimer is part of the answer, not small print: it leads it, in the amber used for "needs attention". */
+.assistant-disclaimer {
+  color: var(--amber-600);
+  background: var(--amber-100);
+  border-left: 3px solid var(--amber-600);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0 16px 0;
+}
+
+.assistant-checks {
+  margin: 0 0 16px 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.assistant-checks li {
+  padding: 4px 0;
+}
+
+.assistant-answer .plain-list {
+  margin-bottom: 16px;
+}
+
+@media (max-width: 720px) {
+  .assistant-actions .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+}

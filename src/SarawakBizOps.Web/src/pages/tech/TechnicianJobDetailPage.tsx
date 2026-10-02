@@ -25,6 +25,9 @@ import { SignatureImage } from '../../components/SignatureImage'
 import { JobPartsSection } from './JobPartsSection'
 import { JobPhotosSection } from './JobPhotosSection'
 import { JobReportButton } from './JobReportButton'
+import { AssistantPanel } from '../../components/AssistantPanel'
+
+const NOTES_MAX_LENGTH = 2000
 
 // One screen, few taps (NFR-04): Start; add parts; take photos; type the diagnosis and work performed; the
 // customer signs; Complete. The sticky bottom action bar keeps the primary next step reachable with one thumb on a 360 px screen.
@@ -129,6 +132,12 @@ export function TechnicianJobDetailPage() {
     )
     if (saved) setResigning(false)
     return saved
+  }
+
+  // Phase 13: the assistant's suggestions go into the notes field, editable and unsaved until the job is — never
+  // into the diagnosis, which stays the technician's own finding.
+  function handleCopyToNotes(text: string) {
+    setNotes(previous => (previous.trim() ? `${previous.trimEnd()}\n\n${text}` : text).slice(0, NOTES_MAX_LENGTH))
   }
 
   function handleRemovePhoto(photo: WorkOrderPhoto) {
@@ -265,6 +274,8 @@ export function TechnicianJobDetailPage() {
         />
       )}
 
+      {job.status === 'InProgress' && <AssistantPanel workOrderId={job.id} onCopyToNotes={handleCopyToNotes} />}
+
       {job.status === 'InProgress' && (
         <form onSubmit={handleComplete}>
           <div className="panel">
@@ -298,7 +309,7 @@ export function TechnicianJobDetailPage() {
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 rows={2}
-                maxLength={2000}
+                maxLength={NOTES_MAX_LENGTH}
               />
             </div>
           </div>
