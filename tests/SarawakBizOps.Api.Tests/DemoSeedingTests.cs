@@ -59,11 +59,29 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var customers = await response.Content.ReadFromJsonAsync<List<SarawakBizOps.Api.DTOs.Customers.CustomerDto>>();
         Assert.NotNull(customers);
-        Assert.Equal(5, customers!.Count);
+        Assert.Equal(10, customers!.Count); // Phase 15: the PRD's ~10 customers
         foreach (var city in new[] { "Kuching", "Sibu", "Miri" })
         {
             Assert.Contains(customers, c => c.Address!.Contains(city));
         }
+    }
+
+    /// <summary>
+    /// Phase 15 seed review (PRD §9): a reviewer can see every state without making one first. A work order is
+    /// never New in practice (assigning creates it Assigned), so that is the one state the seed does not show.
+    /// </summary>
+    [Fact]
+    public async Task Demo_data_has_a_record_in_every_reachable_state()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        Assert.Equal(Enum.GetValues<ServiceRequestStatus>().Order(),
+            (await db.ServiceRequests.Select(r => r.Status).Distinct().ToListAsync()).Order());
+        Assert.Equal(Enum.GetValues<WorkOrderStatus>().Where(s => s != WorkOrderStatus.New).Order(),
+            (await db.WorkOrders.Select(w => w.Status).Distinct().ToListAsync()).Order());
+        Assert.Equal(Enum.GetValues<EquipmentStatus>().Order(),
+            (await db.Equipment.Select(e => e.Status).Distinct().ToListAsync()).Order());
     }
 
     [Fact]
@@ -87,8 +105,8 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(photosBefore, await db.WorkOrderPhotos.CountAsync()); // no job gets its photos twice
         Assert.Equal(11, reportsBefore.Count); // every Approved job
         Assert.Equal(reportsBefore, await db.ServiceReports.AsNoTracking().Select(r => new { r.ReportNumber, r.Revision }).ToListAsync());
-        Assert.Equal(5, after.Customers);
-        Assert.Equal(11, after.Equipment);
+        Assert.Equal(10, after.Customers);
+        Assert.Equal(30, after.Equipment);
         Assert.Equal(22, after.Requests); // 12 live + 10 behind the Phase 11 (and 13) history
         Assert.Equal(16, after.WorkOrders); // 6 live + 10 approved in earlier months
         Assert.Equal(12, after.Parts);

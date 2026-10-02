@@ -49,7 +49,19 @@ public static class DemoSeeder
         new("Sibu Palm Oil Processing Sdn Bhd", "Rosli Ibrahim", "+60 84 555 0104", "mill@sibupalmoil.example",
             "Lot 1021, Jalan Salim, 96000 Sibu, Sarawak"),
         new("Miri Offshore Supplies Sdn Bhd", "Grace Anak Jimbun", "+60 85 555 0105", "yard@mirioffshore.example",
-            "Lot 305, Jalan Miri-Bintulu, 98000 Miri, Sarawak")
+            "Lot 305, Jalan Miri-Bintulu, 98000 Miri, Sarawak"),
+        // Phase 15: the PRD's ~10 customers. These five have equipment but no jobs yet, so the dashboard's
+        // hand-computed figures are unchanged.
+        new("Batu Kawa Poultry Farm Sdn Bhd", "Chong Mei Ling", "+60 82 555 0106", "farm@batukawapoultry.example",
+            "Lot 47, Jalan Batu Kawa-Matang, 93250 Kuching, Sarawak"),
+        new("Pending Industrial Laundry Sdn Bhd", "Mohd Faizal Sulaiman", "+60 82 555 0107", "service@pendinglaundry.example",
+            "Lot 912, Jalan Pending, 93450 Kuching, Sarawak"),
+        new("Lanang Ice Factory Sdn Bhd", "Wong Siew Ping", "+60 84 555 0108", "plant@lanangice.example",
+            "Lot 63, Jalan Lanang, 96000 Sibu, Sarawak"),
+        new("Lutong Aquaculture Sdn Bhd", "Jeffrey Anak Ngumbang", "+60 85 555 0109", "ponds@lutongaqua.example",
+            "Lot 1180, Jalan Kuala Baram, 98100 Miri, Sarawak"),
+        new("Pujut Packaging Sdn Bhd", "Kong Li Hua", "+60 85 555 0110", "factory@pujutpackaging.example",
+            "Lot 2215, Jalan Pujut 7, 98000 Miri, Sarawak")
     };
 
     private static readonly DemoEquipment[] Equipment =
@@ -75,7 +87,48 @@ public static class DemoSeeder
         new("Miri Offshore Supplies Sdn Bhd", "MOS-FLT-001", "Forklift", "Tanjung", "TL-35D",
             new DateTime(2022, 7, 11), EquipmentStatus.Active, "Warehouse yard"),
         new("Santubong Bottling Works Sdn Bhd", "SBW-FIL-003", "Bottle Filling Line", "Tanjung", "TF-12",
-            new DateTime(2023, 5, 9), EquipmentStatus.UnderMaintenance, "Line B")
+            new DateTime(2023, 5, 9), EquipmentStatus.UnderMaintenance, "Line B"),
+
+        // Phase 15: the PRD's ~30 items, with no jobs (the figures above stay as they are). The retired boiler is
+        // the one equipment status the earlier rows did not show.
+        new("Kuching Cold Chain Sdn Bhd", "KCC-FLT-003", "Forklift", "Tanjung", "TL-25E",
+            new DateTime(2023, 2, 6), EquipmentStatus.Active, "Loading dock"),
+        new("Kuching Cold Chain Sdn Bhd", "KCC-GEN-004", "Standby Generator", "Kestrel", "KG-150",
+            new DateTime(2020, 4, 15), EquipmentStatus.Active, "Generator house"),
+        new("Santubong Bottling Works Sdn Bhd", "SBW-CMP-004", "Air Compressor", "Hartmann", "HC-55",
+            new DateTime(2022, 1, 19), EquipmentStatus.Active, "Utility room"),
+        new("Rajang Timber Mills Sdn Bhd", "RTM-BLR-004", "Steam Boiler", "Kestrel", "KB-5T",
+            new DateTime(2009, 7, 1), EquipmentStatus.Retired, "Old boiler house (decommissioned)"),
+        new("Rajang Timber Mills Sdn Bhd", "RTM-GEN-005", "Standby Generator", "Kestrel", "KG-400",
+            new DateTime(2021, 10, 4), EquipmentStatus.Active, "Generator house"),
+        new("Sibu Palm Oil Processing Sdn Bhd", "SPO-PRS-003", "Screw Press", "Norvik", "NSP-15",
+            new DateTime(2019, 3, 27), EquipmentStatus.Active, "Pressing station"),
+        new("Sibu Palm Oil Processing Sdn Bhd", "SPO-GEN-004", "Standby Generator", "Kestrel", "KG-500",
+            new DateTime(2018, 8, 13), EquipmentStatus.Active, "Generator house"),
+        new("Miri Offshore Supplies Sdn Bhd", "MOS-CRN-002", "Overhead Crane", "Hartmann", "HOC-10",
+            new DateTime(2019, 5, 21), EquipmentStatus.Active, "Fabrication shed"),
+        new("Miri Offshore Supplies Sdn Bhd", "MOS-CMP-003", "Air Compressor", "Hartmann", "HC-75",
+            new DateTime(2020, 12, 2), EquipmentStatus.Active, "Fabrication shed"),
+        new("Miri Offshore Supplies Sdn Bhd", "MOS-WLD-004", "Welding Generator", "Kestrel", "KW-400",
+            new DateTime(2021, 6, 30), EquipmentStatus.Active, "Fabrication shed"),
+        new("Batu Kawa Poultry Farm Sdn Bhd", "BKP-CHL-001", "Industrial Chiller", "Norvik", "NC-300",
+            new DateTime(2021, 9, 8), EquipmentStatus.Active, "Processing hall"),
+        new("Batu Kawa Poultry Farm Sdn Bhd", "BKP-GEN-002", "Standby Generator", "Kestrel", "KG-150",
+            new DateTime(2019, 2, 11), EquipmentStatus.Active, "Generator house"),
+        new("Pending Industrial Laundry Sdn Bhd", "PIL-BLR-001", "Steam Boiler", "Kestrel", "KB-2T",
+            new DateTime(2018, 11, 5), EquipmentStatus.Active, "Boiler room"),
+        new("Pending Industrial Laundry Sdn Bhd", "PIL-WSH-002", "Industrial Washer", "Tanjung", "TW-120",
+            new DateTime(2022, 4, 25), EquipmentStatus.Active, "Wash floor"),
+        new("Lanang Ice Factory Sdn Bhd", "LIF-CMP-001", "Refrigeration Compressor", "Norvik", "NR-90",
+            new DateTime(2017, 1, 16), EquipmentStatus.Active, "Ice plant"),
+        new("Lanang Ice Factory Sdn Bhd", "LIF-PMP-002", "Centrifugal Pump", "Hartmann", "HP-80",
+            new DateTime(2020, 7, 7), EquipmentStatus.Active, "Brine tank"),
+        new("Lutong Aquaculture Sdn Bhd", "LAQ-PMP-001", "Centrifugal Pump", "Hartmann", "HP-100",
+            new DateTime(2021, 3, 3), EquipmentStatus.Active, "Pond pump house"),
+        new("Lutong Aquaculture Sdn Bhd", "LAQ-AER-002", "Pond Aerator", "Tanjung", "TA-5",
+            new DateTime(2023, 8, 18), EquipmentStatus.Inactive, "Pond 4 (fallow)"),
+        new("Pujut Packaging Sdn Bhd", "PPK-CNV-001", "Box Conveyor", "Tanjung", "TC-20",
+            new DateTime(2022, 10, 12), EquipmentStatus.Active, "Packing line")
     };
 
     public static async Task SeedAsync(IServiceProvider services, CancellationToken ct = default)
