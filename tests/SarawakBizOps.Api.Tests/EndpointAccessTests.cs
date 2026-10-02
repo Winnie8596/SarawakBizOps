@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using SarawakBizOps.Api.DTOs.Ai;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
@@ -356,7 +357,20 @@ public class EndpointAccessTests
         new("GET /api/dashboard/summary", HttpMethod.Get,
             _ => "/api/dashboard/summary", _ => null,
             new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff, AppRoles.WarehouseStaff }, HttpStatusCode.OK,
-            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId))
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        // ---- Phase 13: the AI technician assistant — the job's own Technician (another technician's job reads as 404,
+        // covered in TechnicianAssistantTests) or a Manager ----
+        new("POST /api/ai/technician-assistant", HttpMethod.Post,
+            _ => "/api/ai/technician-assistant",
+            f => new TechnicianAssistantRequest { WorkOrderId = f.WorkOrderId },
+            new[] { AppRoles.Technician, AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx =>
+            {
+                var wo = await CreateInProgressWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId);
+            },
+            OwnedByTechnician: true)
     };
 
     // An InProgress job of the prepared technician with one photo on it.

@@ -9,6 +9,7 @@ using Microsoft.OpenApi.Models;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.Middleware;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.Services.Ai;
 using SarawakBizOps.Api.Services.Analytics;
 using SarawakBizOps.Api.Services.Auth;
 using SarawakBizOps.Api.Services.Customers;
@@ -134,6 +135,13 @@ builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 // ---------------------------------------------------------------------
+// AI (Phase 13, PRD §6.10): provider-agnostic behind ILlmClient. "Ai:Provider" defaults to the deterministic
+// mock, so development, tests and Docker need no key; a real OpenAI-compatible provider is configuration only,
+// with its key from user-secrets or Ai__ApiKey (NFR-09). Read-only data access and a per-user rate limit.
+// ---------------------------------------------------------------------
+builder.Services.AddAi(builder.Configuration);
+
+// ---------------------------------------------------------------------
 // CORS — allow the future React web app and Expo dev server to call this API.
 // Adjust/add origins as those projects come online.
 // ---------------------------------------------------------------------
@@ -226,6 +234,8 @@ if (builder.Configuration.GetValue("Hosting:UseHttpsRedirection", true))
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
+// After authorization, so only signed-in, permitted callers count against their own AI rate limit.
+app.UseRateLimiter();
 app.MapControllers();
 
 // Unauthenticated and data-free: /health = process is up, /health/ready = the database answers.

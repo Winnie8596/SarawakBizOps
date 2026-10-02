@@ -7,7 +7,10 @@ public enum ServiceErrorKind
     /// <summary>The request is invalid, e.g. weak password, unknown role (HTTP 400).</summary>
     Validation,
     /// <summary>A business rule forbids the change in the current state (HTTP 409).</summary>
-    Conflict
+    Conflict,
+    /// <summary>A dependency outside the system (the AI provider, Phase 13) failed, timed out or answered with
+    /// something unusable (HTTP 503). The caller can carry on without it.</summary>
+    Unavailable
 }
 
 /// <summary>

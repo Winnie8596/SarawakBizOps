@@ -112,6 +112,9 @@ public static class DemoSeeder
     // Phase 12: each job has its own wait for assignment (request raised → assigned, reviewed halfway through)
     // and time on the job (started → completed; the job was started a day after assignment), so the turnaround
     // averages have something to average. The earliest request is raised about 138 days ago — still inside the window.
+    // Phase 13: the air compressor tripped on overload once before, and the band saw's guides were noisy, so the AI
+    // assistant on the live compressor and band-saw jobs has a genuinely related past case to point at (and, on the
+    // compressor, an unrelated one to leave out).
     private record DemoHistory(
         string EquipmentSerial, string Problem, RequestPriority Priority, int CompletedDaysAgo,
         double DaysToAssign, double DaysOnJob, string Diagnosis, string WorkPerformed)
@@ -143,6 +146,11 @@ public static class DemoSeeder
             RequestPriority.High, 66, 1, 0.5,
             "Bearing grease had broken down from over-temperature; coupling slightly misaligned.",
             "Flushed and re-greased the bearings, laser-aligned the coupling and monitored housing temperature for an hour."),
+        new("RTM-BSW-001",
+            "Band saw blade wanders in the cut and the guide bearings are noisy.",
+            RequestPriority.Medium, 72, 2.5, 1,
+            "Blade guide bearings worn and blade tension below specification after the last blade change.",
+            "Replaced the upper and lower guide bearings, re-tensioned the blade and checked tracking over a full shift."),
         new("MOS-FLT-001",
             "Forklift will not start on cold mornings; the starter clicks but does not turn.",
             RequestPriority.Medium, 85, 1.5, 2,
@@ -158,6 +166,11 @@ public static class DemoSeeder
             RequestPriority.Low, 118, 4, 0.75,
             "Oil separator element saturated and the scavenge line orifice partly blocked.",
             "Replaced the separator element, cleared the scavenge orifice and drained oil from the downstream air lines."),
+        new("KCC-CMP-002",
+            "Air compressor trips on overload during the hot afternoon shift.",
+            RequestPriority.High, 128, 1, 0.5,
+            "Motor drawing excess current through a clogged intake filter; overload relay contacts starting to pit.",
+            "Replaced the intake filter, dressed the relay contacts and confirmed running current below the nameplate through the afternoon."),
         new("SPO-PMP-002",
             "Centrifugal pump flow has dropped and the discharge pressure gauge reads low.",
             RequestPriority.High, 135, 0.75, 1.5,

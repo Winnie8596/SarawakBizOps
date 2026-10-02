@@ -12,6 +12,7 @@ public static class ServiceResultExtensions
         {
             ServiceErrorKind.NotFound => (StatusCodes.Status404NotFound, "Not found"),
             ServiceErrorKind.Conflict => (StatusCodes.Status409Conflict, "Conflict"),
+            ServiceErrorKind.Unavailable => (StatusCodes.Status503ServiceUnavailable, "Service unavailable"),
             _ => (StatusCodes.Status400BadRequest, "Bad request")
         };
 

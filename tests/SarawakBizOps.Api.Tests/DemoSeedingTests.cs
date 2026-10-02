@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs.Ai;
 using SarawakBizOps.Api.DTOs.Auth;
 using SarawakBizOps.Api.DTOs.Dashboard;
 using SarawakBizOps.Api.DTOs.Equipment;
@@ -81,15 +82,15 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var after = await CountsAsync(db);
         Assert.Equal(before, after);
         Assert.Equal(signaturesBefore, await SignatureKeysAsync(db)); // no job is signed a second time
-        Assert.Equal(10, signaturesBefore.Count); // the live Completed and Approved jobs, plus eight from the history
+        Assert.Equal(12, signaturesBefore.Count); // the live Completed and Approved jobs, plus ten from the history
         Assert.Equal(5, photosBefore);
         Assert.Equal(photosBefore, await db.WorkOrderPhotos.CountAsync()); // no job gets its photos twice
-        Assert.Equal(9, reportsBefore.Count); // every Approved job
+        Assert.Equal(11, reportsBefore.Count); // every Approved job
         Assert.Equal(reportsBefore, await db.ServiceReports.AsNoTracking().Select(r => new { r.ReportNumber, r.Revision }).ToListAsync());
         Assert.Equal(5, after.Customers);
         Assert.Equal(11, after.Equipment);
-        Assert.Equal(20, after.Requests); // 12 live + 8 behind the Phase 11 history
-        Assert.Equal(14, after.WorkOrders); // 6 live + 8 approved in earlier months
+        Assert.Equal(22, after.Requests); // 12 live + 10 behind the Phase 11 (and 13) history
+        Assert.Equal(16, after.WorkOrders); // 6 live + 10 approved in earlier months
         Assert.Equal(12, after.Parts);
         Assert.Equal(19, after.Transactions); // 15 warehouse movements + 4 parts issued to jobs
     }
@@ -157,14 +158,14 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var requests = await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests");
 
-        Assert.Equal(20, requests!.Count);
+        Assert.Equal(22, requests!.Count);
         Assert.Equal(3, requests.Count(r => r.Status == "New"));
         // One request is left Approved-but-unassigned so a reviewer always has one to assign by hand;
         // a second is Approved because its work order was cancelled (BR-12's revert-to-Approved); the
-        // other Approved requests (five live, eight from the Phase 11 history) were carried into a WorkOrder and
+        // other Approved requests (five live, ten from the Phase 11 and 13 history) were carried into a WorkOrder and
         // are now Assigned.
         Assert.Equal(2, requests.Count(r => r.Status == "Approved"));
-        Assert.Equal(13, requests.Count(r => r.Status == "Assigned"));
+        Assert.Equal(15, requests.Count(r => r.Status == "Assigned"));
         var rejected = Assert.Single(requests, r => r.Status == "Rejected");
         Assert.False(string.IsNullOrWhiteSpace(rejected.RejectionReason));
         Assert.NotNull(rejected.RejectedByName);
@@ -191,11 +192,11 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var workOrders = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
 
-        Assert.Equal(14, workOrders!.Count);
+        Assert.Equal(16, workOrders!.Count);
         Assert.All(workOrders, w => Assert.Equal("Ahmad Bujang", w.TechnicianName));
-        // Phase 11: eight jobs from earlier months, all approved, complete and signed, with no parts or photos.
+        // Phase 11 (two more in Phase 13): ten jobs from earlier months, all approved, complete and signed, with no parts or photos.
         var history = workOrders.Where(w => w.CompletedAt < DateTime.UtcNow.AddDays(-20)).ToList();
-        Assert.Equal(8, history.Count);
+        Assert.Equal(10, history.Count);
         Assert.All(history, w => Assert.Equal("Approved", w.Status));
         Assert.All(history, w => Assert.True(w.HasSignature && w.Diagnosis is not null && w.WorkPerformed is not null));
         Assert.All(history, w => Assert.True(w.AssignedAt < w.StartedAt && w.StartedAt < w.CompletedAt && w.CompletedAt < w.ApprovedAt));
@@ -271,7 +272,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         // The demo Technician sees exactly their own jobs (BR-02) and can act on the assigned one.
         var mine = await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine");
-        Assert.Equal(14, mine!.Count);
+        Assert.Equal(16, mine!.Count);
     }
 
     [Fact]
@@ -319,7 +320,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         // Phase 11 exit criterion. Counted by hand from the arrays in DemoSeeder:
         //   open requests — New: chiller (High), filling line A bottles (Medium), boiler (Urgent);
         //                   Approved: pump seal (High), filling line A belt (Medium, its job was cancelled);
-        //   work orders   — the six live ones (one per status except New) plus eight approved in earlier months;
+        //   work orders   — the six live ones (one per status except New) plus ten approved in earlier months;
         //   low stock     — AVR-SX460, BLD-BSW-900, SEAL-MECH-35 and BLT-CNV-600 (the only one at zero).
         var manager = await _factory.CreateAuthenticatedClientAsync(
             "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
@@ -329,7 +330,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(new[] { ("Urgent", 1), ("High", 2), ("Medium", 2), ("Low", 0) },
             summary!.OpenRequestsByPriority.Select(c => (c.Key, c.Count)));
         Assert.Equal(
-            new[] { ("New", 0), ("Assigned", 1), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 9), ("Cancelled", 1) },
+            new[] { ("New", 0), ("Assigned", 1), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 11), ("Cancelled", 1) },
             summary.WorkOrdersByStatus.Select(c => (c.Key, c.Count)));
         Assert.Equal((4, 1), (summary.LowStock.Count, summary.LowStock.OutOfStock));
         Assert.Equal("BLT-CNV-600", summary.LowStock.Items[0].PartNumber);
@@ -339,17 +340,17 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
             (summary.Kpis.OpenRequests, summary.Kpis.ActiveWorkOrders, summary.Kpis.AwaitingApproval, summary.Kpis.LowStockParts));
 
         // The trend depends on today's date (the seed is relative to it), so its expected value is computed here
-        // independently: every seeded completion is within 140 days, so all ten fall in the six-month window, each
+        // independently: every seeded completion is within 140 days, so all twelve fall in the six-month window, each
         // in the Malaysia-time month of its CompletedAt.
         var jobs = await manager.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders");
         var expected = jobs!.Where(w => w.CompletedAt is not null)
             .GroupBy(w => w.CompletedAt!.Value.AddHours(8).ToString("yyyy-MM"))
             .ToDictionary(g => g.Key, g => g.Count());
-        Assert.Equal(10, expected.Values.Sum());
+        Assert.Equal(12, expected.Values.Sum());
         Assert.Equal(6, summary.JobsCompletedPerMonth.Count);
         Assert.Equal(DateTime.UtcNow.AddHours(8).ToString("yyyy-MM"), summary.JobsCompletedPerMonth[^1].Month);
         Assert.All(summary.JobsCompletedPerMonth, m => Assert.Equal(expected.GetValueOrDefault(m.Month), m.Count));
-        Assert.Equal(10, summary.JobsCompletedPerMonth.Sum(m => m.Count));
+        Assert.Equal(12, summary.JobsCompletedPerMonth.Sum(m => m.Count));
         Assert.Equal(summary.JobsCompletedPerMonth[^1].Count, summary.Kpis.CompletedThisMonth);
         Assert.True(summary.JobsCompletedPerMonth.Count(m => m.Count > 0) >= 4, "the seed spans several months");
     }
@@ -363,21 +364,22 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
             "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
         var summary = (await manager.GetFromJsonAsync<DashboardSummaryDto>("/api/dashboard/summary"))!;
 
-        // Time to assignment, all 14 jobs: the eight earlier ones waited DaysToAssign = 0.5 + 0.1 + 2 + 1 + 1.5 + 3 +
-        // 4 + 0.75 = 12.85 days; the live ones 2 (band saw) + 2 (compressor) + 2 (generator) + 2 (forklift) + 1
-        // (filling line B) + 6 (the cancelled filling line A job) = 15 days. 27.85 days × 24 / 14 = 47.74 h.
-        Assert.Equal(14, summary.AverageTimeToAssignment.Count);
-        Assert.Equal(47.74, summary.AverageTimeToAssignment.AverageHours!.Value, 0.011);
+        // Time to assignment, all 16 jobs: the ten earlier ones waited DaysToAssign = 0.5 + 0.1 + 2 + 1 + 2.5 + 1.5 +
+        // 3 + 4 + 1 + 0.75 = 16.35 days; the live ones 2 (band saw) + 2 (compressor) + 2 (generator) + 2 (forklift) + 1
+        // (filling line B) + 6 (the cancelled filling line A job) = 15 days. 31.35 days × 24 / 16 = 47.025 h.
+        Assert.Equal(16, summary.AverageTimeToAssignment.Count);
+        Assert.Equal(47.025, summary.AverageTimeToAssignment.AverageHours!.Value, 0.011);
 
-        // Completion duration, the 10 completed jobs: DaysOnJob = 0.25 + 0.5 + 1 + 0.5 + 2 + 1 + 0.75 + 1.5 = 7.5
-        // days, plus a day each for the generator and the forklift. 9.5 days × 24 / 10 = 22.8 h.
-        Assert.Equal((22.8, 10), (summary.AverageCompletionDuration.AverageHours!.Value, summary.AverageCompletionDuration.Count));
+        // Completion duration, the 12 completed jobs: DaysOnJob = 0.25 + 0.5 + 1 + 0.5 + 1 + 2 + 1 + 0.75 + 0.5 + 1.5
+        // = 9 days, plus a day each for the generator and the forklift. 11 days × 24 / 12 = 22 h.
+        Assert.Equal((22.0, 12), (summary.AverageCompletionDuration.AverageHours!.Value, summary.AverageCompletionDuration.Count));
 
         // Three or more fault reports: filling line A (capping head, bottle rejects, fraying belt — the last raised
-        // 2 days ago) and the pump (hot bearings, low flow, the leaking seal — 14 days ago). The kiln's second
-        // request was cancelled, so it is not a fault; every other piece of equipment has at most two.
-        Assert.Equal((3, 2), (summary.RepeatedFailures.MinimumRequests, summary.RepeatedFailures.EquipmentCount));
-        Assert.Equal(new[] { ("SBW-FIL-001", 3), ("SPO-PMP-002", 3) },
+        // 2 days ago), the compressor (overload trip, oil carry-over, short-cycling — 8 days ago) and the pump (hot
+        // bearings, low flow, the leaking seal — 14 days ago). The kiln's second request was cancelled, so it is not a
+        // fault; every other piece of equipment has at most two.
+        Assert.Equal((3, 3), (summary.RepeatedFailures.MinimumRequests, summary.RepeatedFailures.EquipmentCount));
+        Assert.Equal(new[] { ("SBW-FIL-001", 3), ("KCC-CMP-002", 3), ("SPO-PMP-002", 3) },
             summary.RepeatedFailures.Items.Select(i => (i.SerialNumber, i.RequestCount)));
         Assert.Equal("Santubong Bottling Works Sdn Bhd", summary.RepeatedFailures.Items[0].CustomerName);
 
@@ -420,6 +422,28 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
             summary.AverageTimeToAssignment.AverageHours!.Value, 0.01);
         Assert.Equal(jobs.Where(w => w.CompletedAt is not null).Average(w => (w.CompletedAt! - w.StartedAt!).Value.TotalHours),
             summary.AverageCompletionDuration.AverageHours!.Value, 0.01);
+    }
+
+    [Fact]
+    public async Task The_assistant_on_the_demo_compressor_job_points_at_its_earlier_overload_trip()
+    {
+        // Phase 13 demo: the in-progress compressor job (short-cycling, overload relay) has two earlier jobs on the
+        // same machine — an overload trip and an oil carry-over. The mock picks the related one and leaves the other.
+        var technician = await _factory.CreateAuthenticatedClientAsync(
+            "technician@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        var job = (await technician.GetFromJsonAsync<List<WorkOrderDto>>("/api/work-orders/mine"))!
+            .Single(w => w.Status == "InProgress");
+
+        var response = await technician.PostAsJsonAsync("/api/ai/technician-assistant",
+            new TechnicianAssistantRequest { WorkOrderId = job.Id });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var answer = (await response.Content.ReadFromJsonAsync<TechnicianAssistanceDto>())!;
+        Assert.Equal(2, answer.PastCasesConsidered);
+        Assert.Equal("Air compressor trips on overload during the hot afternoon shift.",
+            Assert.Single(answer.RelevantPastCases).ProblemDescription);
+        Assert.StartsWith("Motor protection tripping", answer.PossibleCauses[0].Cause);
+        Assert.Contains(answer.RelevantParts, p => p.PartNumber == "REL-OVL-25A");
     }
 
     [Fact]

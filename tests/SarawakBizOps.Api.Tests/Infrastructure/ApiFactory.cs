@@ -67,6 +67,10 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Jwt:Key", "test-only-signing-key-that-is-long-enough-for-hmac-sha256");
         builder.UseSetting("Seed:AdminEmail", AdminEmail);
         builder.UseSetting("Seed:AdminPassword", AdminPassword);
+        // Phase 13: the deterministic mock, never a real provider. Tests share users across many AI calls, so the
+        // per-user rate limit is lifted here; TechnicianAssistantTests proves it on a host with the limit set low.
+        builder.UseSetting("Ai:Provider", "Mock");
+        builder.UseSetting("Ai:PermitsPerMinute", "1000");
     }
 
     async Task IAsyncLifetime.DisposeAsync()
