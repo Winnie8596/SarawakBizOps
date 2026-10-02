@@ -1,6 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.DTOs.Ai;
+using SarawakBizOps.Api.DTOs.Auth;
+using SarawakBizOps.Api.DTOs.Customers;
+using SarawakBizOps.Api.DTOs.Equipment;
+using SarawakBizOps.Api.DTOs.Users;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
@@ -60,6 +69,95 @@ public class EndpointAccessTests
 
     private static readonly Endpoint[] Endpoints =
     {
+        // ---- Phase 0–1: the signed-in user, master data and user management (Phase 15 brought them into this
+        // table; until then EquipmentAndHistoryTests and UserManagementTests covered them one by one). Customers and
+        // equipment are office records: a Technician sees them only through their own job (BR-02). ----
+        new("GET /api/auth/me", HttpMethod.Get,
+            _ => "/api/auth/me", _ => null, AppRoles.All.ToArray(), HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        // Every role row signs in as a fresh user, so the current password is the test default.
+        new("POST /api/auth/change-password", HttpMethod.Post,
+            _ => "/api/auth/change-password",
+            _ => new ChangePasswordRequest { CurrentPassword = TestUsers.DefaultPassword, NewPassword = "Changed-Passw0rd" },
+            AppRoles.All.ToArray(), HttpStatusCode.NoContent,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/customers", HttpMethod.Get,
+            _ => "/api/customers", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/customers/{id}", HttpMethod.Get,
+            f => $"/api/customers/{f.CustomerId}", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("POST /api/customers", HttpMethod.Post,
+            _ => "/api/customers", _ => new CustomerRequest { CompanyName = $"Access check {Guid.NewGuid():N}" },
+            new[] { AppRoles.Admin, AppRoles.ServiceStaff }, HttpStatusCode.Created,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("PUT /api/customers/{id}", HttpMethod.Put,
+            f => $"/api/customers/{f.CustomerId}", _ => new CustomerRequest { CompanyName = $"Access check {Guid.NewGuid():N}" },
+            new[] { AppRoles.Admin, AppRoles.ServiceStaff }, HttpStatusCode.NoContent,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("GET /api/customers/{id}/history", HttpMethod.Get,
+            f => $"/api/customers/{f.CustomerId}/history", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("GET /api/equipment", HttpMethod.Get,
+            _ => "/api/equipment", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/equipment/{id}", HttpMethod.Get,
+            f => $"/api/equipment/{f.EquipmentId}", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("POST /api/equipment", HttpMethod.Post,
+            _ => "/api/equipment",
+            f => new EquipmentRequest { CustomerId = f.CustomerId, SerialNumber = $"SN-{Guid.NewGuid():N}", EquipmentType = "Generator" },
+            new[] { AppRoles.Admin, AppRoles.ServiceStaff }, HttpStatusCode.Created,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("PUT /api/equipment/{id}", HttpMethod.Put,
+            f => $"/api/equipment/{f.EquipmentId}",
+            _ => new EquipmentUpdateRequest { SerialNumber = $"SN-{Guid.NewGuid():N}", EquipmentType = "Generator", Status = "Active" },
+            new[] { AppRoles.Admin, AppRoles.ServiceStaff }, HttpStatusCode.OK,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        new("GET /api/equipment/{id}/history", HttpMethod.Get,
+            f => $"/api/equipment/{f.EquipmentId}/history", _ => null, Office, HttpStatusCode.OK,
+            Prepare: async ctx => await NewEquipmentFixtureAsync(ctx)),
+
+        // Admin only; the prepared technician is the user acted on.
+        new("GET /api/users", HttpMethod.Get,
+            _ => "/api/users", _ => null, new[] { AppRoles.Admin }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/users/{id}", HttpMethod.Get,
+            f => $"/api/users/{f.TechnicianId}", _ => null, new[] { AppRoles.Admin }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("POST /api/users", HttpMethod.Post,
+            _ => "/api/users",
+            _ => new CreateUserRequest
+            {
+                FullName = "Access check", Email = $"access-{Guid.NewGuid():N}@test.local",
+                Password = TestUsers.DefaultPassword, Role = AppRoles.ServiceStaff
+            },
+            new[] { AppRoles.Admin }, HttpStatusCode.Created,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("PATCH /api/users/{id}", HttpMethod.Patch,
+            f => $"/api/users/{f.TechnicianId}", _ => new UpdateUserRequest { FullName = "Access check" },
+            new[] { AppRoles.Admin }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("POST /api/users/{id}/reset-password", HttpMethod.Post,
+            f => $"/api/users/{f.TechnicianId}/reset-password", _ => new ResetPasswordRequest { NewPassword = "Reset-Passw0rd" },
+            new[] { AppRoles.Admin }, HttpStatusCode.NoContent,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
         // ---- Phase 3: service requests ----
         new("GET /api/service-requests", HttpMethod.Get,
             _ => "/api/service-requests", _ => null, Office, HttpStatusCode.OK,
@@ -393,6 +491,13 @@ public class EndpointAccessTests
         return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, withPhoto.RowVersion, PhotoId: withPhoto.Photos.Single().Id);
     }
 
+    private static async Task<Fixture> NewEquipmentFixtureAsync(PrepContext ctx)
+    {
+        var customer = await CreateCustomerAsync(ctx.Admin);
+        var equipment = await CreateEquipmentAsync(ctx.Admin, customer.Id);
+        return new Fixture(customer.Id, equipment.Id, 0, 0, ctx.TechnicianId);
+    }
+
     private static async Task<Fixture> NewPartFixtureAsync(PrepContext ctx)
         => new(0, 0, 0, 0, ctx.TechnicianId, Part: await CreatePartAsync(ctx.Admin));
 
@@ -452,4 +557,35 @@ public class EndpointAccessTests
             : HttpStatusCode.Forbidden;
         Assert.Equal(expected, response.StatusCode);
     }
+
+    /// <summary>The routes anyone may call: signing in and the data-free health checks.</summary>
+    private static readonly string[] PublicEndpoints = { "POST /api/auth/login", "ANY /health", "ANY /health/ready" };
+
+    /// <summary>
+    /// Phase 15 (AC-11 over the whole surface): the table above is complete. Every route the app maps is either a
+    /// row (and so tried as anonymous and every role) or one of the named public routes, and no row is stale. A new
+    /// endpoint without a row fails here, even if it has the right [Authorize].
+    /// </summary>
+    [Fact]
+    public void Every_route_the_app_maps_is_in_the_access_table_or_named_as_public()
+    {
+        var routes = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .SelectMany(e => (e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? new[] { "ANY" })
+                .Select(method => (Name: $"{method} {RouteName(e.RoutePattern.RawText!)}", Endpoint: e)))
+            .ToList();
+
+        Assert.Equal(
+            Endpoints.Select(e => e.Name).Concat(PublicEndpoints).Order(),
+            routes.Select(r => r.Name).Order());
+
+        // Only the public routes may opt out of authentication (the fallback policy covers the rest).
+        Assert.Equal(
+            PublicEndpoints.Order(),
+            routes.Where(r => r.Endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null).Select(r => r.Name).Order());
+    }
+
+    // "api/work-orders/{id:int}/parts/{lineId:int}" -> "/api/work-orders/{id}/parts/{lineId}"
+    private static string RouteName(string pattern)
+        => "/" + Regex.Replace(pattern.TrimStart('/'), @"\{(\w+):[^}]+\}", "{$1}");
 }

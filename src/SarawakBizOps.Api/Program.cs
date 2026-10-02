@@ -1,6 +1,7 @@
 using System.Text;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -91,7 +92,10 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization();
+// Deny by default: an endpoint that forgets [Authorize] still needs a signed-in user. Public routes opt out
+// explicitly ([AllowAnonymous] on login, AllowAnonymous() on the health checks).
+builder.Services.AddAuthorization(options =>
+    options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
 // ---------------------------------------------------------------------
 // File storage (SDD §15, PRD D-03, Open Question 2 → Azurite): signatures, job photos and service reports
@@ -142,8 +146,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddAi(builder.Configuration);
 
 // ---------------------------------------------------------------------
-// CORS — allow the future React web app and Expo dev server to call this API.
-// Adjust/add origins as those projects come online.
+// CORS. The shipped web app needs none: nginx serves it and proxies /api/ from the same origin. Development
+// accepts any localhost port (the Vite dev server); elsewhere only origins listed in Cors:AllowedOrigins
+// (Cors__AllowedOrigins__0=...), none by default.
 // ---------------------------------------------------------------------
 builder.Services.AddCors(options =>
 {
@@ -159,10 +164,8 @@ builder.Services.AddCors(options =>
         }
         else
         {
-            policy.WithOrigins(
-                "http://localhost:5173",   // Vite React dev server
-                "http://localhost:19006"   // Expo web dev server
-            );
+            var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+            policy.WithOrigins(origins ?? Array.Empty<string>());
         }
 
         policy.AllowAnyHeader().AllowAnyMethod();
@@ -228,6 +231,10 @@ if (app.Environment.IsDevelopment())
 // The Docker setup terminates nothing but plain HTTP between nginx and the API, so compose turns this off.
 if (builder.Configuration.GetValue("Hosting:UseHttpsRedirection", true))
 {
+    if (!app.Environment.IsDevelopment())
+    {
+        app.UseHsts();
+    }
     app.UseHttpsRedirection();
 }
 
@@ -239,8 +246,8 @@ app.UseRateLimiter();
 app.MapControllers();
 
 // Unauthenticated and data-free: /health = process is up, /health/ready = the database answers.
-app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
-app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") }).AllowAnonymous();
 
 app.Run();
 

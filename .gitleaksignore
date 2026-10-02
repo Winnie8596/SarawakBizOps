@@ -1,0 +1,4 @@
+# gitleaks: findings reviewed and accepted (fingerprint = commit:file:rule:line).
+# Azurite's well-known development account key (devstoreaccount1). Microsoft publishes it; it only opens the
+# local storage emulator and is not a secret.
+ac3aad77421759a7af4eb4d190b07ebfe3a7952d:docker-compose.yml:generic-api-key:60

@@ -8,7 +8,9 @@ namespace SarawakBizOps.Api.Controllers;
 
 [ApiController]
 [Route("api/customers")]
-[Authorize]
+// The office's records (Phase 15 sweep: a Technician sees a customer and equipment only through their own job,
+// BR-02, and the warehouse has no use for them), so reads are office-only like the pages that show them.
+[Authorize(Roles = "Admin,Manager,ServiceStaff")]
 public class CustomersController : ControllerBase
 {
     private readonly ICustomerService _customerService;
