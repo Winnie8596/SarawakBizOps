@@ -196,5 +196,9 @@ function Answer({ answer }: { answer: ManagerInsight }) {
 export function formatFigure(figure: ManagerInsightFigure): string {
   if (figure.value === null) return 'no data'
   if (figure.unit === 'RM') return formatMoney(figure.value)
-  return `${formatQuantity(figure.value)} ${figure.unit}`
+  // "1 job", not "1 jobs": the count units are plural words.
+  const unit = figure.value === 1 && COUNT_UNITS.includes(figure.unit) ? figure.unit.slice(0, -1) : figure.unit
+  return `${formatQuantity(figure.value)} ${unit}`
 }
+
+const COUNT_UNITS = ['jobs', 'requests', 'parts', 'hours']

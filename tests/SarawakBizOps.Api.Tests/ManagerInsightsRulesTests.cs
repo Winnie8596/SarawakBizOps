@@ -221,6 +221,20 @@ public class ManagerInsightsRulesTests
     }
 
     [Fact]
+    public void The_mock_says_one_job_not_one_jobs()
+    {
+        var one = Facts with
+        {
+            Figures = new[] { new InsightFigure("Awaiting your approval", 1, "jobs"), new InsightFigure("Active jobs", 3, "jobs") }
+        };
+
+        var summary = MockManagerInsights.Answer(ManagerInsightsPrompt.Serialize(one));
+
+        Assert.Contains("Awaiting your approval — 1 job.", summary);
+        Assert.Contains("Active jobs: 3 jobs", summary);
+    }
+
+    [Fact]
     public void The_prompt_never_carries_user_text_and_the_schema_asks_for_a_summary_only()
     {
         var request = ManagerInsightsPrompt.BuildRequest(Facts);

@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { ManagerInsight, ManagerInsightTopic } from '../types'
+import { formatFigure } from '../pages/ManagerInsightsPage'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
 const DISCLAIMER = 'AI-written summary of the figures beside it. The figures come straight from the system’s analytics; the summary may only repeat them — check them before acting.'
@@ -159,5 +160,13 @@ describe('AI Manager Insights', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Wait a minute and try again.')
     expect(screen.getByLabelText('Your question')).toHaveValue('Which parts are low on stock?')
+  })
+})
+
+describe('formatFigure', () => {
+  it('says 1 job, not 1 jobs, and leaves other units alone', () => {
+    expect(formatFigure({ label: 'Awaiting approval', value: 1, unit: 'jobs' })).toBe('1 job')
+    expect(formatFigure({ label: 'Active jobs', value: 3, unit: 'jobs' })).toBe('3 jobs')
+    expect(formatFigure({ label: 'Belting', value: 1, unit: 'm' })).toBe('1 m')
   })
 })

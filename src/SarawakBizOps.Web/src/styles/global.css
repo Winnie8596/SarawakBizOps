@@ -19,6 +19,8 @@
   --steel-100: #eef2f6;
   --paper: #ffffff;
   --amber-600: #b9531f;
+  /* Text on --amber-100: --amber-600 is 4.4:1 there, short of WCAG AA's 4.5:1; this is 5.9:1. */
+  --amber-700: #9a4317;
   --amber-100: #fbf1e6;
   --green-600: #2f6a43;
   --green-100: #e9f3ec;
@@ -425,7 +427,7 @@ select {
 }
 
 .tone-amber {
-  color: var(--amber-600);
+  color: var(--amber-700);
   background: var(--amber-100);
 }
 
@@ -1307,7 +1309,7 @@ a.stat-card-link:focus-visible {
 
 /* The disclaimer is part of the answer, not small print: it leads it, in the amber used for "needs attention". */
 .assistant-disclaimer {
-  color: var(--amber-600);
+  color: var(--amber-700);
   background: var(--amber-100);
   border-left: 3px solid var(--amber-600);
   border-radius: var(--radius);

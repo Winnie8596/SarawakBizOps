@@ -207,6 +207,11 @@ public static class MockManagerInsights
     {
         if (figure.Value is not { } value) return "no data";
         var number = value.ToString("0.###", CultureInfo.InvariantCulture);
-        return figure.Unit == "RM" ? $"RM {number}" : $"{number} {figure.Unit}";
+        if (figure.Unit == "RM") return $"RM {number}";
+        // "1 job", not "1 jobs": the count units are plural words.
+        var unit = value == 1 && CountUnits.Contains(figure.Unit) ? figure.Unit[..^1] : figure.Unit;
+        return $"{number} {unit}";
     }
+
+    private static readonly HashSet<string> CountUnits = new() { "jobs", "requests", "parts", "hours" };
 }
