@@ -491,15 +491,55 @@ select {
     flex-direction: column;
   }
 
+  /* The sidebar becomes a header: the brand, then the links as one swipeable strip. They never squeeze or spill
+     off the screen, however many links a role has (a Manager has eight). */
   .sidebar {
     width: 100%;
-    flex-direction: row;
-    align-items: center;
-    padding: 10px 16px;
+    padding: 12px 0 0 0;
+  }
+
+  .sidebar-brand {
+    padding: 0 16px 8px 16px;
   }
 
   .sidebar-nav {
     flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-link {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 12px 14px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+
+  .sidebar-link.is-active {
+    border-bottom-color: var(--amber-600);
+  }
+
+  /* The user and the account buttons wrap below the title instead of overflowing a fixed-height bar. */
+  .topbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 10px 16px;
+  }
+
+  .topbar-user {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .topbar-user .btn {
+    min-height: 44px;
   }
 
   .field-grid {
