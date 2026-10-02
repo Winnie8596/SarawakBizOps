@@ -203,17 +203,17 @@ Delivery follows the **tracer-bullet method**: every phase is a thin, production
 | 2 | Deployable skeleton: `docker compose up` gives a seeded, working system; CI proves it | Done |
 | 3 | Request intake: staff raise a service request, Manager approves or rejects it | Done |
 | 4 | First job end to end: assign, technician starts and completes, Manager approves (**responsive technician view** starts here) | Done |
-| 5 | Workflow rules for real: cancel, locks, ownership, conflicts, status timeline | |
-| 6 | Parts and stock in: warehouse manages the catalogue, receives stock, sees low stock | |
-| 7 | Parts used on a job: atomic issue, pending parts, concurrency proof | |
-| 8 | Customer signature: drawn on the phone, stored via `IFileStorage` and the emulator, required to complete | |
-| 9 | Job photos: capture, upload, gallery | |
-| 10 | Service report PDF: generate, lock, download, Reports page | |
-| 11 | Manager dashboard (core metrics) | |
-| 12 | Analytics depth: remaining metrics, role-specific dashboards | |
-| 13 | AI Technician Assistant (mock-first) | |
-| 14 | AI Manager Insights, grounded in backend-computed analytics | |
-| 15 | Release polish: final sweeps, docs, demo video, **public flip** on the owner's go-ahead | |
+| 5 | Workflow rules for real: cancel, locks, ownership, conflicts, status timeline | Done |
+| 6 | Parts and stock in: warehouse manages the catalogue, receives stock, sees low stock | Done |
+| 7 | Parts used on a job: atomic issue, pending parts, concurrency proof | Done |
+| 8 | Customer signature: drawn on the phone, stored via `IFileStorage` and the emulator, required to complete | Done |
+| 9 | Job photos: capture, upload, gallery | Done |
+| 10 | Service report PDF: generate, lock, download, Reports page | Done |
+| 11 | Manager dashboard (core metrics) | Done |
+| 12 | Analytics depth: remaining metrics, role-specific dashboards | Done |
+| 13 | AI Technician Assistant (mock-first) | Done |
+| 14 | AI Manager Insights, grounded in backend-computed analytics | Done |
+| 15 | Release polish: final sweeps, docs, demo video, **public flip** on the owner's go-ahead | Done except the demo video and the public flip (the owner's calls) |
 | 16 (P2) | Stretch: React Native technician app, live deployment | Only after 15 |
 
 Working loop per SDD §24, applied to every phase: **one vertical slice at a time**, each mapped to a requirement, business rule and acceptance criterion; review migrations before applying; run app and tests after each slice.
@@ -251,7 +251,7 @@ The project is "done" when **all** of the following are true (SDD §25, adjusted
 1. **AI provider:** Anthropic Claude, OpenAI/Azure OpenAI, or mock only for the public demo? (Decision due before Phase 13.)
 2. **Storage emulator:** Azurite (Azure Blob SDK) or MinIO (S3 SDK)? Both fit behind `IFileStorage`.
 3. **PDF library:** needs one new dependency (D-06). Candidate: QuestPDF (check its license terms for a public MIT repo) — decide in Phase 10.
-4. **Live deployment:** try a free tier in Phase 16, or skip?
-5. **React Native:** confirm at Phase 15 whether time remains, or move to V2.
+4. **Live deployment:** try a free tier in Phase 16, or skip? → *Done as an owner-run demo on Azure Container Apps; see [`docs/decisions.md`](./docs/decisions.md).*
+5. **React Native:** confirm at Phase 15 whether time remains, or move to V2. → *Not started; stays Phase 16A stretch.*
 6. **Charts on the dashboard:** hand-rolled SVG/CSS vs. adding a chart library (D-06).
-7. **SDD updates:** issue a v1.2 of the SDD to reflect D-01…D-08, or keep this PRD as the amendment record?
+7. **SDD updates:** issue a v1.2 of the SDD to reflect D-01…D-08, or keep this PRD as the amendment record? → *This PRD stays the amendment record (Phase 15, [`docs/decisions.md`](./docs/decisions.md)).*

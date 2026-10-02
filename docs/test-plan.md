@@ -1,8 +1,8 @@
 # Test plan and acceptance-criteria map
 
 Every acceptance criterion (AC-01 … AC-11, from the System Design Document) must end up with at least one named,
-passing automated test. The map below grows a phase at a time (see [`plan.md`](../plan.md)); Phase 15 only verifies it
-and fills gaps. A blank "Test" cell means the criterion is not implemented yet.
+passing automated test. The map below grew a phase at a time (see [`plan.md`](../plan.md)); Phase 15 verified it and filled
+the one gap (AC-11 over the whole route surface). **Every criterion is Done.**
 
 ## How the tests are organised
 
@@ -33,7 +33,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | AC-08 | Technician edit after approval rejected | 5 | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` | **Done** |
 | AC-09 | Low-stock parts appear on the dashboard | 6, 11 | API: `InventoryTests.Low_stock_lists_active_parts_at_or_below_their_minimum_and_nothing_else`, `Receiving_enough_stock_takes_a_part_off_the_low_stock_list`, `DemoSeedingTests.Demo_parts_reconcile_with_their_ledger_and_four_active_parts_are_low_on_stock`; UI (Inventory page): `Inventory.test.tsx` › `shows parts with RM prices and highlights the ones low on stock`, `switches to the low-stock endpoint…`; dashboard (Phase 11): `AnalyticsTests.Low_stock_summary_counts_active_parts_at_or_below_minimum_and_agrees_with_the_low_stock_list`, `A_part_that_falls_low_appears_on_the_Manager_dashboard`, `DemoSeedingTests.Dashboard_numbers_equal_the_hand_computed_values_of_the_seed`; UI: `Dashboard.test.tsx` › `shows the server-computed tiles and charts to a Manager` | **Done** (API Phase 6, dashboard Phase 11) |
 | AC-10 | Manager AI uses backend-computed data only | 14 | `ManagerInsightsTests.Every_figure_in_an_answer_is_the_analytics_output_and_exactly_what_the_model_was_sent` (every topic: the figures returned equal the figures the model was sent, the question is not sent, the summary's numbers are the figures'; the figures equal the named operations' own results), `A_summary_with_a_number_the_model_made_up_is_dropped_and_the_figures_still_shown`, `Jobs_completed_last_month_is_that_months_count_and_a_range_lists_every_month` (known answers); `ManagerInsightsRulesTests.A_summary_with_any_number_not_in_the_figures_is_refused`; UI: `ManagerInsights.test.tsx` › `answers an example question with the figures beside the summary`; smoke: the insight's figures equal the dashboard's | **Done** |
-| AC-11 | Unauthorized role rejected regardless of the UI | every phase | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` (rows: the six `/api/service-requests` + eleven work-order/technician endpoints, including both Phase 5 `/cancel` routes, + the seven Phase 6 parts/inventory endpoints, `GET /parts` now also allowing a Technician, + the four Phase 7 parts/pending-parts/resume endpoints, + the two Phase 8 signature upload/download endpoints, + the three Phase 9 photo upload/remove/download endpoints, + the three Phase 10 report endpoints: generate, download, list, + the Phase 11 `GET /dashboard/summary`, since Phase 12 allowing ServiceStaff and WarehouseStaff too, with their own views, + the Phase 13 `POST /ai/technician-assistant`, the job's own Technician or a Manager, + the two Phase 14 Manager-only endpoints `GET /ai/manager-insights/topics` and `POST /ai/manager-insights`); `EquipmentAndHistoryTests` (equipment update, history), `UserManagementTests` (users) for the Phase 1 endpoints | **In progress**: rows are added with each phase; Phase 15 verifies the whole surface |
+| AC-11 | Unauthorized role rejected regardless of the UI | every phase, verified in 15 | `EndpointAccessTests.Each_endpoint_allows_only_its_roles` — **one row per route, all 56** (Phase 15 added the Phase 0–1 routes: `/auth/me`, `/auth/change-password`, the five customer and five equipment routes, the five user-management routes), each called as anonymous and as all five roles and expecting exactly 401, 403 or its success status; `Every_route_the_app_maps_is_in_the_access_table_or_named_as_public` compares the table with the routes the app actually maps (so a new endpoint without a row fails) and pins the public routes to login and the two health checks; ownership as 404 in `WorkOrderTests`, `WorkOrderPartsTests`, `WorkOrderSignatureTests`, `WorkOrderPhotoTests`, `ServiceReportTests`, `TechnicianAssistantTests`; UI: `RoleRouting.test.tsx`; smoke: the wrong roles refused in every walk | **Done** |
 
 ## Business rules covered so far
 
@@ -299,6 +299,36 @@ CI run calls a real provider. The plan's Phase 14 test list is covered as below.
 **Docker smoke**
 - The Manager lists the nine topics; *How many jobs are awaiting approval?* is answered by the mock with the dashboard's own awaiting-approval figure; *Which parts are low on stock?* carries the dashboard's low-stock count; *What was our revenue last month?* is refused with the topics; ServiceStaff, WarehouseStaff and a Technician get 403.
 
+## Phase 15 test inventory
+
+Release sweep (PRD §7, §9, §11). What was added or re-checked, and how.
+
+**Backend (xUnit)**
+- `EndpointAccessTests`: rows for the 16 Phase 0–1 routes (now every route, 56) and
+  `Every_route_the_app_maps_is_in_the_access_table_or_named_as_public` (above). Customers and equipment are now
+  office-only, so a Technician or WarehouseStaff reading them is a 403.
+- `DemoSeedingTests.Demo_data_has_a_record_in_every_reachable_state`: every service-request, work-order (except New,
+  which assignment never produces) and equipment status is seeded; counts updated to 10 customers and 30 equipment.
+- `ManagerInsightsRulesTests.The_mock_says_one_job_not_one_jobs`.
+- The whole suite on the upgraded packages (ASP.NET Core/EF Core 8.0.31, xUnit 2.9): all pass.
+
+**Frontend (Vitest)**
+- The whole suite on Vite 8, Vitest 5 and React Router 7; `setup.ts` pins object URLs. `ManagerInsights.test.tsx` ›
+  `formatFigure` says *1 job*.
+
+**Sweeps run by hand (recorded here, not in CI)**
+- **Accessibility:** axe-core 4.10 (WCAG 2.1 A/AA rules) in headless Chrome on 21 pages: every office page as the
+  Manager at 1280 px, Users as Admin, the warehouse and service-desk dashboards, the technician's job list and job at
+  360 px, and the login page — no violations after darkening the amber text (4.4:1 → 5.9:1). Keyboard: tabbing through
+  the dashboard shows a focus ring on every stop.
+- **Content-Security-Policy:** no violation on any of those pages; signatures and photos (blob URLs) display and a
+  report PDF opens in Chrome's viewer.
+- **Phone widths:** no horizontal overflow at 360 and 375 px on any office page (since Phase 14's fixes) or the
+  technician view.
+- **Dependencies:** `npm audit` → 0; `dotnet list package --vulnerable --include-transitive` → none.
+- **Secrets:** gitleaks 8.30 over all 57 commits → only Azurite's published development key (accepted); now a CI job.
+- **Clean machine:** a fresh clone, images built with `--no-cache`, `docker compose up`, the smoke test and the demo
+  tour (see `plan.md`, Phase 15).
 ## Running
 
 ```bash

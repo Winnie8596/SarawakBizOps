@@ -1,577 +1,273 @@
 # SarawakBizOps
 
-A **fictional, Sarawak-based field-service management platform** for a small/medium
-industrial-equipment servicing company. It takes a job from a customer's problem report to an
-approved, documented, inventory-accounted service report:
+**Field-service operations for a (fictional) Sarawak industrial-equipment servicing company** — from a customer's
+problem report to an approved, signed, photographed, parts-accounted service report, with dashboards and two
+grounded AI assistants on top.
 
 ```
-Customer report → Service Request → Manager approval → Technician assignment → Work Order
-→ Field execution (diagnosis, parts, photos, signature) → Completion → Service Report (PDF)
-→ Manager approval → Analytics / AI
+Customer report → Service request → Manager approval → Technician assignment → Work order
+→ Field work on a phone (diagnosis, parts, photos, signature) → Completion → Service report (PDF)
+→ Manager approval (locks the job) → Dashboards and AI insights
 ```
-
-**Stack:** ASP.NET Core 8 · EF Core · SQL Server · ASP.NET Identity + JWT · React 18 + TypeScript (Vite)
-
-> **Work in progress.** This is a portfolio project being built one vertical slice at a time.
-> The backend is the system of record and enforces every business rule; the web clients are thin.
 
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+&nbsp;**Stack:** ASP.NET Core 8 · EF Core · SQL Server · ASP.NET Identity + JWT · React 18 + TypeScript (Vite) ·
+Azure Blob Storage (Azurite) · Docker · GitHub Actions
+
+| Manager dashboard | AI insights with the figures beside the summary |
+|---|---|
+| ![Manager dashboard: open requests, jobs by status, jobs completed per month, low stock](docs/screenshots/dashboard.png) | ![AI Insights: a summary of jobs awaiting approval next to the table of figures it was given](docs/screenshots/insights.png) |
+| **Work order with its timeline, parts, photos and signature** | **The technician's job on a 360 px phone** |
+| ![Work order detail: status timeline, diagnosis, parts used with an RM total, photos and the customer's signature](docs/screenshots/work-order.png) | ![Technician job view on a phone: start, diagnose, add parts, photos and signature, complete](docs/screenshots/technician.png) |
+
+## Why it is interesting
+
+- **The backend is the system of record.** Every rule — who may do what, which status may follow which, a locked job
+  stays locked, stock never goes below zero — is enforced by the API and proven by tests, whatever the UI shows.
+- **Concurrency is designed, not hoped for.** Stock moves through one conditional `UPDATE` in the same transaction as
+  its immutable ledger row; every mutating call carries a `rowVersion`, so a stale screen gets a clear 409. Racing
+  tests prove exactly one winner and that stock always equals the sum of its ledger.
+- **AI that cannot make numbers up.** The Manager's question is mapped by rules to one of the dashboard's analytics
+  operations; the model sees only the resulting figures (never the question or raw rows), and a summary containing any
+  number that is not one of those figures is dropped. The technician assistant gets a bounded, read-only context.
+  Both run on a deterministic mock by default, so the demo needs no key.
+- **Few dependencies.** The PDF writer, the signature pad and the charts are hand-rolled; each library that *was* added
+  is listed with its reason ([Dependencies and why](#dependencies-and-why)).
+- **One command to run, one table to secure.** `docker compose up` gives a seeded, working system; every route is
+  called as anonymous and as each of the five roles in one test table (AC-11), and a test fails if a route is missing
+  from it.
+
+## Quick start
+
+```bash
+docker compose up --build        # then open http://localhost:8080
+```
+
+Sign in as any demo role with the password `Demo!2026` — `manager@`, `staff@`, `technician@`, `warehouse@` or
+`admin@sarawakbizops.local` (details in [Run with Docker](#run-with-docker-recommended)).
+
+**A five-minute tour**
+
+1. **Manager** — the dashboard (open requests, jobs by status, completed per month, low stock, turnaround). Approve a
+   **New** request and assign it to Ahmad Bujang under **Work orders**.
+2. **Technician** (open it on a phone, or narrow the window) — **My jobs** → the job → Start → write the diagnosis →
+   add a part → take a photo → have the customer sign → Complete. Try completing before signing: the API refuses.
+3. **Manager** — open the completed job, **Generate report**, read the PDF, **Approve**. The job is now locked.
+4. **Warehouse** — the part you used is on the ledger as an Issue for that job; receive stock for a low part.
+5. **Manager** — **AI Insights**: *How many jobs are awaiting approval?* gives a summary with the same figures beside
+   it; *What was our revenue last month?* is refused with the list of what can be asked.
 
 ## Documents
 
-| Document | Purpose |
+**Status:** phases 0–15 of the plan are done — every feature in the PRD's scope, AC-01…AC-11 each proven by named
+tests. Phase 16 (a React Native technician app) is a stretch goal and not started.
+
+| Document | What it holds |
 |---|---|
-| [`prd.md`](./prd.md) | Product requirements: scope, priorities, design decisions (D-01…D-08), Definition of Done |
-| [`plan.md`](./plan.md) | Tracer-bullet plan: each phase is a vertical slice (data, service, route, UI, tests) with a demo script and exit criteria, plus AC traceability |
-| [`docs/test-plan.md`](./docs/test-plan.md) | Acceptance-criteria map (AC-01…AC-11 → the tests that prove them), grown phase by phase |
-| System Design Document v1.1 | Source of truth for data model, lifecycles, business rules (BR-01…14) and acceptance criteria (AC-01…11). Where the PRD and the SDD disagree, the PRD wins. |
+| [`docs/features.md`](./docs/features.md) | Every feature in depth: its rules, endpoints and a demo script, phase by phase |
+| [`docs/decisions.md`](./docs/decisions.md) | The decision log: the PRD's design decisions, every open question and how it was settled |
+| [`docs/test-plan.md`](./docs/test-plan.md) | Acceptance criteria AC-01…AC-11 → the named tests that prove them, and every test suite |
+| [`prd.md`](./prd.md) | Product requirements, priorities and the Definition of Done |
+| [`plan.md`](./plan.md) | The tracer-bullet plan: each phase a vertical slice with its decisions and exit evidence |
+| System Design Document v1.1 | The original design (data model, lifecycles, BR-01…14, AC-01…11), not in this repository. The PRD amends it and wins where they differ ([why there is no v1.2](./docs/decisions.md#open-question-7--how-the-sdd-is-kept-up-to-date)). |
 
-## Status
+## Architecture
 
-| Plan phase | Scope | State |
-|---|---|---|
-| 0 | Foundation & hygiene (git, tests, CI, error shape) | Done |
-| 1 | Users admin, change-password, Customers/Equipment completion | Done |
-| 2 | Deployable skeleton: `docker compose up` with seed data | Done |
-| 3 | Request intake: staff raise a service request, a Manager approves or rejects it | Done |
-| 4 | The first job end to end: assign, technician works it, Manager approves | Done |
-| 5 | Workflow rules for real: cancellation, a central lock guard, RowVersion conflicts, status timeline | Done |
-| 6 | Parts and stock in: the warehouse runs the parts catalogue, receives and adjusts stock, sees low stock and the ledger | Done |
-| 7 | Parts used on a job: atomic, concurrency-safe stock issue; PendingParts and resume | Done |
-| 8 | Customer signature: drawn on the phone, stored in blob storage (Azurite), required to complete | Done |
-| 9 | Job photos: taken or picked on the phone, uploaded with progress, removable until completion, gallery on the office page | Done |
-| 10 | Service report PDF: generated by a Manager from the completed job, uniquely numbered, locked on approval, Reports page | Done |
-| 11 | Manager dashboard: open requests, work orders by status, jobs completed per MYT month, low stock — named analytics operations, hand-rolled charts | Done |
-| 12 | Analytics depth: turnaround averages, repeated failures, parts usage; a dashboard for every office role (Manager, Warehouse, Service queue) | Done |
-| 13 | AI technician assistant: suggestions on the Diagnosis step behind a provider-agnostic interface, deterministic mock by default, read-only and bounded | Done |
-| 14 | AI manager insights: plain-language questions mapped by rules to the analytics operations; the model only words the figures, shown beside it | Done |
-| 15 | Release polish and docs | Planned |
+```mermaid
+flowchart LR
+  subgraph Browser
+    office["Office console<br/>(Admin, Manager, ServiceStaff, Warehouse)"]
+    tech["Technician view /tech<br/>(phone, 360 px)"]
+  end
+  subgraph web["web container"]
+    nginx["nginx<br/>built React app + /api proxy<br/>CSP and security headers"]
+  end
+  subgraph apiBox["api container"]
+    ctrl["Controllers<br/>[Authorize(Roles)] + DTOs"]
+    svc["Services<br/>rules, transactions, ownership"]
+    ai["AiService<br/>intent rules, bounded context,<br/>output checks, rate limit"]
+  end
+  sql[("SQL Server<br/>Identity + 10 tables<br/>RowVersion, CHECK constraints")]
+  blob[("Azurite / Azure Blob<br/>signatures, photos, PDFs")]
+  llm["ILlmClient<br/>mock by default, or any<br/>OpenAI-compatible API"]
 
-**Built so far:** Identity with 5 seeded roles and a seeded admin, JWT login, change-password, Admin user
-management (create with one role, edit, deactivate, reset password) with immediate token revocation, all 10
-entities with the `InitialCreate` migration, Customers and Equipment (create/update, service history for office
-roles), **service requests** (raise, list with filters, approve, reject with a reason, cancel with a reason),
-**work orders** (atomic assignment to a technician, start, diagnosis, complete, Manager approval, cancel with a
-reason), a **central lock guard** so a locked (Approved/Cancelled) record refuses every mutating call, a
-**RowVersion conflict token** required on every mutating call (409 "record changed — refresh" on a stale one),
-a **parts catalogue and immutable inventory ledger** (receive, adjust with a reason, low stock, filtered history;
-stock always equals the sum of its ledger rows), **parts used on a job** (atomic issue and return, PendingParts),
-the **customer signature** drawn on the technician's phone and kept in blob storage behind `IFileStorage` (required to
-complete a job), **job photos** (JPEG/PNG/WebP typed from their bytes, same storage path, removable until the
-job is completed, a gallery for the office), the **service report PDF** (rendered by a small hand-rolled PDF writer
-from the completed job, numbered `SR-2026-000123`, stored in blob storage, regenerable until approval locks it, and
-listed on a Reports page), the **Manager dashboard** (headline tiles and hand-rolled charts over named, tested
-analytics operations, months bucketed in Malaysia time; since Phase 12 also turnaround averages, repeated failures
-and parts usage, and role-shaped dashboards for the warehouse and the service desk), the **AI technician
-assistant** (suggestions on the Diagnosis step, labelled and never applied, behind a provider-agnostic `ILlmClient`
-with a deterministic mock by default, read-only data access, a bounded context and a per-user rate limit), the
-**AI manager insights** (a Manager's question mapped by rules to one of the dashboard's analytics operations; the
-model is shown only the resulting figures and its summary may repeat only their numbers), RFC 7807 error responses, Swagger with bearer auth, and a React office console (role-aware sidebar and routes,
-Users, Customers, Equipment, Service Requests, Work Orders, Reports, Inventory, detail pages with history, status timeline, a shared
-conflict banner, change password) plus a separate mobile-first **Technician view** (`/tech`) for the field
-workflow.
-
-### Service requests (Phase 3, cancellation added in Phase 5)
-
-```
-                     ┌──approve──► Approved ──assign──► Assigned
-New ─────────────────┤
- │                    └──cancel───► Cancelled ◄──cancel──┘ (Manager only, once Approved)
- └────reject───► Rejected
-
-Cancel from New: ServiceStaff, Admin or Manager (the creator-side roles undo their own mistake).
-Cancel from Approved: Manager only.
+  office --> nginx
+  tech --> nginx
+  nginx -- "/api (same origin)" --> ctrl
+  ctrl --> svc
+  ctrl --> ai
+  svc -- "EF Core" --> sql
+  svc -- "IFileStorage" --> blob
+  ai -- "read-only context" --> sql
+  ai --> llm
 ```
 
-| Who | Can |
-|---|---|
-| Admin, Manager, ServiceStaff | list and open requests (`GET /api/service-requests`, filters `status`, `priority`, `customerId`) |
-| ServiceStaff, Admin | raise one (`POST /api/service-requests`) |
-| Manager | approve (`POST /{id}/approve`), reject (`POST /{id}/reject`), cancel a New or Approved request (`POST /{id}/cancel`) |
-| ServiceStaff, Admin | cancel their own New request (`POST /{id}/cancel`) |
-| Technician, WarehouseStaff | nothing here (a Technician sees only their own work orders, below) |
+- **Layering:** `Controller (thin) → Service (rules, transactions) → ApplicationDbContext`, DTOs in and out, manual
+  mapping, no repository layer. The web app is a thin client over the API (`fetch` wrapper, React Context, plain CSS).
+- **One origin.** nginx serves the app and proxies `/api`, so the browser needs no CORS and no base-URL setup.
+- **AI behind a seam.** `ILlmClient` has a deterministic mock and one hand-rolled OpenAI-compatible client; the AI
+  reads data through a context whose interceptor allows `SELECT` only.
 
-- **BR-10:** the equipment must belong to the chosen customer, otherwise `400`. Retired equipment is also refused; Inactive and Under Maintenance equipment can be raised against.
-- **Invalid moves are `409`.** Approving, rejecting or cancelling anything that is not in the right state returns a message such as *"This request is Approved and cannot be rejected. Only a New request can be approved or rejected."*, and the UI shows it.
-- **Two Managers, one request.** Every mutating call (`approve`/`reject`/`cancel`/`assign`) sends back the record's `rowVersion`; the write is a single conditional `UPDATE … WHERE Status = @from AND RowVersion = @rowVersion`. If two decisions race — or a status change races an unrelated edit — exactly one changes a row and the other gets a `409` with "This record was changed by someone else. Refresh and try again.", so a decision is never silently overwritten.
-- The creator always comes from the sign-in token, never from the request body.
+## Data model
 
-**Try it (demo script).** After `docker compose up`, sign in at <http://localhost:8080>:
+```mermaid
+erDiagram
+  Customer ||--o{ Equipment : owns
+  Customer ||--o{ ServiceRequest : raises
+  Equipment ||--o{ ServiceRequest : "is reported in"
+  ServiceRequest ||--o| WorkOrder : "becomes (one live job, BR-12)"
+  AspNetUsers ||--o{ WorkOrder : "is assigned (Technician)"
+  WorkOrder ||--o{ WorkOrderPart : uses
+  Part ||--o{ WorkOrderPart : "is used as"
+  Part ||--o{ InventoryTransaction : "moves through"
+  WorkOrder |o--o{ InventoryTransaction : "issues and returns"
+  WorkOrder ||--o{ WorkOrderPhoto : has
+  WorkOrder ||--o| ServiceReport : "is reported in"
 
-1. As `staff@sarawakbizops.local`: **Service Requests → New service request**. Pick *Rajang Timber Mills*, and note the equipment list contains only that customer's equipment. Describe the fault, set a priority, submit. You get a *Request #N submitted* notice.
-2. As `manager@sarawakbizops.local`: **Service Requests** opens on the **New** requests. Open the one you raised (or the Urgent boiler request), and **Approve** it. Status flips to *Approved* at once and the buttons disappear.
-3. Open another New request and choose **Reject**. The *Confirm rejection* button stays disabled until you type a reason, and the reason is then shown on the request.
-4. Try to approve an already-approved request from a second browser tab: the page shows the 409 message and refreshes to the real state.
-5. Open **Customers → Rajang Timber Mills → View & history**: the requests appear with their status, dates in Malaysia time (UTC+8), and link to their detail page.
-6. As `warehouse@…` the Service Requests page is not offered and `/service-requests` bounces to the dashboard; as `technician@…` it bounces to **My Jobs** instead (see below).
-
-### Work orders (Phase 4, cancellation and the lock guard added in Phase 5, PendingParts in Phase 7)
-
-```
-Approved ──assign──► Assigned ──start──► InProgress ──complete──► Completed ──approve──► Approved (locked)
- (request)            (atomic:         │   ▲    │  (technician)    (needs a                (Manager;
-                       BR-01/11/12/13) │   │    │                   diagnosis and            read-only after)
-                                       │ resume pending-parts       work performed, AC-05)
-                                       │ (stock │
-                                       │  back) ▼
-                                       │  PendingParts
-                        New ──────────►┤     │
-                                       └─────┴──cancel──► Cancelled (locked; Manager only)
-                                                  │
-                                                  └─► the linked request reverts to Approved,
-                                                       so it can be reassigned (BR-12's index
-                                                       now excludes Cancelled rows)
-```
-
-| Who | Can |
-|---|---|
-| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`), cancel a New/Assigned/InProgress/PendingParts job (`POST /{id}/cancel`) |
-| Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`), including its parts and RM total |
-| Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), add and return parts, pause for parts and resume (see *Parts used on a job* below), complete (`POST /{id}/complete`) |
-| WarehouseStaff | nothing here |
-
-- **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one **live** work order (a filtered unique index — excluding `Cancelled` rows — is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order; cancelling a job frees its request to be assigned again.
-- **BR-02, AC-02:** a technician acts only on their own job. Another technician's job is reported **404**, not 403, on every technician endpoint — its existence is not confirmed to someone who cannot open it. Office roles can read any job.
-- **AC-05:** completion is rejected without a stored diagnosis and work performed. The technician UI has one button ("Complete job") that saves both fields and completes in the same tap, even though the API models them as two calls.
-- **AC-07/AC-08, the central lock guard:** once a job is `Approved` or `Cancelled`, *every* mutating call refuses it with a `409` naming the lock — not just the status-changing ones. The diagnosis PATCH used to check this with its own inline `if`; it now goes through the same `WorkOrderStateMachine.IsLocked` check as everything else.
-- **RowVersion conflicts:** every mutating call (`start`/`diagnosis`/`complete`/`approve`/`cancel`) sends back the job's `rowVersion`. This is what actually protects the diagnosis PATCH, which does not change status: two technicians (or two tabs) editing the same in-progress job both match `WHERE Status = 'InProgress'`, but only the one whose `RowVersion` still matches wins — the other gets the same "record changed — refresh" `409`.
-- The Technician role gets its own **mobile-first view at `/tech`** (no office sidebar, 360 px layout, 44 px+ tap targets, a sticky primary action button) — chosen automatically the moment a Technician signs in or lands on `/`.
-
-**Try it (demo script).** Continuing from the Service Requests walk above:
-
-1. As `manager@sarawakbizops.local`: open **Service Requests**, filter to **Approved** and open the Centrifugal Pump request (the one seeded request left unassigned on purpose). Choose **Assign to a technician**, pick `Ahmad Bujang` (shows his current open-job count) and confirm. You land on a link to the new work order.
-2. Sign in as `technician@sarawakbizops.local` on a narrow browser window (or your phone): you land on **My Jobs**, not the office dashboard. Open the pump job, tap **Start job**, type a diagnosis and what you did, then tap **Complete job** — one tap saves both fields and completes it.
-3. Back as the Manager, open **Work Orders**, find the job you just completed and tap **Approve**. It becomes read-only from then on.
-4. Try completing an in-progress job (there is a seeded one, the Air Compressor) with an empty diagnosis: the Complete button stays disabled until both fields are filled in, matching what the API would reject.
-5. As `staff@sarawakbizops.local`, open the assigned pump request: no Assign button is offered, and a hint points at the Work Orders page instead.
-
-**Cancellation and conflicts (Phase 5).**
-
-1. As `staff@sarawakbizops.local`, raise a request, then open it and choose **Cancel request…** — type a reason and confirm. It moves straight to *Cancelled*; a Manager could have cancelled it too, but not another technician or warehouse account.
-2. As `manager@sarawakbizops.local`, open the seeded **Assigned** job (Band Saw) and choose **Cancel job…**. Once confirmed, its request shows *Approved* again — open **Service Requests** and you can assign it to a technician a second time.
-3. Open a work order's detail page: the **Timeline** panel lists every dated step (raised/assigned/started/completed/approved/cancelled) derived purely from its own timestamp columns — there is no separate history table.
-4. Open the same work order in two browser tabs as the Manager, approve it in one, then click Approve in the other: the second tab shows the shared conflict banner ("This record was changed by someone else…") and reloads to the real state — the same banner every page uses for a `409`.
-
-### Parts and stock (Phase 6)
-
-```
-Receive     (+q, warehouse)          ┐   one database transaction:
-Adjustment  (±q, reason required)    ├─► 1. UPDATE Parts SET QuantityOnHand = QuantityOnHand + q
-                                     │      WHERE Id = @id AND QuantityOnHand + q >= 0
-Issue/Return  only from work-order   ┘   2. INSERT exactly one immutable InventoryTransaction
-              parts (Phase 7, below)
-Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never below zero.
-```
-
-| Who | Can |
-|---|---|
-| WarehouseStaff, Admin | create and edit parts (`POST /api/parts`, `PUT /api/parts/{id}`), receive and adjust stock (`POST /api/inventory-transactions`) |
-| WarehouseStaff, Admin, Manager | list/search parts (`GET /api/parts?search=&includeInactive=`), open one (`GET /{id}`), see low stock (`GET /api/parts/low-stock`), read the ledger (`GET /api/inventory-transactions`, filters `partId`, `type`, `workOrderId`, `from`, `to`) |
-| Technician | search the **active** parts list only (`GET /api/parts`; `includeInactive` is ignored), to pick parts for their job — no low stock, single part or ledger |
-| ServiceStaff | nothing here |
-
-- **BR-09, the ledger is the truth.** `QuantityOnHand` is a cached balance that only the inventory service moves, always in the same database transaction as exactly one new ledger row. There is **no PUT, PATCH or DELETE** for ledger rows (a test enumerates the app's routes to prove it); a mistake is fixed with an offsetting Adjustment. Editing a part never touches its stock, and a new part starts at zero — its first delivery is a Receive.
-- **Adjustments need a reason** (`400` without one) and can go either way; a Receive must be positive. Issue and Return are refused here (`400`): they only ever come from adding or returning parts on a work order.
-- **Never below zero, even under concurrency.** The stock change is a single conditional `UPDATE … SET QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`, so the database computes the balance from its current value and a movement that would go negative matches no row (`409` "Not enough stock: only N on hand"). Eight simultaneous write-offs racing for three units leave exactly three winners. A `CHECK (QuantityOnHand >= 0)` constraint is the database backstop.
-- **Low stock (AC-09, API half):** active parts at or below their `MinimumStockLevel`, most urgent first. Inactive parts never appear, and cannot receive stock (their leftovers can still be written off). The Manager dashboard (Phase 11) counts and lists the same parts.
-- Quantities are decimals (up to 3 places, for litres and metres); money is RM with 2 places. A value with more places is refused rather than silently rounded. Part edits carry the part's `rowVersion` like every other edit; a stock movement bumps it, so an edit made against a stale screen gets the usual `409`.
-- The history's date filter takes UTC instants (`from` inclusive, `to` exclusive); the web app turns whole Malaysia-time days into that window.
-
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `warehouse@sarawakbizops.local`: the sidebar shows **Inventory**. The list has 11 active parts with RM prices; four rows are highlighted **Low stock** (the conveyor belt is at 0 m, 10 below its minimum). Tick **Low stock only** to see just those four.
-2. **New part** — e.g. `BRG-6206-2RS`, *Ball bearing 6206*, unit `pcs`, RM 21.90, minimum 10. It is saved with no stock and shows as low.
-3. On that row choose **Receive**, enter `25` and a delivery note, and confirm: *Received 25 pcs… On hand now 25 pcs*, and the row is no longer low.
-4. Choose **Adjust** on the same part, pick *Remove stock*, enter `2`: **Confirm adjustment** stays disabled until you type a reason. Then try removing `100`: the API refuses it — *Not enough stock: only 23 pcs on hand* — and nothing changes.
-5. Open **History** on that row (or **Inventory → transaction history**): the receive and the adjustment, newest first, signed, with who did them and why. Filter by type or by a date range in Malaysia time. There is nothing to edit or delete.
-6. As `manager@…` the Inventory pages are read-only (no New part, Receive, Adjust or Edit). As `staff@…` they are not offered and `/inventory` bounces to the dashboard; a technician lands on **My Jobs**.
-
-### Parts used on a job (Phase 7)
-
-```
-POST /api/work-orders/{id}/parts  { partId, quantity, rowVersion }      — no price: it is snapshotted server-side
-one database transaction:
-  1. claim the job:  UPDATE WorkOrders SET Status = Status
-                     WHERE Id = @id AND TechnicianId = @me AND Status = 'InProgress' AND RowVersion = @rv
-  2. issue stock:    UPDATE Parts SET QuantityOnHand = QuantityOnHand - @q
-                     WHERE Id = @part AND IsActive = 1 AND QuantityOnHand - @q >= 0     (0 rows → 409, AC-04)
-  3. INSERT WorkOrderPart (UnitPrice = Part.UnitCost read under the row lock)
-     INSERT exactly one Issue ledger row (-q, WorkOrderId = @id)                         (AC-03, BR-05)
-DELETE /api/work-orders/{id}/parts/{lineId}  { rowVersion }  — the same claim, then the line is removed,
-  the stock goes back up and exactly one Return ledger row (+q, WorkOrderId) is written.
+  Customer {
+    int Id PK
+    string CompanyName
+    string ContactPerson
+    string Phone
+  }
+  Equipment {
+    int Id PK
+    int CustomerId FK
+    string SerialNumber UK
+    string EquipmentType
+    enum Status
+  }
+  ServiceRequest {
+    int Id PK
+    int CustomerId FK
+    int EquipmentId FK
+    enum Priority
+    enum Status
+    rowversion RowVersion
+  }
+  WorkOrder {
+    int Id PK
+    int ServiceRequestId FK
+    string TechnicianId FK
+    enum Status
+    string Diagnosis
+    string SignatureBlobKey
+    rowversion RowVersion
+  }
+  WorkOrderPart {
+    int Id PK
+    int WorkOrderId FK
+    int PartId FK
+    decimal Quantity
+    decimal UnitPrice "snapshot"
+  }
+  Part {
+    int Id PK
+    string PartNumber UK
+    decimal QuantityOnHand "CHECK >= 0"
+    decimal MinimumStockLevel
+    rowversion RowVersion
+  }
+  InventoryTransaction {
+    int Id PK
+    int PartId FK
+    enum TransactionType
+    decimal Quantity
+    int WorkOrderId FK "nullable"
+  }
+  WorkOrderPhoto {
+    int Id PK
+    int WorkOrderId FK
+    string BlobKey
+    string ContentType
+  }
+  ServiceReport {
+    int Id PK
+    int WorkOrderId FK
+    string ReportNumber UK
+    int Revision
+    string BlobKey
+  }
+  AspNetUsers {
+    string Id PK
+    string Email
+    string FullName
+    bool IsActive
+  }
 ```
 
-| Who | Can |
-|---|---|
-| Technician (their own job, InProgress only) | add a part (`POST /api/work-orders/{id}/parts`), return a whole line (`DELETE /{id}/parts/{lineId}`), pause the job for parts (`POST /{id}/pending-parts` with a reason, the part and the quantity needed) |
-| Technician (their own job, PendingParts) | resume it (`POST /{id}/resume`) once the awaited part has the awaited quantity on hand |
-| Office roles | see the parts, RM line totals and job total on the work-order page, and the job's Issue/Return rows in the ledger (`?workOrderId=`) |
+Files live in blob storage; the database keeps their keys. `InventoryTransaction` is append-only — no route edits or
+deletes a row — and `Part.QuantityOnHand` always equals the sum of its rows (checked after every stock-moving test).
+Who created, approved, rejected or cancelled a record is a user id and a UTC timestamp on the record itself (D-05).
 
-- **AC-03, atomic.** The line, exactly one Issue row and the stock decrease commit together or not at all. A test makes the database fail part-way (before the rows are written, and after they are written but before commit) and checks that stock, lines, ledger and even the job's `rowVersion` are exactly as before.
-- **AC-04, BR-04.** Asking for more than is on hand is a `409` — *"Not enough stock: only 2 pcs of … on hand"* — and nothing changes.
-- **Concurrency-safe (Open Question 8).** Issuing uses the same single conditional `UPDATE` as the warehouse: the database serialises everyone on the part's row and re-checks `QuantityOnHand - @q >= 0`, so N technicians racing for the last units get exactly as many successes as there is stock, never a negative balance, with no retry loop. The flagship test runs that race in five rounds (e.g. 8 technicians for 3 units, 8 for 2.5 units in 0.5s) and reconciles the ledger after each.
-- **The job's `rowVersion` guards the job, not the stock.** Adding or returning a part carries the job's `rowVersion` (the Phase 5 rule) and bumps it. The claim holds the job row's lock until commit, so a Manager's cancel or the technician's own Complete cannot interleave, and a double-tap from the same screen adds the part once.
-- **Price snapshot.** `UnitPrice` is copied from the catalogue at the moment of use; the client cannot send one, and a later price change never rewrites an existing line. Line totals are rounded to sen, and the job total is the sum of its lines.
-- **Return** removes a whole line (to use fewer, return it and add the right amount). Parts can be added and returned only while the job is **InProgress**; an Approved or Cancelled job refuses with the central lock message. A job cancelled with parts on it keeps them: the ledger already shows them issued to that job, and the warehouse books any unused units back with an Adjustment.
-- **PendingParts.** The technician names the part and quantity they are waiting for and why. That is refused when the part is already in stock (add it instead). **Resume is guarded by stock:** the status change and the stock check are one conditional `UPDATE`, so it succeeds only when the awaited part has at least the awaited quantity on hand. Nothing is reserved (V2): the stock can still be used on another job before this one adds it. `start` and `resume` are separate actions — `start` cannot be used to skip the stock guard.
+## Workflows
 
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `technician@sarawakbizops.local` (a narrow window works best): open the in-progress **Air Compressor** job. **Parts used** already shows the overload relay (1 × RM 145.00). Tap **Add a part**, type `filter`, tap the *Air filter element*, use **+** to make it 2 and tap **Add to job**: the line and the new RM total appear.
-2. Tap **Add a part** again, pick the *Automatic voltage regulator* (1 in stock) and press **+** to ask for 2: the picker says *Not enough stock: only 1 pcs on hand* and offers **Wait for this part…** instead of Add. (The API refuses the same thing with a `409`, and stock is unchanged.)
-3. **Return** the air filter line: it disappears and the filters go back into stock.
-4. Open the **Bottle Filling Line B** job — it is **Waiting for parts**: 6 m of conveyor belt, none in stock. Tap **Resume job**: it is refused with *Still waiting for parts: 6 m … needed, 0 on hand*.
-5. As `warehouse@…`, **Inventory → Conveyor belt, 600 mm → Receive** 10 m. Back as the technician, **Resume job** now works; add the 6 m of belt, have the customer sign (Phase 8) and complete the job.
-6. As `manager@…`, open any of these work orders: the parts table shows each line and the RM total, and the timeline shows *Waiting for parts* and *Resumed*. **Inventory → transaction history**, filtered by type *Issue*, shows each part used, linked to its job.
-
-### Customer signature (Phase 8)
-
-```
-POST /api/work-orders/{id}/signature   multipart/form-data: file = the PNG from the canvas, rowVersion
-  1. the bytes must really be a PNG (signature + IHDR checked; Content-Type and file name are ignored),
-     at most 512 KB and 4000 px a side                                                      (else 400)
-  2. owner + InProgress + not locked                                                (else 404 / 409)
-  3. upload to blob storage under a NEW key:  work-orders/{id}/signature-{guid}.png
-  4. UPDATE WorkOrders SET SignatureBlobKey = @key, SignedAt, SignatureSizeBytes
-     WHERE Id = @id AND TechnicianId = @me AND Status = 'InProgress' AND RowVersion = @rv
-       0 rows → delete the file just uploaded, 409
-       1 row  → delete the previous signature's file (if the customer signed again)
-GET  /api/work-orders/{id}/signature   → image/png (no-store, nosniff); the only way to the image
-POST /api/work-orders/{id}/complete    → 400 until diagnosis, work performed AND a signature exist (BR-03, AC-06)
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "Service request" as SR {
+    [*] --> New
+    New --> Approved: Manager approves
+    New --> Rejected: Manager rejects (reason)
+    New --> Cancelled: creator or Manager (reason)
+    Approved --> Assigned: Manager assigns a technician
+    Approved --> Cancelled: Manager (reason)
+    Assigned --> Approved: its job is cancelled
+  }
 ```
 
-| Who | Can |
-|---|---|
-| Technician (their own job, InProgress only) | have the customer sign (`POST /{id}/signature`), sign again to replace it, see it |
-| Admin, Manager, ServiceStaff | see the signature on the work-order page (`GET /{id}/signature`) |
-| Another technician | nothing — the job and its signature read as 404 |
-| WarehouseStaff | nothing (403) |
-
-- **Storage (Open Question 2 → Azurite).** Files live in a private blob container behind `IFileStorage` (`SaveAsync`, `OpenReadAsync`, `DeleteAsync`); the implementation is `AzureBlobFileStorage` on the Azure Blob SDK, and Azurite plays Azure Storage in Docker, in CI and in the integration tests. The database keeps only the internal key and metadata — never the bytes and never a URL — so a signature can only be read through the authorized endpoint.
-- **Storage and SQL cannot share a transaction**, so the order is chosen to fail safe: the file goes up first under a fresh key nothing points at, then one conditional `UPDATE` (the Phase 5 guard) switches the job over. A failed upload changes nothing; a lost `UPDATE` (stale `rowVersion`, double tap, the job moved on) deletes the file it just uploaded; a failed delete only leaves an orphaned file (logged), never a job pointing at a missing one.
-- **Completion.** `Complete` checks the signature after the diagnosis (so AC-05's message comes first) and repeats it in the `UPDATE`'s `WHERE`, so a job can never become Completed without one.
-- **The pad is hand-rolled** (PRD D-06): a `<canvas>` with pointer events (touch, mouse and pen), Undo and Clear, `touch-action: none` so drawing does not scroll the page, sized to the device pixel ratio for crisp lines, and exported as a PNG on a white background.
-- **`IFileStorage` fake.** `tests/…/Infrastructure/InMemoryFileStorage` is a dictionary-backed `IFileStorage`. `FileStorageContractTests` runs the same expectations against it (unit) and against `AzureBlobFileStorage` on the Azurite container (integration), so tests can swap the fake in — through `WithWebHostBuilder` — to see exactly which files exist or to make storage fail on purpose.
-
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `technician@sarawakbizops.local` in a phone-sized window (or the browser's device toolbar at 360 px): open the in-progress **Air Compressor** job. The diagnosis is already there, but **Complete job** is disabled: *The customer must sign before the job can be completed.*
-2. In **Customer signature**, sign in the box with the mouse or a finger. Try **Undo** and **Clear**, sign again and tap **Save signature**: the stored signature replaces the pad, and **Complete job** is enabled. (**Sign again** lets the customer redo it until the job is completed.)
-3. Tap **Complete job**.
-4. As `manager@…`, open that work order: **Customer signature** shows the image, the timeline shows *Customer signed*, and **Approve** is available. The seeded Completed (generator) and Approved (forklift) jobs carry a (fictional) signature too.
-
-### Job photos (Phase 9)
-
-The second file through the stack reuses the signature's storage path — `IFileStorage`, a fresh key per upload,
-upload-then-record, authorized download — for a richer artifact that a job can have many of.
-
-```
-POST   /api/work-orders/{id}/photos            multipart/form-data: file = one photo, rowVersion
-  1. the bytes must be a JPEG (FF D8 FF), PNG (signature + IHDR) or WebP (RIFF…WEBP); Content-Type and file
-     name are ignored; at most 8 MB                                                          (else 400)
-  2. owner + InProgress + not locked, fewer than 20 photos                         (else 404 / 409)
-  3. upload to blob storage under a NEW key:  work-orders/{id}/photo-{guid}.{jpg|png|webp}
-  4. one transaction: claim the job (no-op UPDATE … WHERE owner AND InProgress AND RowVersion = @rv
-     AND fewer than 20 photos — holds the job row's lock, bumps rowVersion), INSERT WorkOrderPhotos
-       claim lost → delete the file just uploaded, 409
-DELETE /api/work-orders/{id}/photos/{photoId}  body: rowVersion — same claim, DELETE the row, then the file
-GET    /api/work-orders/{id}/photos/{photoId}  → the image with the type recorded at upload (no-store, nosniff)
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "Work order" as WO {
+    [*] --> Assigned: created by assignment
+    Assigned --> InProgress: technician starts
+    InProgress --> PendingParts: waiting for a part not in stock
+    PendingParts --> InProgress: resume, once it is in stock
+    InProgress --> Completed: diagnosis + work performed + signature
+    Completed --> Approved: Manager approves (locked)
+    Assigned --> Cancelled: Manager (reason)
+    InProgress --> Cancelled: Manager (reason)
+    PendingParts --> Cancelled: Manager (reason)
+  }
 ```
 
-| Who | Can |
-|---|---|
-| Technician (their own job, InProgress only) | take or pick photos (`POST /{id}/photos`), remove them (`DELETE /{id}/photos/{photoId}`), see them |
-| Technician (their own job, any later state) | see them — once the job is Completed its photos are part of the record and cannot be removed |
-| Admin, Manager, ServiceStaff | see the gallery on the work-order page (`GET /{id}/photos/{photoId}`) |
-| Another technician | nothing — the job and its photos read as 404 |
-| WarehouseStaff | nothing (403) |
+Approved and Cancelled are terminal: a central guard makes every mutating call on them a 409, not just status
+changes (AC-07, AC-08). Every transition is one conditional `UPDATE … WHERE Status = @from AND RowVersion = @rv`, so
+two people acting at once get exactly one success.
 
-- **One photo per request, one after another.** Every upload carries and bumps the job's `rowVersion` (the Phase 5 rule), so the Photos step queues what the technician picked and sends it in order, each upload using the `rowVersion` the previous one returned; the page holds its other actions (Complete, parts, Remove) until the queue is done. A same-screen double tap has exactly one winner.
-- **Upload progress** needs `XMLHttpRequest` (`fetch` cannot report upload progress): `apiUpload` in `api/client.ts` is the one call that uses it, and it turns failures into the same `ApiError` as every other call. A failed photo stays in the queue with the reason and **Retry** / **Discard**; a `409` reloads the job.
-- **Camera or gallery.** **Take photo** is a file input with `capture="environment"` (opens the rear camera on a phone); **Choose photos** picks several from the gallery. A photo over 8 MB, or in a type the API does not take but the browser can decode, is redrawn in the browser as a JPEG of at most 2048 px a side before upload; otherwise photos go up untouched.
-- **Removal is only before completion** (`WorkOrderStateMachine.AcceptsPhotoChanges`: InProgress only). A PendingParts job keeps its photos but must be resumed to change them, like parts. Photos are **not** required to complete a job (the signature is the rule-bearing evidence); cancelling keeps them.
-- **Served as what the bytes are.** The download uses the content type detected at upload, with `nosniff`, so nothing uploaded can come back as HTML or script.
+## API examples
 
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `technician@sarawakbizops.local` in a phone-sized window: open the in-progress **Air Compressor** job. **Photos** already shows one (fictional) site photo.
-2. Tap **Choose photos** and pick two images (or **Take photo** on a phone): each shows a progress bar, then joins the thumbnails. Try a text file renamed to `.jpg`: it is refused with *A photo must be a JPEG, PNG or WebP image.* — **Retry** or **Discard** it.
-3. **Remove** one photo. Have the customer sign and tap **Complete job**: the photos stay, and the Remove buttons are gone.
-4. As `manager@…`, open that work order: **Photos** shows the gallery; tap a thumbnail to open it full size. The seeded Completed (generator) and Approved (forklift) jobs carry two photos each.
-
-### Service report (Phase 10)
-
-The workflow's final artifact: a PDF built from the completed job and stored behind the same `IFileStorage` path as
-signatures and photos.
-
-```
-POST /api/work-orders/{id}/generate-report     Manager; no body (it documents the job without changing it)
-  1. the job must be Completed — or Approved without a report yet (once)           (else 404 / 409)
-  2. first run: draw SR-{year}-{n} from the ServiceReportNumbers SEQUENCE; later runs keep the number, revision + 1
-  3. build the report model from the job; read the signature and photos from storage; render the PDF
-  4. upload it under a NEW key:  work-orders/{id}/report-{guid}.pdf
-  5. one transaction: SELECT the job WITH (UPDLOCK) — an Approve waits, two generators take turns — re-check
-     the state and that nobody generated meanwhile, then INSERT or UPDATE ServiceReports
-       re-check fails → delete the file just uploaded, 409
-       committed      → delete the previous rendering's file
-GET  /api/work-orders/{id}/report   → application/pdf, "SR-….pdf" (no-store, nosniff); the only way to the PDF
-GET  /api/reports                   → every report, newest first, with its job (office roles)
-```
-
-| Who | Can |
-|---|---|
-| Manager | generate and regenerate the report of a Completed job; download it; see the Reports page |
-| Admin, ServiceStaff | download reports and see the Reports page, but not generate |
-| Technician (their own job) | download their job's report (**View report** on the completed job) |
-| Another technician | nothing — the job and its report read as 404 |
-| WarehouseStaff | nothing (403) |
-
-- **What the report shows** (PRD §6.7): report number and revision, who generated it and when, the customer (contact, phone, email, address), the equipment (serial, type, brand/model, location), technician, priority, the problem as reported, diagnosis, work performed, notes, the parts used with quantities, unit prices and RM totals, the job's timeline, photo thumbnails, and the customer's signature. Times are MYT (UTC+8), money is RM. The content is built by `ServiceReportBuilder` into a `ServiceReportModel` — a pure step, so the tests assert on the model rather than on PDF bytes — and then laid out by `ServiceReportRenderer` (A4, header and "Page x of n" footer on every page, text wrapped with the fonts' real metrics, short sections kept together).
-- **Locking (BR-14 per D-05).** While the job is Completed the Manager may regenerate freely: the number stays, the revision goes up and the previous file is deleted. Approval locks the report; there is no reopen flow. A job approved *without* a report (e.g. approved before Phase 10 existed) may get exactly one — its data is already locked, so that report cannot differ from one made before approval. Approval does not require a report.
-- **Unique numbers under parallel generation.** `SR-{year}-{sequence}`: the sequence is a SQL Server `SEQUENCE`, so parallel generators never draw the same value and no table is locked for it; the year is the MYT year the number was first issued. A unique index on `ReportNumber` backs it up. A number drawn by a generation that then loses its race is simply skipped (numbers can have gaps).
-- **No rowVersion.** Generating does not change the job, so it takes no conflict token and does not bump the job's `rowVersion` — the Manager can generate and then approve from the same page load. Instead the write re-checks the job under an `UPDLOCK`: an Approve that races a generation waits for it, and a generation that finds the job approved (or someone else's report) meanwhile gives up with a 409 and deletes its file.
-- **Pictures.** PNG photos and the signature are decoded and scaled down to thumbnails while they stream (no full-size decode in memory); JPEG photos are embedded as they are, with their EXIF orientation applied, up to 16 MB of JPEGs per report; WebP photos, and any file missing from storage or unreadable, get a *"Not pictured in the PDF — open this photo in the app"* placeholder rather than failing the report.
-
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `manager@sarawakbizops.local`, open the seeded **Completed** work order (the generator). **Service report** says *No report yet*; tap **Generate report**: the report number, revision 1 and who generated it appear. **Open PDF** shows it in a new tab — customer, equipment, parts with RM totals, the two photos and the signature.
-2. Tap **Regenerate report**: the same number, revision 2.
-3. Tap **Approve**: the panel now says the report is *Locked*, and Regenerate is gone.
-4. Open **Reports** in the sidebar: the seeded report (the forklift job, locked) and this one are listed; **Download** saves `SR-….pdf`.
-5. As `technician@…` in a phone-sized window, open that job: **View report SR-…** opens the PDF.
-
-### Manager dashboard (Phase 11)
-
-The first analytics slice (PRD §6.9, SDD §14): the Manager's home page shows today's workload and the last six months,
-every number computed by the API.
-
-```
-GET /api/dashboard/summary     Manager, Admin (Phase 12: WarehouseStaff and ServiceStaff get their own views, below)
-  IAnalyticsService — named, parameterised operations, one grouped query each (the Phase 14 AI insights call the same ones):
-    OpenRequestsByPriority()        ServiceRequests WHERE Status IN (New, Approved)          GROUP BY Priority
-    WorkOrdersByStatus()            WorkOrders                                                GROUP BY Status
-    JobsCompletedPerMonth(months)   WorkOrders WHERE CompletedAt in the MYT window
-                                    AND Status IN (Completed, Approved)                       GROUP BY MYT year, month
-    LowStockSummary(top)            Parts WHERE IsActive AND QuantityOnHand <= MinimumStockLevel
-  AnalyticsRules (pure) — the MYT month window, zero-filling, fixed orders, the headline tiles
-```
-
-**Metric definitions** (also on `AnalyticsRules` in code):
-
-| Metric | Definition |
-|---|---|
-| Open requests (by priority) | Service requests that still need someone to act before a job exists: **New** (awaiting review) or **Approved** (awaiting assignment — including one whose job was cancelled, which reverts it to Approved). Assigned requests are followed through their work order; Rejected and Cancelled are closed. Every priority is listed, most urgent first, zeros included. |
-| Work orders (by status) | Every work order ever created, counted by its current status, **Cancelled included**; lifecycle order, zeros included. |
-| Active jobs (tile) | Work orders that are **Assigned**, **InProgress** or **PendingParts** — the ones with a technician. |
-| Awaiting your approval (tile) | Work orders that are **Completed** (not yet approved by a Manager). |
-| Jobs completed per month | Work orders whose status is **Completed or Approved**, counted in the **Malaysia-time (UTC+8) calendar month of `CompletedAt`**, for the six months ending with the current one (oldest first, empty months as 0). A job completed at 23:30 MYT on 31 August is an August job even though it is 15:30 UTC. Approval does not move a job between months; a job can only be cancelled before it is completed, so none is ever counted. |
-| Completed this month (tile) | The last (current) month of that series. |
-| Low stock | **Active** parts with `QuantityOnHand ≤ MinimumStockLevel` — one shared rule (`StockLevels.IsLow`), so the count always equals `GET /api/parts/low-stock` (AC-09). *Out of stock* is the subset at zero. The five furthest below their minimum are listed. |
-
-- **Charts are hand-rolled** (Open Question 6, PRD D-06): horizontal bars are an HTML table and the monthly columns an ordered list, sized with CSS, so every number is plain text for screen readers and tests, and there is no chart library. Empty series show a sentence instead of blank bars; the page has loading, error (with **Refresh**) states and works at phone width.
-- **Indexes** (migration `DashboardIndexes`, reviewed): `IX_WorkOrders_Status` makes the status count an index-only scan; `IX_WorkOrders_CompletedAt` (with `Status` included) turns the monthly trend into a range seek. The request count uses the existing `IX_ServiceRequests_Status`. The parts table is small and its rule compares two columns of one row, so it has none.
-- **Time.** "Now" comes from an injected `TimeProvider`, so the tests pin it; month boundaries are computed in MYT and converted to a UTC range, and the bucketing itself runs in SQL (`DATEPART(…, DATEADD(hour, 8, CompletedAt))`).
-- **Demo data** now includes eight approved jobs (ten since Phase 13) completed over the previous four and a half months (signed, with their reports), so the trend has a shape; the centrifugal pump fails twice on purpose for Phase 12's repeated-failures metric.
-
-**Try it (demo script).** Sign in at <http://localhost:8080> as `manager@sarawakbizops.local` — the dashboard is the home page:
-
-1. The tiles read **5** open requests, **3** active jobs, **1** awaiting approval and **4** parts low on stock; each tile links to its list.
-2. **Open requests by priority**: Urgent 1, High 2, Medium 2, Low 0 — compare with **Service Requests** filtered to New and to Approved.
-3. **Work orders by status**: Assigned 1, In Progress 1, Pending Parts 1, Completed 1, Approved 9, Cancelled 1 — the **Work Orders** list has the same 14.
-4. **Jobs completed per month**: ten jobs spread over the last five months; the current month is highlighted.
-5. **Low stock** lists BLT-CNV-600 (0 of 10 m, highlighted) first — the same four parts as **Inventory → Low stock only**.
-6. As the warehouse, receive 12 m of BLT-CNV-600 (its minimum is 10); back as the Manager, **Refresh**: 3 parts low, none out of stock.
-7. *(Since Phase 12)* Sign in as `staff@…`: the home page is the service queue instead (below).
-
-### Analytics depth and role dashboards (Phase 12)
-
-The rest of PRD §6.9, and a dashboard for each office role (PRD §5). One endpoint, a **role-shaped payload**: the
-server picks the view from the caller's role and tags it (`"view"`), and each payload carries only its own view's
-numbers — the page never decides what a role may see.
-
-```
-GET /api/dashboard/summary
-  Admin, Manager   → "Manager"       Phase 11's summary + period, the averages, repeated failures, top parts
-  WarehouseStaff   → "Warehouse"     stock tiles, low stock (10), jobs waiting for parts, top parts
-  ServiceStaff     → "ServiceQueue"  awaiting review / assignment, open by priority, oldest open, recently rejected
-  Technician       → 403             (My Jobs is their home)
-  Several roles    → the broadest view: Manager, then Warehouse, then ServiceQueue (AnalyticsRules.ViewFor)
-
-  New named operations (each takes the period as N MYT months ending with the current one — 6 on the dashboard):
-    AverageTimeToAssignment(months)                  AVG(DATEDIFF(second, request.CreatedAt, AssignedAt))
-    AverageCompletionDuration(months)                AVG(DATEDIFF(second, StartedAt, CompletedAt))
-    RepeatedFailuresByEquipment(months, min, top)    ServiceRequests GROUP BY EquipmentId HAVING COUNT(*) >= min
-    TopPartsByUsage(months, top)                     WorkOrderParts GROUP BY PartId, ORDER BY SUM(Quantity × UnitPrice)
-    JobsWaitingForParts(top)                         WorkOrders WHERE Status = PendingParts, with the part's stock
-    RequestQueue(top, recentDays)                    New / Approved counts, oldest open, recently rejected
-```
-
-**Metric definitions** (continued; also on `IAnalyticsService` and `AnalyticsRules`):
-
-| Metric | Definition |
-|---|---|
-| Period | The same six **Malaysia-time calendar months** as the completed-jobs trend, ending with the current one (`period.fromMonth`–`toMonth`), so every Manager number describes one period. |
-| Average time to assignment | From a request being **raised** (`CreatedAt`) to its job being **assigned** (`AssignedAt`), averaged over **every job assigned in the period** — including one later cancelled (the assignment happened). A request reassigned after a cancel is measured again from when it was raised: that is how long the customer waited. In hours; *null* with nothing to measure. |
-| Average completion duration | From a job being **started** to being **completed**, over jobs **Completed or Approved** whose `CompletedAt` is in the period. Time paused for parts counts — it is part of how long the job took. A job with no start recorded is left out. |
-| Repeated failures | Equipment with **3 or more fault reports raised in the period**. A fault report is a request that is New, Approved or Assigned — **Cancelled** (raised in error, or resolved before review) and **Rejected** (turned down, e.g. not worth repairing) do not count. Most reports first, then the most recently reported; the count of all such equipment is given, the top five listed. The threshold is a parameter of the operation. |
-| Top parts by usage | Parts used on jobs in the period (by when each line was added), ranked by **cost** at the price snapshotted on the line — quantities in different units (L, m, pcs) cannot be compared, costs can. Net of returns (a returned line is deleted). A cancelled job's parts count: that stock left the store. Top five, with quantity and job count. |
-| Jobs waiting for parts (warehouse) | Jobs paused as **PendingParts**, the longest wait first, each with the part and quantity asked for and what is on hand; *in stock* when there is enough to resume (the Phase 7 resume rule). |
-| Awaiting review / assignment (service queue) | Requests **New** / **Approved** — the two halves of *Open requests*. *Waiting longest* lists the five oldest by when they were raised. |
-| Rejected recently (service queue) | Requests rejected in the **last 30 days** (by `RejectedAt`), the most recent first with the reason, so the desk can tell the customer. |
-
-- **Averages are computed by SQL Server** (`AVG(CAST(DATEDIFF(second, …) AS float))` — the cast stops an integer average) and reported in hours to two decimals; the UI shows minutes, hours or days.
-- **Indexes:** none added. The duration and parts queries range-seek the Phase 11 `IX_WorkOrders_CompletedAt` or scan tables of hundreds of rows; the NFR-03 latency check on the seed (median of five warm calls < 500 ms) covers the whole, larger summary.
-- **Demo data:** the historical jobs now each have their own wait for assignment (2.4 hours to 4 days) and time on the job (6 hours to 2 days), so the averages have something to average.
-
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `manager@sarawakbizops.local`, below the Phase 11 charts: **Turnaround** — request → assigned **47.0 h** over 16 assignments, started → completed **22 h** over 12 jobs (with Phase 13's two extra history jobs).
-2. **Repeated failures**: SBW-FIL-001 (filling line A: loose caps, bottle rejects, the fraying belt), KCC-CMP-002 (the compressor: overload trip, oil carry-over, short-cycling — since Phase 13) and SPO-PMP-002 (the pump: hot bearings, low flow, the seal leak), 3 reports each; the serial opens the equipment page with that history. The kiln's second request was cancelled, so it does not count.
-3. **Top parts by usage**: SEAL-KIT-HYD RM 185.00, OIL-HYD-46 12 L RM 178.80, REL-OVL-25A RM 145.00, BRG-6205-2RS 2 pcs RM 36.80.
-4. As `warehouse@…`: tiles **11** active parts, **4** low, **1** out of stock, **1** job waiting; job waiting for **6 m of BLT-CNV-600** with 0 on hand (*Short*). Receive 12 m in **Inventory**, **Refresh**: the job is *In stock* ("1 can resume now") and nothing is out of stock.
-5. As `staff@…`: **3** awaiting review, **2** awaiting assignment, **1** rejected in the last 30 days; *Waiting longest* starts with the pump seal (14 days) and each request links to its page; *Recently rejected* shows the log conveyor with its reason.
-6. Raise a new request as `staff@…` and **Refresh**: *Awaiting review* goes to 4. As the Manager, reject it with a reason: it moves to *Recently rejected*.
-
-### AI technician assistant (Phase 13)
-
-PRD §6.10 (AI-01), SDD §14, NFR-09. On the Diagnosis step the technician taps **Get suggestions** and sees possible
-causes, suggested checks, related earlier jobs on the same equipment and parts that may be needed, under the label
-*AI-generated assistance — not a certified diagnosis*. **Copy to notes** puts them into the job's notes field, where
-they can be edited; nothing is applied to the job, and the diagnosis stays the technician's own.
-
-```
-POST /api/ai/technician-assistant      Technician (own jobs only — another's is a 404), Manager
-  { "workOrderId": 41, "observations": "optional, up to 1000 characters" }
-  200  disclaimer, generatedBy, possibleCauses[] (High/Medium/Low), suggestedChecks[], relevantPastCases[], relevantParts[]
-  503  the assistant is unavailable (provider error, timeout, or an answer that failed validation) — carry on without it
-  429  asked too often (per user; Retry-After)
-```
-
-**Providers — configuration only.** Everything goes through one interface, `ILlmClient`
-(`CompleteStructuredAsync(prompt, schema)`), chosen by the `Ai` section:
-
-| `Ai:Provider` | What it is | Used by |
-|---|---|---|
-| `Mock` (default) | `MockLlmClient`: deterministic keyword rules over the same JSON context a model would get, answering in the same schema. Free, offline, no key. The UI names it *Demo mock assistant*. | development, all tests, CI, Docker |
-| `OpenAICompatible` | `OpenAiCompatibleLlmClient`: hand-rolled `/chat/completions` over `HttpClient` (no SDK), structured output with a strict JSON schema (or plain JSON mode). Reaches Google Gemini's free tier, Groq, a local Ollama, OpenAI or Azure OpenAI. | a real deployment, by choice |
+Interactive docs: Swagger at `http://localhost:5080/swagger` in the manual setup. Through the Docker stack:
 
 ```bash
-# Manual setup: the key only ever lives in user-secrets (or the Ai__ApiKey environment variable)
-cd src/SarawakBizOps.Api
-dotnet user-secrets set "Ai:Provider" "OpenAICompatible"
-dotnet user-secrets set "Ai:BaseUrl"  "https://generativelanguage.googleapis.com/v1beta/openai/"
-dotnet user-secrets set "Ai:Model"    "gemini-2.5-flash"
-dotnet user-secrets set "Ai:ApiKey"   "<your key>"
-# Docker: AI_PROVIDER, AI_BASE_URL, AI_MODEL and AI_API_KEY in your own .env (see .env.example)
+BASE=http://localhost:8080/api
+TOKEN=$(curl -s $BASE/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"manager@sarawakbizops.local","password":"Demo!2026"}' | jq -r .token)
+
+# The Manager dashboard (named, tested analytics operations; months in MYT)
+curl -s $BASE/dashboard/summary -H "Authorization: Bearer $TOKEN" | jq '.workOrdersByStatus'
+
+# Approve a request: every mutating call sends the rowVersion it last saw
+REQ=$(curl -s "$BASE/service-requests?status=New" -H "Authorization: Bearer $TOKEN" | jq '.[0]')
+curl -s $BASE/service-requests/$(jq .id <<<"$REQ")/approve -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"rowVersion\":$(jq .rowVersion <<<"$REQ")}" | jq .status
+# → "Approved"; the same call again → 409 problem+json: "This request is Approved and cannot be approved. …"
+
+# Ask the AI about the business: the figures come from the analytics, the model only words them
+curl -s $BASE/ai/manager-insights -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"question":"How many jobs were completed last month?"}' | jq '{outcome, summary, figures}'
+
+# A role without access is refused whatever the UI shows (AC-11)
+WH=$(curl -s $BASE/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"warehouse@sarawakbizops.local","password":"Demo!2026"}' | jq -r .token)
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/customers -H "Authorization: Bearer $WH"   # → 403
 ```
 
-Also configurable: `Ai:TimeoutSeconds` (20), `Ai:MaxOutputTokens` (1200), `Ai:PermitsPerMinute` (10 per user),
-`Ai:ResponseFormat` (`json_schema` or `json_object`). A real provider with no base URL or model stops startup with a hint.
+Errors are always RFC 7807 `application/problem+json` (validation adds an `errors` map; a 500 carries a `traceId`,
+never a stack trace). Every endpoint, its roles and its rules are in [`docs/features.md`](./docs/features.md).
 
-#### AI boundaries
-
-- **Advice only, never a write.** The AI code path gets its own read-only data access (`AiReadOnlyData`): queries
-  only, no tracking, and an interceptor that refuses `SaveChanges` and every non-`SELECT` command. Tests assert the
-  job's RowVersion and every table count are unchanged after asking.
-- **A bounded context.** The model sees only the one job the caller may read: its problem, status and priority, the
-  diagnosis so far, the technician's observations, the equipment's type/brand/model/installation date, **that
-  equipment's own** last five completed jobs (same customer, BR-10), and up to 40 active catalogue parts. Never a
-  customer name, contact, address, serial number or location, and never another customer's jobs — whatever is typed.
-  Every text and list is capped.
-- **Free text is data, not instructions.** The system prompt is fixed and contains no user text; the problem and
-  notes travel as JSON string values in the user message, and the prompt tells the model to treat them as data.
-- **The answer is checked, not trusted.** It must match the schema and size limits; ids the model was not offered
-  are dropped, so it cannot point at a job or part it was never shown; the facts shown beside each past case and part
-  (dates, problem, diagnosis, stock) are read from the database, only the *why* is the model's. The disclaimer is set
-  by the server on every answer, not left to the model.
-- **Failure is graceful.** A provider error, a timeout or an unusable answer is a 503 the UI shows as "unavailable";
-  the job carries on. Logs record the job id, provider, timing and our own reason — never the prompt, the answer, a
-  provider's error body or the key.
-- **Cost and abuse.** A fixed one-minute window per signed-in user (10 by default); provider replies are read up to
-  256 KB.
-- **No key or real provider response is in the repository**; tests and CI run on the mock and a fake HTTP handler.
-
-**Demo data:** two more approved history jobs (ten in all): the air compressor tripped on overload four months ago,
-and the band saw's guide bearings were noisy. So the compressor now has three fault reports and joins the repeated
-failures, and the Phase 12 averages move a little (above).
-
-**Try it (demo script).** Sign in at <http://localhost:8080>:
-
-1. As `technician@sarawakbizops.local`, open the in-progress **KCC-CMP-002** job (the compressor that short-cycles
-   and trips its overload relay). Under **AI assistant**, optionally type what you notice, and tap **Get suggestions**.
-2. The answer leads with the amber label *AI-generated assistance — not a certified diagnosis*: **Motor protection
-   tripping** (High), checks such as measuring the running current, the earlier job *"Air compressor trips on overload
-   during the hot afternoon shift"* (the oil carry-over job on the same machine is left out as unrelated), and the
-   overload relay REL-OVL-25A with its stock.
-3. Tap **Copy to notes**: the suggestions appear in *Notes*, labelled, for you to edit. The diagnosis is untouched,
-   and nothing is saved until you complete the job.
-4. As `manager@…`, open the same work order: the Manager gets the same panel, with the earlier job linked.
-5. The band saw (**RTM-BSW-001**): start it as the technician and ask — its earlier noisy-guide-bearings job comes up.
-
-### AI manager insights (Phase 14)
-
-PRD §6.10 (AI-02), **AC-10**: the Manager AI uses backend-computed data only. On **AI Insights** (sidebar, Manager
-only) the Manager types a question or taps an example; the answer is a short summary *with the figures it was
-written from shown beside it*.
-
-```
-GET  /api/ai/manager-insights/topics   Manager — the supported topics, each with an example question (no rate limit)
-POST /api/ai/manager-insights          Manager
-  { "question": "How many jobs were completed last month?" }      (1–300 characters)
-  200  outcome "Answered": topic, periodLabel/period, definition, note, figures[] {label, value, unit},
-       summary (null + summaryUnavailableReason when the model failed), disclaimer, generatedBy
-  200  outcome "Refused": refusalReason, supportedTopics[]
-  429  asked too often (the same per-user AI limit as the technician assistant)
-```
-
-**How a question is answered — the model never computes a metric.**
-
-1. **Rules, not the model, read the question.** `ManagerInsightsIntentMapper` (pure, unit-tested) scores the
-   question against each topic's weighted phrases and picks the best; no match, or a tie, is a refusal. It also reads
-   the period: *this month*, *last month*, *last 3 months*, *past quarter*, *last year*, *this year*; nothing said is
-   the dashboard's six months. A question the operations cannot answer truthfully is refused for what it is, even when
-   a topic matches: a breakdown by technician or customer, a forecast, revenue/profit/pay, or a period shorter than a
-   month (*today*, *last week*), or more than 24 months.
-2. **An allow-listed operation computes the figures.** Each topic is one of the existing named
-   `IAnalyticsService` operations (below), run through the AI's read-only data access (`AiReadOnlyData.Analytics`, the
-   same guarded, no-tracking context as Phase 13). Totals and derived tiles use the dashboard's own rules
-   (`AnalyticsRules`).
-3. **The model words only those figures.** It is sent the topic, period, definition and figures as JSON — **not the
-   question** and no raw rows, customer names or serial numbers (equipment appears as type and id). Its answer is one
-   `summary` string.
-4. **The summary is checked against the figures.** `ManagerInsightsOutput` refuses a summary containing any number
-   that is not one of the figures' numbers (or that number rounded to fewer decimals, as in "47 hours" for 47.03):
-   no sums, differences, percentages or conversions of its own. A refused summary, a provider error or a timeout does
-   not fail the request — the Manager gets the figures with *"The AI summary is unavailable right now"*.
-
-| Topic | Operation | Period | Example question |
-|---|---|---|---|
-| Jobs completed | `JobsCompletedPerMonth` | yes | How many jobs were completed last month? |
-| Work orders by status | `WorkOrdersByStatus` | now | How many jobs are awaiting approval? |
-| Open service requests | `OpenRequestsByPriority` | now | How many open requests are there by priority? |
-| Low stock | `LowStockSummary` | now | Which parts are low on stock? |
-| Time to assignment | `AverageTimeToAssignment` | yes | How long does it take to assign a request? |
-| Completion duration | `AverageCompletionDuration` | yes | How long do jobs take to complete? |
-| Repeated failures | `RepeatedFailuresByEquipment` (≥ 3 reports) | yes | Which equipment keeps failing? |
-| Parts usage | `TopPartsByUsage` | yes | Which parts did we use the most in the last 3 months? |
-| Jobs waiting for parts | `JobsWaitingForParts` | now | Which jobs are waiting for parts? |
-
-"Last month" on a jobs-completed question is exactly that month. The averages, failures and parts usage are kept
-for whole months up to today, so "last month" there covers last month *and this one*, and the answer says so; a
-snapshot topic answers with current figures and says the period does not apply.
-
-**AI boundaries** are Phase 13's (read-only data access, fixed system prompt with no user text, a checked answer,
-graceful failure, logs without prompts or answers, the per-user rate limit, no key in the repository), plus: the
-question never reaches the model, and the summary's numbers must be the figures' numbers.
-
-**Try it (demo script).** As `manager@sarawakbizops.local`, open **AI Insights**:
-
-1. Tap **How many jobs are awaiting approval?** — the summary (*Demo mock assistant*) reads out the figures, and the
-   table beside it shows *Awaiting your approval (completed)* with the same number as the dashboard's tile.
-2. Type *How many jobs were completed last month?* — one figure, for last month, matching that month's column on
-   the dashboard chart.
-3. Type *What was our revenue last month?* — refused: revenue is not recorded; the supported topics are listed, each
-   example a click away. *Which technician completed the most jobs?* is refused as a breakdown the figures do not have.
+## Repository layout
 
 ```
 src/
@@ -580,7 +276,10 @@ src/
 tests/
 └── SarawakBizOps.Api.Tests/    xUnit; integration tests run against real SQL Server (Testcontainers)
 docs/
-└── test-plan.md                Acceptance-criteria map: which test proves which AC
+├── features.md                 Every feature in depth: rules, endpoints, demo scripts
+├── decisions.md                Decision log: design decisions and open questions
+├── test-plan.md                Acceptance-criteria map: which test proves which AC
+└── screenshots/                The images in this README
 scripts/
 └── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with photos, the signature and the service report), parts and stock, parts on a job, the Manager dashboard, each role's dashboard, the AI assistant and the AI manager insights on the mock (used by CI)
 docker-compose.yml              sqlserver + azurite + api + web, one command
@@ -612,7 +311,7 @@ The API creates the schema and the sample data on first start. Sign in with any 
 > (set by `docker-compose.yml` and nothing else). The API refuses to start outside that mode unless you set
 > `Seed:AdminPassword` yourself, so there is no built-in admin password on a real deployment.
 
-The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 pieces of equipment and 12 service requests (3 New, one of them Urgent; 2 Approved — one deliberately left unassigned, one Approved again because its job was cancelled; 5 Assigned; 1 Rejected with a reason; 1 Cancelled by its own creator while still New) spread over the last three weeks, plus 6 work orders — one in each of Assigned, InProgress (with its diagnosis already recorded and a relay used), PendingParts (waiting for 6 m of conveyor belt that is out of stock), Completed (awaiting Manager approval), Approved (the whole workflow closed, read-only, with its parts and RM total; like the Completed one it carries a fictional customer signature, generated at seed time and stored in Azurite) and Cancelled (its request reverted to Approved, ready to be reassigned). The InProgress job carries one job photo and the Completed and Approved jobs two each — generated drawings of a machine (no people, no real sites), stored in Azurite like the signatures. The warehouse has a 12-part catalogue (11 active, one discontinued) whose stock comes from 19 ledger rows — deliveries, two reasoned adjustments and four parts issued to jobs — so every part reconciles with its ledger; four active parts are at or below their minimum stock level.
+The sample data is fictional (names, companies, phone numbers and addresses) and covers every state a reviewer might want to see without creating it first: **10 customers** across Kuching, Sibu and Miri with **30 pieces of equipment** (every status, one retired); **22 service requests** — 3 New (one Urgent), 2 Approved (one deliberately left for you to assign, one back to Approved because its job was cancelled), 15 Assigned, 1 Rejected with a reason and 1 Cancelled by its creator; and **16 work orders** — one live job in each of Assigned, InProgress (diagnosed, a relay used, waiting for the customer's signature), PendingParts (waiting for 6 m of conveyor belt that is out of stock), Completed (awaiting approval), Approved (locked, with its report) and Cancelled, plus ten approved jobs over the last four and a half months that give the dashboard its trends (one pump fails twice, so *repeated failures* has something to find). Signatures, job photos (generated drawings of machines) and service-report PDFs are created at seed time and stored in Azurite. The warehouse has a 12-part catalogue whose stock comes from 19 ledger rows, so every part reconciles with its ledger; four active parts are at or below their minimum.
 
 | Command | What it does |
 |---|---|
@@ -626,12 +325,12 @@ The sample data is fictional: 5 customers across Kuching, Sibu and Miri, 11 piec
 - `Database__MigrateOnStartup=true` makes the API apply EF migrations at startup, retrying while SQL Server warms up. The flag is **off by default** everywhere else, so a normal run never changes a schema on its own.
 - The API is healthy (`/health/ready`) only once migrations and seeding are done, because it does its startup work before it starts listening. `/health` is a plain liveness check. Both are unauthenticated and return no data.
 - The seeding is idempotent: every row is inserted only if its key (email, company name, serial number) is missing, so restarting is safe.
-- Files (the customer signature and job photos) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
+- Files (the customer signature, job photos and service reports) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
 - SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
 
 **Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
 
-**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) signs in as every role through the web container, checks the seeded data, walks request intake (raise, approve, reject, wrong roles refused, invalid move is a 409), and walks a first job end to end (assign, wrong role refused, second assign is a 409, start, complete-without-evidence is a 400, diagnose, complete-without-signature is a 400, WarehouseStaff cannot upload a signature, a non-PNG is a 400, sign, WarehouseStaff cannot upload a photo, a non-image is a 400, upload two photos and remove one, complete, approve, the Manager downloads the exact signature and photo bytes and WarehouseStaff cannot, the approved job locks against further technician action and its photo can no longer be removed; a seeded Completed job's signature and photos download as PNGs), sending each record's `rowVersion` as the web app does, and walks the warehouse (low stock is seeded, ServiceStaff and Technician are refused, create a part, duplicate number is a 409, receive, adjustment without a reason is a 400, adjust with one, going below zero is a 409, Issue is refused, the ledger sums to the stock), and walks parts on a job (a fresh job for the demo technician: the technician can search parts but not read the ledger, the warehouse cannot add parts to a job, add a part at the snapshotted price, over-stock is a 409 and changes nothing, return it, one Issue and one Return on the job's ledger, pause for parts, resume refused while short, receive, resume). It needs `curl` and `jq`, and CI runs it on every push. It adds a few requests, a job and a part per run and consumes the seeded unassigned request, so `docker compose down -v` resets the demo data. It expects the seeded demo state (e.g. at least 3 New requests), so run it against a fresh volume.
+**Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) drives the running stack through the web container with `curl` and `jq`, the way the browser does (each record's `rowVersion` included): every role signs in; the seed is there; request intake (raise, approve, reject, wrong roles and invalid moves refused); a first job end to end (assign, start, the completion rules, signature and photo uploads with bad files refused, complete, report, approve, the lock, exact file bytes downloaded); parts and stock (create, receive, adjust with a reason, below zero refused, the ledger sums to the stock); parts on a job (issue at the snapshotted price, over-stock refused, return, pause for parts, resume); the dashboards (figures equal the lists); the AI assistant and the AI insights on the mock (figures equal the dashboard's, a revenue question refused, other roles 403). CI runs it on every push. It changes the demo data, so run it against a fresh volume (`docker compose down -v`).
 
 ---
 
@@ -644,7 +343,7 @@ Use this when you are changing code and want hot reload; otherwise prefer Docker
 - [.NET 8 SDK](https://dotnet.microsoft.com/download) (a newer SDK also works; the projects target `net8.0`)
 - SQL Server LocalDB (ships with Visual Studio) or any SQL Server instance
 - Azurite for file storage: `docker compose up -d azurite` (or `npm install -g azurite` and run `azurite-blob --skipApiVersionCheck`). `appsettings.Development.json` points at it with `UseDevelopmentStorage=true`; the API refuses to start without a `Storage:ConnectionString`. `UseDevelopmentStorage=true` means port 10000; if you moved Azurite with `AZURITE_HOST_PORT`, set `Storage__ConnectionString` to the full development-account string with `BlobEndpoint=http://127.0.0.1:<port>/devstoreaccount1;`.
-- [Node.js](https://nodejs.org/) 18+ and npm
+- [Node.js](https://nodejs.org/) 20.19+ or 22.12+ (Vite 8) and npm
 - Docker Desktop, needed to run the integration tests (and for the Docker setup above)
 
 ### Backend
@@ -693,29 +392,54 @@ cd src/SarawakBizOps.Web
 npm test                       # Vitest + React Testing Library; no server or database needed
 ```
 
-The first `dotnet test` run downloads the SQL Server image (about 1.5 GB) and takes a couple of minutes; later runs
-take a couple of minutes at most. CI (GitHub Actions) builds the solution, runs both test suites, builds the web app
-and runs the Docker smoke test on every push and PR. Which test proves which acceptance criterion is listed in
-[`docs/test-plan.md`](./docs/test-plan.md).
+| Suite | What it proves |
+|---|---|
+| **Backend** (xUnit, 1,042 tests) | Pure rules as unit tests (every lifecycle transition, upload, report, analytics and AI rules); everything else through the real HTTP API against a **real SQL Server and Azurite** (Testcontainers): business rules, validation, racing requests with exactly one winner, the ledger reconciling after every stock movement, the seed's hand-computed dashboard figures, the AI on mock and fake providers |
+| **Authorization** (`EndpointAccessTests`) | Every route × anonymous and all five roles → exactly 401, 403 or the success status (AC-11); a further test fails if the app maps a route that is not in the table |
+| **Frontend** (Vitest, 132 tests) | The real components with `fetch` stubbed: role-gated routes and actions, forms, the API's messages, MYT dates, the technician flow |
+| **Docker smoke** (`scripts/compose-smoke.sh`) | The shipped containers working together, end to end, on every push |
+| **Secret scan** (gitleaks in CI) | No secret in any commit of the history |
 
-Every new endpoint gets rows in `EndpointAccessTests`, a table that calls each endpoint as an anonymous visitor and as every
-role and checks the exact status (401, 403 or success), so a missing `[Authorize]` cannot go unnoticed.
+The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which test proves which acceptance criterion
+(AC-01…AC-11) is listed in [`docs/test-plan.md`](./docs/test-plan.md).
 
 ---
+
+## Security
+
+- **Authorization is server-side and deny-by-default.** `[Authorize(Roles=…)]` on every controller, ownership checks
+  in services (a technician's request for someone else's job is a 404, not a 403, so it does not even confirm the job
+  exists), and a fallback policy that requires a signed-in user on anything without its own rule. The UI hides what the
+  API would refuse, as a courtesy.
+- **Sessions end when they should.** JWTs are short-lived (60 min) with issuer, audience and lifetime validated; each
+  carries the Identity security stamp, checked per request, so deactivating a user or changing their role or password
+  revokes their tokens at once. Five failed sign-ins lock an account for ten minutes.
+- **No mass assignment.** Controllers bind request DTOs only; who created or approved something comes from the token,
+  and a part's price from the catalogue, never from the body.
+- **Uploads** are typed from their bytes (PNG, JPEG, WebP), size-capped, stored under server-generated keys and
+  served only through authorized endpoints with `no-store` and `nosniff`.
+- **Browser hardening:** a same-origin Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff`, a referrer and a
+  permissions policy from nginx; CORS is closed outside Development unless origins are configured.
+- **Secrets** come from user-secrets or environment variables. The API refuses to start with the placeholder JWT key
+  or without an admin password outside the demo; the demo's published defaults are labelled demo-only. The full git
+  history is scanned in CI.
+- **Logs** carry ids and outcomes, never passwords, tokens, prompts or AI answers.
+- **Dependencies** are audited: `npm audit` and `dotnet list package --vulnerable --include-transitive` were clean at
+  the Phase 15 sweep.
 
 ## Architecture and conventions
 
 - **Layering:** `Controller (thin) → Service (rules, transactions) → ApplicationDbContext`. DTOs only,
   manual mapping, no repository layer.
-- **Authorization is server-side.** `[Authorize(Roles=…)]` plus ownership checks in services. The UI hides
-  what the API would reject, as a courtesy and not as security.
 - **Errors** are RFC 7807 `application/problem+json` for every 4xx/5xx (validation failures add an
   `errors` map; 500s carry a `traceId`, never a stack trace). The web `apiFetch` wrapper turns these into a
   single `ApiError`, and a 401 on an authenticated call ends the session and redirects to `/login`.
-- **Sessions end immediately when they should.** Every JWT carries the Identity security stamp and is checked
-  on each request, so deactivating a user, changing their role or changing their password revokes their
-  existing tokens at once (one primary-key lookup per request).
+- **Conflicts are explicit.** Every mutating call sends the record's `rowVersion`; a stale one is a 409 the UI shows
+  in a shared "changed since you opened it — refresh" banner.
 - **Time and money:** UTC in storage, MYT (UTC+8) on display; currency shown as RM.
+- **Accessible and responsive:** the office console is built for ≥ 1024 px and stays usable on a phone; the technician
+  view is built for 360 px. Every page passes axe-core's automated WCAG 2.1 A/AA checks (Phase 15 sweep) and keyboard
+  focus is always visible.
 
 ### Dependencies and why
 
@@ -724,56 +448,67 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 | Where | Package | Why |
 |---|---|---|
 | API | ASP.NET Core Identity, EF Core SQL Server, JwtBearer, Swashbuckle | Auth, persistence, API docs |
-| Web | React, react-router-dom | UI and routing; plain CSS, `fetch` wrapper, Context (no UI or state library) |
-| API | Azure.Storage.Blobs | File storage (Phase 8, PRD D-03, Open Question 2 → Azurite): the one SDK behind `AzureBlobFileStorage`; talks to Azurite locally and to real Azure Blob Storage unchanged |
-| API | *(none for PDFs)* | The service report (Phase 10, Open Question 3) is written by a small PDF writer in `Services/Reports/Pdf` instead of a library: PDF 1.4 with the two standard Helvetica fonts (never embedded, so no font files), JPEG passed through as-is, PNG decoded with `System.IO.Compression`. The candidates were weighed first: QuestPDF's Community licence is revenue-gated rather than open source, which sits badly with a public MIT repo meant to be forked; PDFsharp (MIT) needs a font resolver and font files in Linux containers; both are a sizeable dependency for one A4 layout. The trade-off: no text shaping — text is Latin-1 (WinAnsi), anything outside it prints as `?` |
-| Web | *(none for charts)* | The dashboard's charts (Phase 11, Open Question 6) are HTML tables and lists sized with CSS, not a chart library: four simple bar/column charts do not justify one, and the markup stays readable to screen readers and tests. `TimeProvider` (the API's clock) is part of .NET 8. Phase 12 added tables and figures, still no library. |
-| Tests | xUnit, Microsoft.AspNetCore.Mvc.Testing, Testcontainers.MsSql, Testcontainers.Azurite | Integration tests against the real API, real SQL Server and real blob storage, so transactions, `RowVersion` concurrency and file handling behave as in production |
-| Web tests (dev only) | Vitest, jsdom, React Testing Library (`@testing-library/react`, `/dom`, `/jest-dom`, `/user-event`) | Role-gating, routing and form-flow tests of the real components (Phase 3, PRD D-06 test tooling). `fetch` is stubbed by hand, so there is no mocking library. |
+| Web | React 18, React Router 7 | UI and routing; plain CSS, a `fetch` wrapper and Context (no UI, state or data-fetching library) |
+| API | Azure.Storage.Blobs | File storage (PRD D-03, Open Question 2 → Azurite): the one SDK behind `AzureBlobFileStorage`; talks to Azurite locally and to real Azure Blob Storage unchanged |
+| API | *(none for PDFs)* | The service report is written by a small PDF writer in `Services/Reports/Pdf` (PDF 1.4, the standard Helvetica fonts, JPEG passed through, PNG decoded with `System.IO.Compression`). QuestPDF's licence is revenue-gated and PDFsharp needs font files in Linux containers. The trade-off: Latin-1 text only |
+| API | *(none for AI)* | The OpenAI-compatible client is about 130 lines over `HttpClient`; no SDK |
+| Web | *(none for charts)* | The dashboard's charts are HTML tables and lists sized with CSS: readable to screen readers and tests |
+| Tests | xUnit, Microsoft.AspNetCore.Mvc.Testing, Testcontainers (SQL Server, Azurite) | Integration tests against the real API, real SQL Server and real blob storage, so transactions, `RowVersion` concurrency and file handling behave as in production |
+| Web (dev only) | Vite 8, Vitest 5, jsdom, React Testing Library | Build and component tests; `fetch` is stubbed by hand, so there is no mocking library |
 
-> **Known advisory (dev tooling only).** `npm audit` reports Vitest 2 as critical: *"when the Vitest UI server is listening, arbitrary file can be read"*. We run `vitest run` headless in CI and never start the UI or API server, and none of these packages are in the Docker image or the built app. The fix needs Vite 6 or later, so it is left for the Phase 15 dependency sweep together with the existing Vite/esbuild dev-server findings.
+### Design decisions
 
-### Design decisions carried from the SDD
+The full log — the PRD's design decisions D-01…D-08 and how every open question was settled — is in
+[`docs/decisions.md`](./docs/decisions.md). The ones that shape the code most:
 
-- **No custom password/role fields.** Identity owns all of that.
-- **Stock is moved by one conditional `UPDATE`, not read-modify-write** (Phase 6): `QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`. The database serialises concurrent updates to the row and re-checks the predicate, so warehouse movements need no retry loop. **Phase 7 (Open Question 8) uses the same statement to issue parts to a job**, rather than the plan's original default of a bounded `RowVersion` retry or an explicit `UPDLOCK` read: the conditional `UPDATE` already takes the row's update lock and re-checks the predicate, so it is race-free in one round trip; a retry loop could still fail under heavy contention and an `UPDLOCK` read needs raw SQL for no gain. The price snapshot is read after the `UPDATE`, inside the same transaction, while the row is locked. The work order's own `RowVersion` still guards the *job* (see *Parts used on a job*).
-- **`RowVersion` concurrency tokens** on `ServiceRequest`, `WorkOrder` and `Part`, checked by hand rather
-  than via EF's `DbUpdateConcurrencyException`: every mutating call extends the same conditional
-  `UPDATE … WHERE Status = @from` guard already used for status races with `AND RowVersion = @rowVersion`,
-  so a status conflict and a same-status conflict (e.g. two edits to a diagnosis) both land on one
-  consistent `409`, instead of a second EF-specific error path living alongside the first.
-- **Files in blob storage, not SQL** (SDD §15, Phase 8): the database stores a key and metadata; the bytes live behind `IFileStorage`, a unique key per upload (never overwritten), and are served only by authorized API endpoints with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`. Uploads are validated by their bytes, not by what the client claims.
-- **Repository layer omitted** and **manual DTO mapping**: less indirection for an app this size.
-- **`launchSettings.json` pins the dev ports** (`5080`/`5443`) so the web app's `.env.example` points at a real port.
+- **Identity owns users, passwords and roles**; no custom auth fields.
+- **Stock moves through one conditional `UPDATE`**, `QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`,
+  in the same transaction as its single ledger row — for warehouse movements and for parts issued to a job alike. The
+  database serialises contenders and re-checks the predicate, so there is no retry loop and nothing can go negative
+  (a `CHECK` constraint backs it).
+- **`RowVersion` checked by hand**, in the same conditional `UPDATE … WHERE Status = @from AND RowVersion = @rv` as the
+  status guard, so a status race and a same-status edit race are one consistent 409 rather than two error paths.
+- **Files in blob storage, not SQL:** the database keeps a key; every upload gets a new key and is never overwritten.
+- **No repository layer, manual DTO mapping, no AuditLog table** (D-05): less indirection for an app this size;
+  who did what and when is on each record.
+- **The AI never computes.** Analytics are named, tested operations; the Manager AI picks one by rules and the model
+  only words its figures.
 
 ---
 
 ## Known limitations
 
-- The Docker demo accounts share one public, documented password and there is no forced change on first login (V2). They exist only in demo mode.
-- The Docker setup serves plain HTTP; TLS is out of scope for the demo.
-- Customers, Equipment, Service Requests (raise, approve, reject, cancel) and the work-order lifecycle (assign,
-  start, diagnose, complete, approve, cancel) are implemented so far, with a RowVersion conflict token on every
-  mutating call and a shared conflict banner in the UI, plus the parts catalogue and inventory ledger (receive,
-  adjust, low stock, history), parts used on jobs (atomic issue and return, PendingParts/resume) and the customer
-  signature (required to complete), job photos, the service report PDF and the dashboards (all PRD §6.9 metrics,
-  one view per office role), the AI technician assistant and the AI manager insights; release polish is planned in
-  [`plan.md`](./plan.md). The mock assistant is keyword rules, not intelligence — it shows the pipeline; a real model
-  gives real suggestions. The Manager AI understands only the phrasings its rules know (nine topics, one per
-  question, no breakdown by technician or customer), and a summary that writes a number in words is not checked. AI answers are not stored (asking again asks again). Photos are optional evidence, not required to complete a job. The dashboards cover a
-  fixed six-month period (no date picker), and the repeated-failures threshold (3) is fixed on the dashboard
-  though a parameter of the operation. The signature records *that* the customer signed, not their
-  printed name; photos have no captions yet. A signature or photo file whose cleanup delete fails is left orphaned
-  in storage (logged; there is no sweeper yet). Photo dimensions are not checked server-side (only type and size),
-  and photos are served at full size — the gallery scales them down in the browser (no server-side thumbnails).
-  The report PDF prints Latin-1 text only (the standard PDF fonts): characters outside it, e.g. Chinese names, show as
-  `?`. WebP photos are listed in the report but not pictured, and JPEG photos past 16 MB per report are not pictured
-  either (both say "open this photo in the app"). There is no report history: regenerating replaces the file (the
-  revision number records that it happened). Report numbers can have gaps (a lost race skips its number).
-  Stock is not reserved for a job waiting for parts (V2). A returned part goes back as a whole line. Cancellation history is kept only on the cancelled record itself (timestamp, actor, reason) — there is
-  no separate audit-log table (D-05). List endpoints are not paginated yet (Phase 15 sweep).
-- There is no forgot-password email flow (out of scope): an Admin resets a forgotten password, and there is
-  no forced change-on-first-login. Admin-set passwords are shared out of band.
+- **Demo accounts** share one public, documented password with no forced change on first login; they exist only in
+  demo mode. There is no forgot-password email: an Admin resets a password and shares it out of band.
+- **Plain HTTP in Docker.** TLS belongs to whatever fronts the stack in a real deployment.
+- **AI.** The mock assistant is keyword rules — it shows the pipeline; a real model gives real suggestions. The
+  Manager AI understands the phrasings its rules know (nine topics, one per question, no breakdown by technician or
+  customer), and a number written in words in a summary is not checked. Answers are not stored.
+- **Dashboards** cover a fixed six-month window (no date picker); the repeated-failures threshold (3) is fixed on the
+  dashboard.
+- **Lists are not paginated.** They are sized for the demo's tens to hundreds of rows, and the long ones have
+  server-side filters ([why](./docs/decisions.md#phase-15-decisions-release-sweep)).
+- **Files.** Photos are optional evidence, not required to complete a job, have no captions and are served full size
+  (no thumbnails). A file whose cleanup delete fails is left in storage (logged; no sweeper). The signature records
+  *that* the customer signed, not their printed name.
+- **Reports.** Latin-1 text only (e.g. Chinese names print as `?`); WebP photos are listed but not pictured, and JPEGs
+  past 16 MB per report are not pictured either. Regenerating replaces the file (the revision number records it), and
+  report numbers can have gaps.
+- **Stock** is not reserved for a job waiting for parts; a returned part goes back as a whole line.
+- **History** is the timestamps, actors and reasons on each record plus structured logs; there is no separate audit
+  log and no reopen-for-correction flow (D-05).
+
+## Roadmap (V2)
+
+Deliberately out of scope for this version, in rough order of value:
+
+- **React Native technician app** (Phase 16A, P2): the same API, secure token storage; later offline capture and sync.
+- **Pagination and search** on every list; a date range on the dashboards.
+- **Stock reservation** for jobs waiting for parts; partial returns.
+- **Reopen-for-correction** with an audit log; report history.
+- **Notifications** (email/SMS when a job is assigned or completed) and real-time updates.
+- **Refresh tokens**, forced password change on first login, a forgot-password flow.
+- **Customer portal** to raise requests and download reports.
 
 ## License
 

@@ -586,21 +586,32 @@ Request ──approve──► Assign ──► Work order ──► Technician 
 **Goal:** things that genuinely cannot be sliced into earlier phases. This is a short verification-and-presentation phase, **not** the first time tests, security or docs are considered.
 **Covers:** PRD §7 (Q-01…Q-06), §9, §11 · D-07.
 
-- [ ] **AC traceability verification:** every AC-01…AC-11 has a named passing test in `docs/test-plan.md` (the map has been growing since Phase 3; this only fills gaps).
-- [ ] **One final security sweep** (`security-review` / `code-review`): IDOR checks (technician on others' jobs, file downloads), mass assignment, JWT lifetime/issuer/audience, CORS for non-dev, upload validation, logs without secrets, HTTPS behaviour, plus `dotnet list package --vulnerable`, `npm audit`, and a secret scan of the **full git history**.
-- [ ] **Performance & accessibility sweep:** N+1 queries, `AsNoTracking`, pagination on list endpoints; keyboard navigation and contrast; 360 px technician view and ≥ 1024 px office view.
-- [ ] **Seed dataset review:** ~10 customers, ~30 equipment, parts below minimum, records in **every lifecycle state**, one fully completed + approved job with photos, signature and report, one demo account per role.
-- [ ] **Clean-machine test:** clone into a new folder or VM, run only the documented commands, walk the whole demo.
-- [ ] **README, portfolio-grade:** pitch, screenshots/GIFs, **2–3 minute demo video**, architecture diagram, ERD, workflow diagrams, API examples, design decisions, dependencies and why, known limitations, V2 roadmap. Decide **Open Question 7** (SDD v1.2 vs PRD-as-amendment) and write `docs/decisions.md`.
-- [ ] **Decide Open Question 4** (live deployment: try a free tier for at most a day, else skip).
+- [x] **AC traceability verification:** every AC-01…AC-11 has a named passing test in `docs/test-plan.md` (the map has been growing since Phase 3; this only fills gaps). *(One gap: AC-11 now has a row for every route, 56, plus a test that the table matches the routes the app maps. All eleven are Done.)*
+- [x] **One final security sweep** (`security-review` / `code-review`): IDOR checks (technician on others' jobs, file downloads), mass assignment, JWT lifetime/issuer/audience, CORS for non-dev, upload validation, logs without secrets, HTTPS behaviour, plus `dotnet list package --vulnerable`, `npm audit`, and a secret scan of the **full git history**. *(Found and fixed: customers and equipment were readable by every signed-in role, now office-only. Added a deny-by-default fallback policy, config-driven CORS, HSTS, nginx CSP and security headers. Upgraded to clear 7 npm and 4 NuGet advisories. gitleaks over all 57 commits: only Azurite's published key, accepted and scanned in CI from now on. IDOR, mass assignment, JWT, uploads and logs re-checked: already covered.)*
+- [x] **Performance & accessibility sweep:** N+1 queries, `AsNoTracking`, pagination on list endpoints; keyboard navigation and contrast; 360 px technician view and ≥ 1024 px office view. *(Reads use `AsNoTracking`, with no queries issued per row; every read API's median is ≤ 31 ms through nginx on the seeded stack (NFR-03: 500 ms). Pagination was deliberately not added (see Decisions). axe-core WCAG 2.1 A/AA passes on 21 pages after one contrast fix; focus is visible on every tab stop; no overflow at 360/375 px.)*
+- [x] **Seed dataset review:** ~10 customers, ~30 equipment, parts below minimum, records in **every lifecycle state**, one fully completed + approved job with photos, signature and report, one demo account per role. *(Now 10 customers and 30 equipment; a test proves every reachable state is seeded.)*
+- [x] **Clean-machine test:** clone into a new folder or VM, run only the documented commands, walk the whole demo. *(Fresh `git clone` into a new folder, images built with `--no-cache` (161 s), `docker compose up` healthy, `scripts/compose-smoke.sh` passed. The README's API examples ran as written and the screenshots were taken from this stack. The Docker base images were already on the machine, and the walk was scripted, not clicked by hand.)*
+- [ ] **README, portfolio-grade:** pitch, screenshots/GIFs, **2–3 minute demo video**, architecture diagram, ERD, workflow diagrams, API examples, design decisions, dependencies and why, known limitations, V2 roadmap. Decide **Open Question 7** (SDD v1.2 vs PRD-as-amendment) and write `docs/decisions.md`. *(Everything except the **demo video**, which is the owner's to record; the README's five-minute tour is its script. The per-phase detail moved to `docs/features.md`, and the Mermaid diagrams are render-checked. OQ7 → the PRD stays the amendment record.)*
+- [x] **Decide Open Question 4** (live deployment: try a free tier for at most a day, else skip). *(Already done by the owner on Azure Container Apps; recorded in `docs/decisions.md` without URLs or credentials.)*
 - [ ] **Flip the repo public (MIT)** — only on the owner's explicit go-ahead; replace the CI badge URL; repo description/topics.
 
+**Decisions taken**
+
+| Topic | Decision |
+|---|---|
+| Customer/equipment reads | Office roles only, like the pages; a Technician sees them through their own job (BR-02). |
+| Deny by default | Fallback policy = authenticated user; the public routes (login, `/health`, `/health/ready`) are pinned by a test. |
+| CORS / HTTPS | `Cors:AllowedOrigins` outside Development (empty by default; the shipped app is same-origin). HSTS only where the API itself redirects to HTTPS. |
+| Dependency majors | Taken (Vite 8, Vitest 5, React Router 7): the advisories had no fix in the old majors, and the suites passed with one test-setup change. Node 20.19+ is now needed for the manual setup. |
+| Pagination | Not added: demo-scale lists, with server-side filters on the long ones. Paging changes every list's contract, so it goes on the V2 list. |
+| README | Portfolio front page (pitch, screenshots, tour, diagrams, API examples, security, limitations, roadmap); per-phase detail moved to `docs/features.md`; decision log in `docs/decisions.md`. |
+| Git | Branch `phase-15-release-polish` from the Phase 14 work; commits per task group; nothing pushed by the assistant. |
+
 **Exit criteria — Definition of Done (PRD §11)**
-- [ ] `docker compose up` yields a seeded, working system on a clean machine.
-- [ ] CI green; README complete; demo video linked; repo public with a clean history.
+- [x] `docker compose up` yields a seeded, working system on a clean machine. *(Clean clone, no build cache, smoke passed.)*
+- [ ] CI green; README complete; demo video linked; repo public with a clean history. *(Local equivalents pass: all backend and frontend tests, the smoke test, and the gitleaks scan with a clean history. CI itself runs once the branch is pushed, which the assistant does not do. The demo video and the public flip are the owner's.)*
 
 ---
-
 ## Phase 16 — Stretch (only after Phase 15)
 
 Same tracer rule applies: thin end-to-end first.
