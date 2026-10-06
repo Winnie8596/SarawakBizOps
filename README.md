@@ -11,7 +11,7 @@ Customer report → Service request → Manager approval → Technician assignme
 ```
 
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-&nbsp;**Stack:** ASP.NET Core 8 · EF Core · SQL Server · ASP.NET Identity + JWT · React 18 + TypeScript (Vite) ·
+&nbsp;**Stack:** ASP.NET Core 10 · EF Core · SQL Server · ASP.NET Identity + JWT · React 18 + TypeScript (Vite) ·
 Azure Blob Storage (Azurite) · Docker · GitHub Actions
 
 | Manager dashboard | AI insights with the figures beside the summary |
@@ -340,7 +340,7 @@ Use this when you are changing code and want hot reload; otherwise prefer Docker
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download) (a newer SDK also works; the projects target `net8.0`)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) (the projects target `net10.0`, the current LTS)
 - SQL Server LocalDB (ships with Visual Studio) or any SQL Server instance
 - Azurite for file storage: `docker compose up -d azurite` (or `npm install -g azurite` and run `azurite-blob --skipApiVersionCheck`). `appsettings.Development.json` points at it with `UseDevelopmentStorage=true`; the API refuses to start without a `Storage:ConnectionString`. `UseDevelopmentStorage=true` means port 10000; if you moved Azurite with `AZURITE_HOST_PORT`, set `Storage__ConnectionString` to the full development-account string with `BlobEndpoint=http://127.0.0.1:<port>/devstoreaccount1;`.
 - [Node.js](https://nodejs.org/) 20.19+ or 22.12+ (Vite 8) and npm

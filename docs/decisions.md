@@ -54,3 +54,9 @@ copy of the design would only drift.
 | Secrets | gitleaks over the **full history** finds only Azurite's published development key (accepted in `.gitleaksignore`); CI now runs the same scan on every push. |
 | Pagination | **Not added.** Every list is bounded by the demo's scale (tens to a few hundred rows) and the long ones have server-side filters (requests and jobs by status, the ledger by part, type, job and date). Paging changes every list's contract and page, so it is on the V2 list rather than half-done now. |
 | Seed | Grown to the PRD's scale — **10 customers, 30 equipment** — with no jobs on the new rows, so every hand-computed dashboard figure is unchanged. A test proves the seed has a record in every reachable state. |
+
+## After Phase 15
+
+| Topic | Decision |
+|---|---|
+| .NET version | **Moved from .NET 8 to .NET 10** (LTS, supported to November 2028) before .NET 8 support ends on 10 November 2026. .NET 9 was skipped: its support ends on the same day. The two projects target `net10.0`, the ASP.NET Core/EF Core packages are 10.0.12, the API image is built on `sdk:10.0`/`aspnet:10.0` and CI installs `10.0.x`. Swashbuckle stays on 6.6.2 (the newer major moves to OpenAPI v2 for no gain here). No code changes were needed. |
