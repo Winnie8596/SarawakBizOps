@@ -1,0 +1,50 @@
+# Dependency updates arrive as weekly pull requests, grouped so a week is a handful of PRs, each checked by CI.
+# Security fixes are raised as soon as an advisory is published, whatever the schedule.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # ASP.NET Core and EF Core ship together and must stay on one version.
+      aspnetcore-efcore:
+        patterns: ["Microsoft.AspNetCore.*", "Microsoft.EntityFrameworkCore*"]
+      test-tooling:
+        patterns: ["xunit*", "Microsoft.NET.Test.Sdk", "coverlet.*", "Testcontainers*"]
+    ignore:
+      # A new major of these means a new .NET (target framework, SDK and images together): a deliberate upgrade.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      # The next major moves to OpenAPI v2 (docs/decisions.md).
+      - dependency-name: "Swashbuckle.AspNetCore"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: npm
+    directory: /src/SarawakBizOps.Web
+    schedule:
+      interval: weekly
+    groups:
+      # Minor and patch releases in one PR; each major gets its own.
+      web-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directories:
+      - /src/SarawakBizOps.Api
+      - /src/SarawakBizOps.Web
+    schedule:
+      interval: weekly
+    ignore:
+      # Same rule as the NuGet packages: the SDK/runtime images move with a planned .NET upgrade.
+      - dependency-name: "dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet/aspnet"
+        update-types: ["version-update:semver-major"]

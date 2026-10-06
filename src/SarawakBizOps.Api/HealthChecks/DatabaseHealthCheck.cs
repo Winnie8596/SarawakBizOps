@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using SarawakBizOps.Api.Data;
 
-namespace SarawakBizOps.Api.Middleware;
+namespace SarawakBizOps.Api.HealthChecks;
 
 /// <summary>Readiness probe: can the API reach its database? Returns no data, only healthy/unhealthy.</summary>
 public class DatabaseHealthCheck : IHealthCheck

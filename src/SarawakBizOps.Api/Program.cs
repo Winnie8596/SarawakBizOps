@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SarawakBizOps.Api.Data;
-using SarawakBizOps.Api.Middleware;
+using SarawakBizOps.Api.ErrorHandling;
+using SarawakBizOps.Api.HealthChecks;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Services.Ai;
 using SarawakBizOps.Api.Services.Analytics;
@@ -29,8 +31,16 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Checked here, like the JWT key, so a missing setting stops startup instead of failing on the first query.
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is not configured. Set it in appsettings, user-secrets or " +
+        "ConnectionStrings__DefaultConnection.");
+}
+
+builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
 
 // ---------------------------------------------------------------------
 // Identity — owns password hashing, lockout and role membership.
@@ -146,6 +156,21 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddAi(builder.Configuration);
 
 // ---------------------------------------------------------------------
+// Reverse proxy. nginx (and any platform ingress in front of it) passes the caller's address in
+// X-Forwarded-For. Only hops inside ForwardedHeaders:KnownNetworks (the private ranges by default) are trusted, so
+// the middleware walks back past the proxies to the first outside address and a client cannot spoof its own.
+// ---------------------------------------------------------------------
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = null; // every trusted hop, however many proxies sit in front
+    foreach (var network in builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+    {
+        options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(network));
+    }
+});
+
+// ---------------------------------------------------------------------
 // CORS. The shipped web app needs none: nginx serves it and proxies /api/ from the same origin. Development
 // accepts any localhost port (the Vite dev server); elsewhere only origins listed in Cors:AllowedOrigins
 // (Cors__AllowedOrigins__0=...), none by default.
@@ -178,6 +203,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers();
 // RFC 7807 ProblemDetails is the single error shape for every 4xx/5xx response.
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -218,7 +244,9 @@ using (var scope = app.Services.CreateScope())
 // ---------------------------------------------------------------------
 // Middleware pipeline
 // ---------------------------------------------------------------------
-app.UseMiddleware<ExceptionHandlingMiddleware>();
+// First, so everything after it (logs, any IP-based limit) sees the real client address, not nginx's.
+app.UseForwardedHeaders();
+app.UseExceptionHandler();
 // Turns body-less 401/403/404 responses (e.g. the JWT challenge) into ProblemDetails.
 app.UseStatusCodePages();
 
