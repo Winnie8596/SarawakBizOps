@@ -71,6 +71,9 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // per-user rate limit is lifted here; TechnicianAssistantTests proves it on a host with the limit set low.
         builder.UseSetting("Ai:Provider", "Mock");
         builder.UseSetting("Ai:PermitsPerMinute", "1000");
+        // Every test signs in through the real endpoint from the same (absent) address; AuthSessionTests proves the
+        // per-address login limit on a host with it set low.
+        builder.UseSetting("Auth:LoginPermitsPerMinute", "100000");
     }
 
     async Task IAsyncLifetime.DisposeAsync()

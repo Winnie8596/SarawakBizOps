@@ -558,8 +558,11 @@ public class EndpointAccessTests
         Assert.Equal(expected, response.StatusCode);
     }
 
-    /// <summary>The routes anyone may call: signing in and the data-free health checks.</summary>
-    private static readonly string[] PublicEndpoints = { "POST /api/auth/login", "ANY /health", "ANY /health/ready" };
+    /// <summary>The routes anyone may call: signing in, refreshing or ending a session (the cookie is the credential) and the data-free health checks.</summary>
+    private static readonly string[] PublicEndpoints =
+    {
+        "POST /api/auth/login", "POST /api/auth/refresh", "POST /api/auth/logout", "ANY /health", "ANY /health/ready"
+    };
 
     /// <summary>
     /// Phase 15 (AC-11 over the whole surface): the table above is complete. Every route the app maps is either a

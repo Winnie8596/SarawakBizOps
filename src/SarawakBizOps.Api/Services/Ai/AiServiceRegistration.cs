@@ -1,16 +1,8 @@
-using System.Security.Claims;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 
 namespace SarawakBizOps.Api.Services.Ai;
 
 public static class AiServiceRegistration
 {
-    /// <summary>The per-user rate limit on the AI endpoints (<c>[EnableRateLimiting]</c>).</summary>
-    public const string RateLimitPolicy = "ai";
-
     /// <summary>
     /// Registers the AI features from the "Ai" section. A misconfigured real provider stops startup with a hint (like
     /// the JWT key), rather than failing on the first question; the mock needs no configuration at all.
@@ -63,35 +55,6 @@ public static class AiServiceRegistration
         services.AddScoped<AiReadOnlyData>(); // Phase 14: also the Manager AI's analytics, over the guarded context
         services.AddScoped<TechnicianAssistantContextBuilder>();
         services.AddScoped<IAiService, AiService>();
-
-        services.AddRateLimiter(limiter =>
-        {
-            limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            limiter.OnRejected = async (context, ct) =>
-            {
-                if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-                {
-                    context.HttpContext.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
-                }
-                await context.HttpContext.Response.WriteAsJsonAsync(new ProblemDetails
-                {
-                    Status = StatusCodes.Status429TooManyRequests,
-                    Title = "Too many requests",
-                    Detail = "You have asked the AI assistant too often. Wait a minute and try again."
-                }, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json", ct);
-            };
-
-            // One fixed one-minute window per signed-in user. Only authorised requests reach it
-            // (UseRateLimiter runs after UseAuthorization), so the user id is always there.
-            limiter.AddPolicy(RateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
-                http.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
-                _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = Math.Max(1, http.RequestServices.GetRequiredService<IOptions<AiOptions>>().Value.PermitsPerMinute),
-                    Window = TimeSpan.FromMinutes(1),
-                    QueueLimit = 0
-                }));
-        });
 
         return services;
     }

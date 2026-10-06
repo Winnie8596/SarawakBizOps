@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Users;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Users;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -9,7 +10,7 @@ namespace SarawakBizOps.Api.Controllers;
 // FR-01/02 — user administration is Admin-only, enforced here and not just in the UI (BR-08).
 [ApiController]
 [Route("api/users")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = AppRoles.Admin)]
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;

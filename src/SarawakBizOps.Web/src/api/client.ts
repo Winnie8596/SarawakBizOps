@@ -35,19 +35,39 @@ function messageFromProblem(status: number, problem: ProblemDetails | undefined)
   }
 }
 
-// AuthProvider registers this so an expired/invalid token clears the session;
-// ProtectedRoute then redirects to /login.
+// AuthProvider registers these. A 401 on a call that carried a token first tries the refresh cookie for a new
+// access token and repeats the call once with it; only if that fails does the session end (ProtectedRoute then
+// redirects to /login). A 401 without a token (a bad login) is just an error to display.
 let onUnauthorized: (() => void) | null = null
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler
+}
+
+// The newest access token. Pages pass the token they were rendered with, which marks the call as authenticated;
+// the client sends this one instead, so a quiet refresh never has to re-render (and reload) every page.
+let currentAccessToken: string | null = null
+export function setAccessToken(token: string | null) {
+  currentAccessToken = token
+}
+
+let refreshAccessToken: (() => Promise<string | null>) | null = null
+export function setAccessTokenRefresher(refresher: (() => Promise<string | null>) | null) {
+  refreshAccessToken = refresher
+}
+
+async function renewedToken(): Promise<string | null> {
+  const token = refreshAccessToken ? await refreshAccessToken().catch(() => null) : null
+  if (!token) onUnauthorized?.()
+  return token
 }
 
 interface RequestOptions extends RequestInit {
   token?: string | null
 }
 
-async function send(path: string, options: RequestOptions): Promise<Response> {
-  const { token, headers, body, ...rest } = options
+async function send(path: string, options: RequestOptions, retried = false): Promise<Response> {
+  const { headers, body, ...rest } = options
+  const token = options.token ? (retried ? options.token : currentAccessToken ?? options.token) : null
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
@@ -60,14 +80,16 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     }
   })
 
+  if (response.status === 401 && token && !retried) {
+    const renewed = await renewedToken()
+    if (renewed) return send(path, { ...options, token: renewed }, true)
+  } else if (response.status === 401 && token) {
+    onUnauthorized?.()
+  }
+
   if (!response.ok) {
     const isJson = response.headers.get('content-type')?.includes('json')
     const problem = isJson ? await response.json() : undefined
-    // A 401 on a call that carried a token means the session is no longer
-    // valid. A 401 without a token (bad login) is just an error to display.
-    if (response.status === 401 && token) {
-      onUnauthorized?.()
-    }
     throw new ApiError(response.status, messageFromProblem(response.status, problem), problem?.errors)
   }
 
@@ -96,8 +118,21 @@ interface UploadOptions {
  * A multipart upload that reports progress (Phase 9's job photos). `fetch` cannot report upload progress, so
  * this one call uses XMLHttpRequest; errors come back as the same ApiError as every other call.
  */
-export function apiUpload<T>(path: string, { token, body, onProgress }: UploadOptions): Promise<T> {
+export async function apiUpload<T>(path: string, options: UploadOptions): Promise<T> {
+  try {
+    return await uploadOnce<T>(path, options)
+  } catch (err) {
+    // As for every other call: one retry with a renewed access token.
+    if (!(err instanceof ApiError && err.status === 401 && options.token)) throw err
+    const renewed = await renewedToken()
+    if (!renewed) throw err
+    return uploadOnce<T>(path, { ...options, token: renewed }, true)
+  }
+}
+
+function uploadOnce<T>(path: string, { token, body, onProgress }: UploadOptions, retried = false): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    if (token && !retried) token = currentAccessToken ?? token
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE_URL}${path}`)
     // No Content-Type: the browser sets multipart/form-data with its boundary.
@@ -122,7 +157,7 @@ export function apiUpload<T>(path: string, { token, body, onProgress }: UploadOp
       }
 
       const problem = parsed as ProblemDetails | undefined
-      if (xhr.status === 401 && token) onUnauthorized?.()
+      if (xhr.status === 401 && token && retried) onUnauthorized?.()
       reject(new ApiError(xhr.status, messageFromProblem(xhr.status, problem), problem?.errors))
     }
 

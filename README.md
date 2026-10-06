@@ -331,7 +331,9 @@ The sample data is fictional (names, companies, phone numbers and addresses) and
 - nginx passes the browser's address in `X-Forwarded-For`; the API trusts it only from proxies in `ForwardedHeaders:KnownNetworks` (the private ranges by default), so logs and anything keyed on the client IP see the real caller and a caller cannot forge its own.
 - SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
 
-**Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `APP_DB_PASSWORD`, `AI_DB_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`; the two API logins pick up a new password on the next `up`.
+**Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `APP_DB_PASSWORD`, `AI_DB_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The session cookie is `Secure`, which
+browsers accept from `http://localhost`; to open the demo over plain HTTP from another machine, set
+`Auth__RefreshCookieSecure=false` on the api service, or sign-ins will not survive a page reload. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`; the two API logins pick up a new password on the next `up`.
 
 **Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) drives the running stack through the web container with `curl` and `jq`, the way the browser does (each record's `rowVersion` included): every role signs in; the seed is there; request intake (raise, approve, reject, wrong roles and invalid moves refused); a first job end to end (assign, start, the completion rules, signature and photo uploads with bad files refused, complete, report, approve, the lock, exact file bytes downloaded); parts and stock (create, receive, adjust with a reason, below zero refused, the ledger sums to the stock); parts on a job (issue at the snapshotted price, over-stock refused, return, pause for parts, resume); the dashboards (figures equal the lists); the AI assistant and the AI insights on the mock (figures equal the dashboard's, a revenue question refused, other roles 403). CI runs it on every push. It changes the demo data, so run it against a fresh volume (`docker compose down -v`).
 
@@ -410,13 +412,21 @@ The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which
 
 ## Security
 
-- **Authorization is server-side and deny-by-default.** `[Authorize(Roles=…)]` on every controller, ownership checks
+- **Authorization is server-side and deny-by-default.** `[Authorize(Roles=…)]` built from the `AppRoles` constants on every controller, ownership checks
   in services (a technician's request for someone else's job is a 404, not a 403, so it does not even confirm the job
   exists), and a fallback policy that requires a signed-in user on anything without its own rule. The UI hides what the
   API would refuse, as a courtesy.
-- **Sessions end when they should.** JWTs are short-lived (60 min) with issuer, audience and lifetime validated; each
-  carries the Identity security stamp, checked per request, so deactivating a user or changing their role or password
-  revokes their tokens at once. Five failed sign-ins lock an account for ten minutes.
+- **Sessions end when they should.** Access tokens (JWTs) last 15 minutes, with issuer, audience and lifetime
+  validated; each carries the Identity security stamp, checked per request, so deactivating a user or changing their
+  role or password revokes their tokens at once. The web app keeps the access token in memory only, never in
+  `localStorage`. A sign-in lasts up to 12 hours through a **refresh token in an `HttpOnly`, `Secure`,
+  `SameSite=Strict` cookie** scoped to `/api/auth`, which page scripts cannot read: it is stored only as a SHA-256
+  hash, rotated on every refresh (an old one presented again ends all of that user's sessions), revoked on logout and
+  dead after any security-stamp change.
+- **Sign-in is hard to brute-force.** Five failed sign-ins lock an account for ten minutes, and `POST /api/auth/login`
+  is rate-limited per client address (20 a minute; the real address, read through `UseForwardedHeaders` behind
+  nginx). An unknown or inactive account is answered exactly like a wrong password, after the same password-hash work,
+  so neither the message nor the timing reveals which emails have accounts.
 - **No mass assignment.** Controllers bind request DTOs only; who created or approved something comes from the token,
   and a part's price from the catalogue, never from the body.
 - **Uploads** are typed from their bytes (PNG, JPEG, WebP), size-capped, stored under server-generated keys and

@@ -12,10 +12,10 @@ namespace SarawakBizOps.Api.Controllers;
 // pick parts for their job (Phase 7) — nothing else here.
 [ApiController]
 [Route("api/parts")]
-[Authorize(Roles = "Admin,Manager,WarehouseStaff,Technician")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.WarehouseStaff},{AppRoles.Technician}")]
 public class PartsController : ControllerBase
 {
-    private const string InventoryReaders = "Admin,Manager,WarehouseStaff";
+    private const string InventoryReaders = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.WarehouseStaff}";
 
     private readonly IPartService _service;
 
@@ -51,7 +51,7 @@ public class PartsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin,WarehouseStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.WarehouseStaff}")]
     public async Task<IActionResult> Create([FromBody] CreatePartRequest request, CancellationToken ct)
     {
         var result = await _service.CreateAsync(request, ct);
@@ -61,7 +61,7 @@ public class PartsController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,WarehouseStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.WarehouseStaff}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdatePartRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))

@@ -13,7 +13,7 @@ namespace SarawakBizOps.Api.Controllers;
 // (BR-02, AC-02) — enforced in the service layer, since a plain [Authorize] cannot express ownership.
 [ApiController]
 [Route("api/work-orders")]
-[Authorize(Roles = "Admin,Manager,ServiceStaff,Technician")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff},{AppRoles.Technician}")]
 public class WorkOrdersController : ControllerBase
 {
     private readonly IWorkOrderService _service;
@@ -34,7 +34,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Roles = "Admin,Manager,ServiceStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
     public async Task<IActionResult> GetAll([FromQuery] WorkOrderFilter filter, CancellationToken ct)
     {
         var result = await _service.GetAllAsync(filter, ct);
@@ -42,7 +42,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpGet("mine")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> GetMine(CancellationToken ct)
         => Ok(await _service.GetMineAsync(ActingUserId, ct));
 
@@ -54,7 +54,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/start")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> Start(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -67,7 +67,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPatch("{id:int}/diagnosis")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> UpdateDiagnosis(int id, [FromBody] DiagnosisUpdateRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -83,7 +83,7 @@ public class WorkOrdersController : ControllerBase
     // ---- Phase 7: parts used on the job (AC-03/AC-04) and PendingParts ----
 
     [HttpPost("{id:int}/parts")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> AddPart(int id, [FromBody] AddWorkOrderPartRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -98,7 +98,7 @@ public class WorkOrdersController : ControllerBase
     // {lineId} is the WorkOrderPart line (the same part can be on a job in more than one line). The whole
     // line goes back to stock; the body carries the job's rowVersion like every other mutating call.
     [HttpDelete("{id:int}/parts/{lineId:int}")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> ReturnPart(int id, int lineId, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -111,7 +111,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/pending-parts")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> PendingParts(int id, [FromBody] PendingPartsRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -125,7 +125,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/resume")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> Resume(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -144,7 +144,7 @@ public class WorkOrdersController : ControllerBase
     private const long SignatureRequestLimit = SignatureRules.MaxBytes + 16 * 1024;
 
     [HttpPost("{id:int}/signature")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     [RequestSizeLimit(SignatureRequestLimit)]
     [RequestFormLimits(MultipartBodyLengthLimit = SignatureRequestLimit)]
     public async Task<IActionResult> UploadSignature(int id, [FromForm] SignatureUploadRequest request, CancellationToken ct)
@@ -197,7 +197,7 @@ public class WorkOrdersController : ControllerBase
     private const long PhotoRequestLimit = PhotoRules.MaxBytes + 64 * 1024;
 
     [HttpPost("{id:int}/photos")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     [RequestSizeLimit(PhotoRequestLimit)]
     [RequestFormLimits(MultipartBodyLengthLimit = PhotoRequestLimit)]
     public async Task<IActionResult> UploadPhoto(int id, [FromForm] PhotoUploadRequest request, CancellationToken ct)
@@ -229,7 +229,7 @@ public class WorkOrdersController : ControllerBase
 
     // Before completion only; the body carries the job's rowVersion like every other mutating call.
     [HttpDelete("{id:int}/photos/{photoId:int}")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> RemovePhoto(int id, int photoId, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -262,7 +262,7 @@ public class WorkOrdersController : ControllerBase
     // No rowVersion: generating documents the job without changing it. The service re-checks the job's state under
     // its row lock, so a report can never be written after the job was approved with one.
     [HttpPost("{id:int}/generate-report")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> GenerateReport(int id, CancellationToken ct)
     {
         var result = await _reports.GenerateAsync(id, ActingUserId, ct);
@@ -287,7 +287,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/complete")]
-    [Authorize(Roles = "Technician")]
+    [Authorize(Roles = AppRoles.Technician)]
     public async Task<IActionResult> Complete(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -300,7 +300,7 @@ public class WorkOrdersController : ControllerBase
     }
 
     [HttpPost("{id:int}/approve")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> Approve(int id, [FromBody] RowVersionRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -314,7 +314,7 @@ public class WorkOrdersController : ControllerBase
 
     // Manager only, mirroring approve (plan's demo script: "a Manager cancels an assigned job").
     [HttpPost("{id:int}/cancel")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> Cancel(int id, [FromBody] CancelWorkOrderRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))

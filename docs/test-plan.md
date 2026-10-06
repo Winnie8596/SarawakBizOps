@@ -329,6 +329,19 @@ Release sweep (PRD §7, §9, §11). What was added or re-checked, and how.
 - **Secrets:** gitleaks 8.30 over all 57 commits → only Azurite's published development key (accepted); now a CI job.
 - **Clean machine:** a fresh clone, images built with `--no-cache`, `docker compose up`, the smoke test and the demo
   tour (see `plan.md`, Phase 15).
+## After Phase 15: sessions and sign-in
+
+- `AuthSessionTests`: the login cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, path `/api/auth`, and the access
+  token lasts 15 minutes; refresh rotates the cookie without extending the session; a missing or unknown cookie is a 401
+  that clears it; logout ends the session; deactivation, a role change and a password change each end it; a rotated
+  token is accepted for a second tab but later reuse ends every session of the user; login is rate-limited per
+  address (429 with `Retry-After`, another address unaffected); an unknown or inactive account costs one password-hash
+  verification, like a wrong password.
+- `EndpointAccessTests`: refresh and logout join login as the public routes.
+- Web (`LoginPage.test.tsx`): nothing is written to `localStorage` or `sessionStorage` on sign-in; a session is restored
+  from the cookie on load; a visitor without one lands on the login page; an old stored session is removed; a 401 is
+  retried once after a refresh; logging out calls the server.
+
 ## Running
 
 ```bash

@@ -6,8 +6,13 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ roles }: ProtectedRouteProps) {
-  const { isAuthenticated, hasRole } = useAuth()
+  const { isAuthenticated, restoring, hasRole } = useAuth()
   const location = useLocation()
+
+  // On first load the session (if any) is still being restored from the cookie: don't send anyone to /login yet.
+  if (restoring) {
+    return <p className="page-subtitle" role="status">Loading…</p>
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />

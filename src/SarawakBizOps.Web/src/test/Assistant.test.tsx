@@ -67,8 +67,10 @@ describe('AI assistant on the technician Diagnosis step', () => {
     expect(notes.value).toContain('Parts: REL-OVL-25A')
     expect(screen.getByLabelText('What is wrong?')).toHaveValue('')
     expect(screen.getByRole('status')).toHaveTextContent('saved only with the job')
-    // Nothing was written: the only calls are loading the job and asking the assistant.
-    expect(fetchMock.mock.calls.map(([, i]) => (i?.method ?? 'GET').toUpperCase())).toEqual(['GET', 'POST'])
+    // Nothing was written: apart from restoring the session, the only calls are loading the job and asking the assistant.
+    expect(fetchMock.mock.calls
+      .filter(([input]) => !String(input).includes('/auth/'))
+      .map(([, i]) => (i?.method ?? 'GET').toUpperCase())).toEqual(['GET', 'POST'])
   })
 
   it('says so when the assistant is unavailable, and the job carries on', async () => {

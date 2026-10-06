@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.WorkOrders;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -7,7 +8,7 @@ namespace SarawakBizOps.Api.Controllers;
 // Backs the Manager's assign dialog (PRD §6.1 technician picker with open-job counts).
 [ApiController]
 [Route("api/technicians")]
-[Authorize(Roles = "Manager")]
+[Authorize(Roles = AppRoles.Manager)]
 public class TechniciansController : ControllerBase
 {
     private readonly IWorkOrderService _service;

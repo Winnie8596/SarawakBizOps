@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Inventory;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Inventory;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -10,7 +11,7 @@ namespace SarawakBizOps.Api.Controllers;
 // a mistake is corrected by posting an offsetting Adjustment with a reason.
 [ApiController]
 [Route("api/inventory-transactions")]
-[Authorize(Roles = "Admin,Manager,WarehouseStaff")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.WarehouseStaff}")]
 public class InventoryTransactionsController : ControllerBase
 {
     private readonly IInventoryService _service;
@@ -31,7 +32,7 @@ public class InventoryTransactionsController : ControllerBase
     // (POST/DELETE /api/work-orders/{id}/parts).
     // There is no GET-by-id, so the 201 carries the new row in its body without a Location header.
     [HttpPost]
-    [Authorize(Roles = "Admin,WarehouseStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.WarehouseStaff}")]
     public async Task<IActionResult> Create([FromBody] CreateInventoryTransactionRequest request, CancellationToken ct)
     {
         var result = await _service.CreateAsync(request, User.FindFirstValue(ClaimTypes.NameIdentifier)!, ct);

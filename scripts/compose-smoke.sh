@@ -404,4 +404,16 @@ for t in "$staff_token" "$warehouse_token" "$tech_token"; do
 done
 echo "  ok: $(jq -r '.summary' <<<"$insight")"
 
+echo "Sessions: the refresh cookie survives the proxy, rotates, and logout ends it..."
+# A bodiless POST must still say Content-Length: 0 (browsers always do), or the proxied request is a 400.
+jar="$(mktemp)"; trap 'rm -f "$jar"' EXIT
+curl -fsS -c "$jar" -X POST "$BASE_URL/api/auth/login" -H 'Content-Type: application/json'   -d "$(jq -n --arg p "$DEMO_PASSWORD" '{email:"manager@sarawakbizops.local", password:$p}')" >/dev/null   || fail "login for the session check failed"
+grep -q 'sbo_refresh' "$jar" || fail "login set no refresh cookie"
+grep -q '^#HttpOnly_' "$jar" || fail "the refresh cookie is not HttpOnly"
+refreshed="$(curl -fsS -b "$jar" -c "$jar" -X POST -d "" "$BASE_URL/api/auth/refresh" | jq -er '.token')"   || fail "refresh with the cookie failed"
+curl -fsS "$BASE_URL/api/auth/me" -H "Authorization: Bearer $refreshed" >/dev/null || fail "the refreshed token is refused"
+[ "$(curl -sS -b "$jar" -c "$jar" -X POST -d "" "$BASE_URL/api/auth/logout" -o /dev/null -w '%{http_code}')" = 204 ] || fail "logout failed"
+[ "$(curl -sS -b "$jar" -X POST -d "" "$BASE_URL/api/auth/refresh" -o /dev/null -w '%{http_code}')" = 401 ]   || fail "refresh still works after logout"
+echo "  ok: login set an HttpOnly cookie, refresh rotated it, logout ended the session"
+
 echo "Smoke test passed."

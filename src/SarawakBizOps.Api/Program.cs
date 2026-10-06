@@ -12,6 +12,7 @@ using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.ErrorHandling;
 using SarawakBizOps.Api.HealthChecks;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.RateLimiting;
 using SarawakBizOps.Api.Services.Ai;
 using SarawakBizOps.Api.Services.Analytics;
 using SarawakBizOps.Api.Services.Auth;
@@ -131,6 +132,7 @@ builder.Services.AddHealthChecks()
 // ---------------------------------------------------------------------
 // Application services — Controller -> Service -> EF Core (NFR-06).
 // ---------------------------------------------------------------------
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IEquipmentService, EquipmentService>();
@@ -154,6 +156,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 // with its key from user-secrets or Ai__ApiKey (NFR-09). Read-only data access and a per-user rate limit.
 // ---------------------------------------------------------------------
 builder.Services.AddAi(builder.Configuration);
+
+// Rate limits: per user on the AI endpoints, per client address on login (RateLimitPolicies).
+builder.Services.AddAppRateLimits();
 
 // ---------------------------------------------------------------------
 // Reverse proxy. nginx (and any platform ingress in front of it) passes the caller's address in
@@ -193,7 +198,8 @@ builder.Services.AddCors(options =>
             policy.WithOrigins(origins ?? Array.Empty<string>());
         }
 
-        policy.AllowAnyHeader().AllowAnyMethod();
+        // Credentials, so a dev server on another port can send the refresh cookie to /api/auth.
+        policy.AllowAnyHeader().AllowAnyMethod().AllowCredentials();
     });
 });
 
@@ -269,7 +275,8 @@ if (builder.Configuration.GetValue("Hosting:UseHttpsRedirection", true))
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
-// After authorization, so only signed-in, permitted callers count against their own AI rate limit.
+// After authorization, so only signed-in, permitted callers count against their own AI rate limit (login is
+// anonymous and limited per address).
 app.UseRateLimiter();
 app.MapControllers();
 

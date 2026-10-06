@@ -14,7 +14,7 @@ namespace SarawakBizOps.Api.Controllers;
 // orders, BR-02); raising a request is ServiceStaff/Admin; the review decision belongs to the Manager.
 [ApiController]
 [Route("api/service-requests")]
-[Authorize(Roles = "Admin,Manager,ServiceStaff")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
 public class ServiceRequestsController : ControllerBase
 {
     private readonly IServiceRequestService _service;
@@ -41,7 +41,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin,ServiceStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
     public async Task<IActionResult> Create([FromBody] CreateServiceRequestRequest request, CancellationToken ct)
     {
         var result = await _service.CreateAsync(request, ActingUserId, ct);
@@ -51,7 +51,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     [HttpPost("{id:int}/approve")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> Approve(int id, [FromBody] ApproveServiceRequestRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -64,7 +64,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     [HttpPost("{id:int}/reject")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> Reject(int id, [FromBody] RejectServiceRequestRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
@@ -93,7 +93,7 @@ public class ServiceRequestsController : ControllerBase
 
     // Atomically creates the WorkOrder and marks the request Assigned (BR-01, BR-12, BR-13, AC-01).
     [HttpPost("{id:int}/assign")]
-    [Authorize(Roles = "Manager")]
+    [Authorize(Roles = AppRoles.Manager)]
     public async Task<IActionResult> Assign(int id, [FromBody] AssignWorkOrderRequest request, CancellationToken ct)
     {
         if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))

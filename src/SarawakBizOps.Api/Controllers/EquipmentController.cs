@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Equipment;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Equipment;
 using SarawakBizOps.Api.Services.History;
 
@@ -10,7 +11,7 @@ namespace SarawakBizOps.Api.Controllers;
 [Route("api/equipment")]
 // The office's records (Phase 15 sweep: a Technician sees a customer and equipment only through their own job,
 // BR-02, and the warehouse has no use for them), so reads are office-only like the pages that show them.
-[Authorize(Roles = "Admin,Manager,ServiceStaff")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
 public class EquipmentController : ControllerBase
 {
     private readonly IEquipmentService _equipmentService;
@@ -37,7 +38,7 @@ public class EquipmentController : ControllerBase
 
     // FR-07 — registering equipment is a Service Staff / Admin action.
     [HttpPost]
-    [Authorize(Roles = "Admin,ServiceStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
     public async Task<IActionResult> Create([FromBody] EquipmentRequest request, CancellationToken ct)
     {
         var (success, error, equipment) = await _equipmentService.CreateAsync(request, ct);
@@ -51,7 +52,7 @@ public class EquipmentController : ControllerBase
 
     // FR-07 — editing equipment (including status changes) is a Service Staff / Admin action.
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,ServiceStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
     public async Task<IActionResult> Update(int id, [FromBody] EquipmentUpdateRequest request, CancellationToken ct)
     {
         var result = await _equipmentService.UpdateAsync(id, request, ct);
@@ -60,7 +61,7 @@ public class EquipmentController : ControllerBase
 
     // Office roles only: a Technician's view of history is limited to their own jobs (BR-02).
     [HttpGet("{id:int}/history")]
-    [Authorize(Roles = "Admin,Manager,ServiceStaff")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
     public async Task<IActionResult> GetHistory(int id, CancellationToken ct)
     {
         var history = await _historyService.ForEquipmentAsync(id, ct);

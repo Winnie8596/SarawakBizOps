@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Reports;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -8,7 +9,7 @@ namespace SarawakBizOps.Api.Controllers;
 // and downloaded per job under /api/work-orders/{id} (generate-report, report).
 [ApiController]
 [Route("api/reports")]
-[Authorize(Roles = "Admin,Manager,ServiceStaff")]
+[Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
 public class ReportsController : ControllerBase
 {
     private readonly IReportService _reports;

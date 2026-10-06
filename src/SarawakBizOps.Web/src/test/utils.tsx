@@ -3,18 +3,24 @@ import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import App from '../App'
 
-const STORAGE_KEY = 'sarawakbizops.auth'
+// The session the stubbed POST /auth/refresh hands out, as the server would from the browser's cookie.
+let session: Record<string, unknown> | null = null
 
-/** Puts a signed-in session in localStorage, exactly as AuthProvider stores it after a login. */
+/** Gives the browser a signed-in session: on load the app restores it through POST /auth/refresh. */
 export function signInAs(role: string, fullName = 'Test User') {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  session = {
     token: 'test-token',
     fullName,
     email: `${role.toLowerCase()}@test.local`,
     userId: `${role}-id`,
     roles: [role],
-    expiresAtUtc: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-  }))
+    expiresAtUtc: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+  }
+}
+
+/** Called after each test (setup.ts): no session leaks into the next one. */
+export function resetSession() {
+  session = null
 }
 
 export interface StubbedResponse {
@@ -39,7 +45,10 @@ export function stubApi(routes: Record<string, Route>) {
     const url = new URL(String(input))
     const method = (init?.method ?? 'GET').toUpperCase()
     const key = `${method} ${url.pathname.replace(/^\/api/, '')}`
-    const route = routes[key]
+    // Unless a test says otherwise, the refresh call answers like the server: the signed-in session, or a 401.
+    const route = routes[key] ?? (key === 'POST /auth/refresh'
+      ? (session ? { body: session } : { status: 401, body: { title: 'Unauthorized', detail: 'Your session has ended. Please sign in again.' } })
+      : undefined)
 
     if (!route) {
       return respond({ status: 404, body: { title: 'Not found', detail: `No stub for ${key}` } })

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SarawakBizOps.Api.DTOs.Ai;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.RateLimiting;
 using SarawakBizOps.Api.Services.Ai;
 
 namespace SarawakBizOps.Api.Controllers;
@@ -12,7 +13,7 @@ namespace SarawakBizOps.Api.Controllers;
 // or an unusable answer is a 503 the UI shows as "AI unavailable"; asking too often is a 429 (per-user rate limit).
 [ApiController]
 [Route("api/ai")]
-[EnableRateLimiting(AiServiceRegistration.RateLimitPolicy)]
+[EnableRateLimiting(RateLimitPolicies.Ai)]
 public class AiController : ControllerBase
 {
     private readonly IAiService _ai;
