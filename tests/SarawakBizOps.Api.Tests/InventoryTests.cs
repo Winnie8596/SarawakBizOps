@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.Models.Enums;
@@ -369,6 +372,35 @@ public class InventoryTests
         var after = (await LedgerAsync(admin, part.Id)).Single();
         Assert.Equal(entry.Quantity, after.Quantity);
         Assert.Equal(2m, (await GetPartAsync(admin, part.Id)).QuantityOnHand);
+    }
+
+    [Fact]
+    public async Task The_database_refuses_to_edit_or_delete_a_ledger_row_even_for_a_privileged_login()
+    {
+        // The tests connect as sa, so this is the trigger at work, not a missing permission: a code path that
+        // forgot BR-09, or a hand-run statement, cannot rewrite stock history either.
+        var admin = await _factory.AdminClientAsync();
+        var part = await CreateStockedPartAsync(admin, onHand: 2);
+        var entry = (await LedgerAsync(admin, part.Id)).Single();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var rows = db.InventoryTransactions.Where(t => t.Id == entry.Id);
+
+        var update = await Assert.ThrowsAsync<SqlException>(() =>
+            rows.ExecuteUpdateAsync(s => s.SetProperty(t => t.Quantity, 1000m)));
+        var delete = await Assert.ThrowsAsync<SqlException>(() => rows.ExecuteDeleteAsync());
+        var tracked = await db.InventoryTransactions.SingleAsync(t => t.Id == entry.Id);
+        tracked.Notes = "edited";
+        var save = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+
+        Assert.All(new[] { update, delete, (SqlException)save.InnerException! }, e => Assert.Equal(50009, e.Number));
+        var after = (await LedgerAsync(admin, part.Id)).Single();
+        Assert.Equal(entry.Quantity, after.Quantity);
+        Assert.Equal(entry.Notes, after.Notes);
+
+        // A statement that matches no ledger row is not a change, so it is let through.
+        Assert.Equal(0, await db.InventoryTransactions.Where(t => t.Id == -1).ExecuteDeleteAsync());
     }
 
     // ---- AC-09 (API): low stock ----

@@ -8,6 +8,9 @@ namespace SarawakBizOps.Api.Data;
 /// <summary>
 /// IdentityDbContext gives us AspNetUsers/AspNetRoles/etc. for free.
 /// Business tables are added as normal DbSets alongside them.
+/// Every DateTime is UTC (written from DateTime.UtcNow or TimeProvider.GetUtcNow), except
+/// Equipment.InstallationDate, which is a calendar date. SQL Server's datetime2 keeps no offset, so values
+/// come back with DateTimeKind.Unspecified; the web app reads the API's timestamps as UTC accordingly.
 /// </summary>
 public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
 {
@@ -31,15 +34,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         // Must run first — it builds the Identity tables this model extends.
         base.OnModelCreating(builder);
 
-        builder.ApplyConfiguration(new CustomerConfiguration());
-        builder.ApplyConfiguration(new EquipmentConfiguration());
-        builder.ApplyConfiguration(new ServiceRequestConfiguration());
-        builder.ApplyConfiguration(new WorkOrderConfiguration());
-        builder.ApplyConfiguration(new PartConfiguration());
-        builder.ApplyConfiguration(new WorkOrderPartConfiguration());
-        builder.ApplyConfiguration(new InventoryTransactionConfiguration());
-        builder.ApplyConfiguration(new WorkOrderPhotoConfiguration());
-        builder.ApplyConfiguration(new ServiceReportConfiguration());
+        // Every IEntityTypeConfiguration in Data/Configurations, so a new one cannot be forgotten here.
+        builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
         builder.HasSequence<long>(ServiceReportConfiguration.NumberSequence).StartsAt(1).IncrementsBy(1);
     }

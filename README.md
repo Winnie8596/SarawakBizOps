@@ -133,7 +133,8 @@ erDiagram
   Equipment {
     int Id PK
     int CustomerId FK
-    string SerialNumber UK
+    string Brand
+    string SerialNumber "unique per Brand"
     string EquipmentType
     enum Status
   }
@@ -197,7 +198,7 @@ erDiagram
 ```
 
 Files live in blob storage; the database keeps their keys. `InventoryTransaction` is append-only — no route edits or
-deletes a row — and `Part.QuantityOnHand` always equals the sum of its rows (checked after every stock-moving test).
+deletes a row, and a database trigger refuses any UPDATE or DELETE whoever sends it — and `Part.QuantityOnHand` always equals the sum of its rows (checked after every stock-moving test).
 Who created, approved, rejected or cancelled a record is a user id and a UTC timestamp on the record itself (D-05).
 
 ## Workflows
@@ -442,7 +443,13 @@ The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which
   single `ApiError`, and a 401 on an authenticated call ends the session and redirects to `/login`.
 - **Conflicts are explicit.** Every mutating call sends the record's `rowVersion`; a stale one is a 409 the UI shows
   in a shared "changed since you opened it — refresh" banner.
-- **Time and money:** UTC in storage, MYT (UTC+8) on display; currency shown as RM.
+- **Time and money:** every timestamp is a UTC `DateTime` (`datetime2`, written from `UtcNow`/`TimeProvider`), MYT
+  (UTC+8) on display; `Equipment.InstallationDate` is a plain calendar date. Currency shown as RM.
+- **Schema changes on real data use expand and contract:** add the new column or table and write both shapes, backfill,
+  move the readers, and only drop the old one in a later release, so a running version never meets a schema it cannot
+  read and a rollback loses nothing. No migration drops or renames a column holding data in one step.
+- **Entity configurations** live in `Data/Configurations` and are picked up by `ApplyConfigurationsFromAssembly`, so a
+  new one cannot be left unregistered.
 - **Accessible and responsive:** the office console is built for ≥ 1024 px and stays usable on a phone; the technician
   view is built for 360 px. Every page passes axe-core's automated WCAG 2.1 A/AA checks (Phase 15 sweep) and keyboard
   focus is always visible.

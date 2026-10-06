@@ -20,8 +20,10 @@ public class Part
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // Optimistic concurrency: prevents two technicians from issuing the
-    // same remaining stock at the same time (design doc Section 10 & 18).
+    // Optimistic concurrency for catalogue edits: an update must carry the RowVersion the caller last saw
+    // (PartService). Stock movements do not use it: they are a conditional UPDATE of QuantityOnHand (backed by
+    // CK_Parts_QuantityOnHand_NonNegative), which also bumps RowVersion, so a catalogue edit made from a
+    // screen loaded before a movement gets a 409 and is re-read.
     [Timestamp]
     public byte[]? RowVersion { get; set; }
 

@@ -17,7 +17,7 @@ namespace SarawakBizOps.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.10")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -314,7 +314,7 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasIndex("CustomerId");
 
-                    b.HasIndex("SerialNumber")
+                    b.HasIndex("Brand", "SerialNumber")
                         .IsUnique();
 
                     b.ToTable("Equipment");
@@ -363,7 +363,12 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasIndex("PartId", "CreatedAt");
 
-                    b.ToTable("InventoryTransactions");
+                    b.ToTable("InventoryTransactions", t =>
+                        {
+                            t.HasTrigger("TR_InventoryTransactions_Immutable");
+                        });
+
+                    b.HasAnnotation("SqlServer:UseSqlOutputClause", false);
                 });
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.Part", b =>

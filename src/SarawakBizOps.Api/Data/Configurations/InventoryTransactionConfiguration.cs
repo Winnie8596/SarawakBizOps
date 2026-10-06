@@ -6,6 +6,8 @@ namespace SarawakBizOps.Api.Data.Configurations;
 
 public class InventoryTransactionConfiguration : IEntityTypeConfiguration<InventoryTransaction>
 {
+    public const string ImmutabilityTrigger = "TR_InventoryTransactions_Immutable";
+
     public void Configure(EntityTypeBuilder<InventoryTransaction> builder)
     {
         builder.Property(t => t.TransactionType).HasConversion<string>().HasMaxLength(20);
@@ -32,8 +34,10 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
             .HasForeignKey(t => t.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // BR-09: rows are immutable. That's an application-layer rule (no
-        // Update/Delete exposed by the inventory service) — the schema alone
-        // can't enforce "never edited", so don't rely on it as a substitute.
+        // BR-09: rows are immutable. The inventory service exposes no update or delete, and the database
+        // enforces it too: this trigger (created in the LedgerImmutability migration) refuses every UPDATE and
+        // DELETE, whoever sends it. Declaring it here makes EF Core save without an OUTPUT clause, which SQL
+        // Server does not allow on a table with triggers.
+        builder.ToTable(t => t.HasTrigger(ImmutabilityTrigger));
     }
 }

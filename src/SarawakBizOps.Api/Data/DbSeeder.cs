@@ -43,15 +43,26 @@ public static class DbSeeder
             IsActive = true
         };
 
-        var result = await userManager.CreateAsync(admin, adminPassword);
+        // The account and its role land together or not at all: an admin without the Admin role would make the
+        // next start skip seeding (the email exists) and leave nobody able to manage users.
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        await userManager.CreateAsync(admin, adminPassword).ThrowIfFailed("Could not create the seed admin account");
+        await userManager.AddToRoleAsync(admin, AppRoles.Admin).ThrowIfFailed("Could not give the seed admin the Admin role");
+
+        await tx.CommitAsync();
+    }
+
+    /// <summary>Seeding has no caller to report to, so a refused Identity operation stops startup.</summary>
+    internal static async Task ThrowIfFailed(this Task<IdentityResult> operation, string message)
+    {
+        var result = await operation;
         if (!result.Succeeded)
         {
             throw new InvalidOperationException(
-                "Could not create the seed admin account: " +
-                string.Join("; ", result.Errors.Select(e => e.Description)));
+                $"{message}: " + string.Join("; ", result.Errors.Select(e => e.Description)));
         }
-
-        await userManager.AddToRoleAsync(admin, AppRoles.Admin);
     }
 
     /// <summary>

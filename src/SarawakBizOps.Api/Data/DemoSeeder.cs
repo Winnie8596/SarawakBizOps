@@ -795,6 +795,7 @@ public static class DemoSeeder
     private static async Task SeedUsersAsync(IServiceProvider services, string password)
     {
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var db = services.GetRequiredService<ApplicationDbContext>();
 
         foreach (var demo in Users)
         {
@@ -812,15 +813,11 @@ public static class DemoSeeder
                 IsActive = true
             };
 
-            var result = await userManager.CreateAsync(user, password);
-            if (!result.Succeeded)
-            {
-                throw new InvalidOperationException(
-                    $"Could not create demo user {demo.Email}: " +
-                    string.Join("; ", result.Errors.Select(e => e.Description)));
-            }
-
-            await userManager.AddToRoleAsync(user, demo.Role);
+            // Together or not at all, as for the admin (DbSeeder): a demo user without a role would never be fixed.
+            await using var tx = await db.Database.BeginTransactionAsync();
+            await userManager.CreateAsync(user, password).ThrowIfFailed($"Could not create demo user {demo.Email}");
+            await userManager.AddToRoleAsync(user, demo.Role).ThrowIfFailed($"Could not give demo user {demo.Email} the {demo.Role} role");
+            await tx.CommitAsync();
         }
     }
 

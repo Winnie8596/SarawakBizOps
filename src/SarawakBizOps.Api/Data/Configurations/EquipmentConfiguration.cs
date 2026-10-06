@@ -9,7 +9,9 @@ public class EquipmentConfiguration : IEntityTypeConfiguration<Equipment>
     public void Configure(EntityTypeBuilder<Equipment> builder)
     {
         builder.Property(e => e.SerialNumber).IsRequired().HasMaxLength(100);
-        builder.HasIndex(e => e.SerialNumber).IsUnique();
+        // Serial numbers are only unique within a manufacturer. HasFilter(null) drops EF Core's default
+        // "Brand IS NOT NULL" filter, so equipment with no brand recorded still cannot share a serial number.
+        builder.HasIndex(e => new { e.Brand, e.SerialNumber }).IsUnique().HasFilter(null);
 
         builder.Property(e => e.EquipmentType).IsRequired().HasMaxLength(100);
         builder.Property(e => e.Brand).HasMaxLength(100);

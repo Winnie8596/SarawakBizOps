@@ -8,6 +8,9 @@ namespace SarawakBizOps.Api.Services.Equipment;
 
 public class EquipmentService : IEquipmentService
 {
+    // Unique per brand (a serial number is only unique within a manufacturer), like the database index.
+    private const string SerialTakenMessage = "An equipment record with this brand and serial number already exists.";
+
     private readonly ApplicationDbContext _db;
 
     public EquipmentService(ApplicationDbContext db)
@@ -44,10 +47,12 @@ public class EquipmentService : IEquipmentService
             return (false, "The selected customer does not exist.", null);
         }
 
-        var serialTaken = await _db.Equipment.AnyAsync(e => e.SerialNumber == request.SerialNumber, ct);
+        var brand = BrandOrNull(request.Brand);
+        var serialTaken = await _db.Equipment.AnyAsync(
+            e => e.Brand == brand && e.SerialNumber == request.SerialNumber, ct);
         if (serialTaken)
         {
-            return (false, "An equipment record with this serial number already exists.", null);
+            return (false, SerialTakenMessage, null);
         }
 
         var equipment = new Models.Entities.Equipment
@@ -55,7 +60,7 @@ public class EquipmentService : IEquipmentService
             CustomerId = request.CustomerId,
             SerialNumber = request.SerialNumber,
             EquipmentType = request.EquipmentType,
-            Brand = request.Brand,
+            Brand = brand,
             Model = request.Model,
             InstallationDate = request.InstallationDate,
             Location = request.Location,
@@ -84,18 +89,18 @@ public class EquipmentService : IEquipmentService
                 $"Status must be one of: {string.Join(", ", Enum.GetNames<EquipmentStatus>())}.");
         }
 
+        var brand = BrandOrNull(request.Brand);
         var serialTaken = await _db.Equipment.AnyAsync(
-            e => e.SerialNumber == request.SerialNumber && e.Id != id, ct);
+            e => e.Brand == brand && e.SerialNumber == request.SerialNumber && e.Id != id, ct);
         if (serialTaken)
         {
-            return ServiceResult<EquipmentDto>.Fail(ServiceErrorKind.Validation,
-                "An equipment record with this serial number already exists.");
+            return ServiceResult<EquipmentDto>.Fail(ServiceErrorKind.Validation, SerialTakenMessage);
         }
 
         // CustomerId is intentionally not updatable (see EquipmentUpdateRequest).
         equipment.SerialNumber = request.SerialNumber;
         equipment.EquipmentType = request.EquipmentType;
-        equipment.Brand = request.Brand;
+        equipment.Brand = brand;
         equipment.Model = request.Model;
         equipment.InstallationDate = request.InstallationDate;
         equipment.Location = request.Location;
@@ -117,4 +122,7 @@ public class EquipmentService : IEquipmentService
         Status = e.Status.ToString(),
         Location = e.Location
     };
+
+    // A blank brand is stored as "no brand", so "" and null cannot hold the same serial number twice.
+    private static string? BrandOrNull(string? brand) => string.IsNullOrWhiteSpace(brand) ? null : brand.Trim();
 }

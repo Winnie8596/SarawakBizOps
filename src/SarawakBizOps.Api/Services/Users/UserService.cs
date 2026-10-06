@@ -125,13 +125,22 @@ public class UserService : IUserService
             return ServiceResult<UserDto>.Fail(ServiceErrorKind.Validation, Describe(updated));
         }
 
+        // Returning without committing rolls the whole edit back, so a refused role change leaves the user as it was.
         if (roleChanging)
         {
             if (currentRole.Length > 0)
             {
-                await _userManager.RemoveFromRoleAsync(user, currentRole);
+                var removed = await _userManager.RemoveFromRoleAsync(user, currentRole);
+                if (!removed.Succeeded)
+                {
+                    return ServiceResult<UserDto>.Fail(ServiceErrorKind.Validation, Describe(removed));
+                }
             }
-            await _userManager.AddToRoleAsync(user, newRole);
+            var added = await _userManager.AddToRoleAsync(user, newRole);
+            if (!added.Succeeded)
+            {
+                return ServiceResult<UserDto>.Fail(ServiceErrorKind.Validation, Describe(added));
+            }
         }
 
         // Tokens carry the security stamp, so changing it revokes every token
@@ -139,7 +148,11 @@ public class UserService : IUserService
         // immediately instead of when the JWT expires.
         if (roleChanging || deactivating)
         {
-            await _userManager.UpdateSecurityStampAsync(user);
+            var stamped = await _userManager.UpdateSecurityStampAsync(user);
+            if (!stamped.Succeeded)
+            {
+                return ServiceResult<UserDto>.Fail(ServiceErrorKind.Validation, Describe(stamped));
+            }
         }
 
         await tx.CommitAsync(ct);

@@ -114,6 +114,38 @@ public class EquipmentAndHistoryTests
     }
 
     [Fact]
+    public async Task A_serial_number_is_unique_per_brand_not_across_brands()
+    {
+        var admin = await AdminClientAsync();
+        var customer = await CreateCustomerAsync(admin);
+        var serial = $"SN-{Guid.NewGuid():N}";
+
+        Task<HttpResponseMessage> PostAsync(string? brand) => admin.PostAsJsonAsync("/api/equipment", new EquipmentRequest
+        {
+            CustomerId = customer.Id, SerialNumber = serial, EquipmentType = "Generator", Brand = brand
+        });
+
+        // Two manufacturers can use the same serial number...
+        Assert.Equal(HttpStatusCode.Created, (await PostAsync("Cummins")).StatusCode);
+        var perkins = await PostAsync("Perkins");
+        Assert.Equal(HttpStatusCode.Created, perkins.StatusCode);
+        // ...but one cannot use it twice (the comparison ignores case and surrounding spaces),
+        Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync(" cummins ")).StatusCode);
+        // and with no brand recorded it is still unique among the unbranded ("" counts as no brand).
+        Assert.Equal(HttpStatusCode.Created, (await PostAsync(null)).StatusCode);
+        var blank = await PostAsync("");
+        Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+        Assert.Contains("brand and serial number", await blank.Content.ReadAsStringAsync());
+
+        // An edit cannot move a machine onto a brand and serial number already taken.
+        var moved = (await perkins.Content.ReadFromJsonAsync<EquipmentDto>())!;
+        var clash = UpdateFor(moved);
+        clash.Brand = "Cummins";
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync($"/api/equipment/{moved.Id}", clash)).StatusCode);
+    }
+
+    [Fact]
     public async Task Update_rejects_an_unknown_status_and_missing_required_fields()
     {
         var admin = await AdminClientAsync();
