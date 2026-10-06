@@ -49,9 +49,17 @@ public static class AiServiceRegistration
                 $"Ai:Provider '{options.Provider}' is not supported. Use {AiProviders.Mock} or {AiProviders.OpenAICompatible}.");
         }
 
-        services.AddSingleton(sp => new AiReadOnlyDataOptions(
-            sp.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.")));
+        // A SELECT-only login when ConnectionStrings:AiReadOnly is set (docker-compose does), so SQL Server itself
+        // refuses a write the ReadOnlyGuard somehow missed. Without it (LocalDB, tests) the guard is the only barrier.
+        services.AddSingleton(sp =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var readOnly = config.GetConnectionString(AiReadOnlyDataOptions.ConnectionStringName);
+            return new AiReadOnlyDataOptions(string.IsNullOrWhiteSpace(readOnly)
+                ? config.GetConnectionString("DefaultConnection")
+                    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.")
+                : readOnly);
+        });
         services.AddScoped<AiReadOnlyData>(); // Phase 14: also the Manager AI's analytics, over the guarded context
         services.AddScoped<TechnicianAssistantContextBuilder>();
         services.AddScoped<IAiService, AiService>();

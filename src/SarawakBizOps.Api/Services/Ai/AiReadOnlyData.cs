@@ -35,6 +35,9 @@ public sealed class AiReadOnlyData : IDisposable, IAsyncDisposable
 /// <summary>Built once per host (a singleton), so every scope's read-only context shares one EF service provider.</summary>
 public sealed class AiReadOnlyDataOptions
 {
+    /// <summary>Optional connection string for a login that can only read (db_datareader).</summary>
+    public const string ConnectionStringName = "AiReadOnly";
+
     public DbContextOptions<ApplicationDbContext> DbOptions { get; }
 
     public AiReadOnlyDataOptions(string connectionString)

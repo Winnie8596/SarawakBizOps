@@ -23,6 +23,36 @@ services:
       retries: 20
       start_period: 20s
 
+  # One-shot: as sa, create the database and the two least-privilege logins the API uses (scripts/sql/create-logins.sql).
+  # The API never sees the sa password. Runs on every `up` (it is idempotent) and exits.
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      # sqlcmd reads the password from here, so it is not on the command line.
+      SQLCMDPASSWORD: ${MSSQL_SA_PASSWORD:-Demo_Passw0rd!}
+    volumes:
+      - ./scripts/sql/create-logins.sql:/scripts/create-logins.sql:ro
+    entrypoint:
+      - /opt/mssql-tools18/bin/sqlcmd
+      - -C
+      - -b
+      - -S
+      - sqlserver
+      - -U
+      - sa
+      - -i
+      - /scripts/create-logins.sql
+      - -v
+      - DatabaseName=SarawakBizOpsDb
+      - AppLogin=sarawakbizops_app
+      - AppPassword=${APP_DB_PASSWORD:-Demo_App_Passw0rd!}
+      - AiLogin=sarawakbizops_ai_reader
+      - AiPassword=${AI_DB_PASSWORD:-Demo_AiRead_Passw0rd!}
+    restart: "no"
+
   # Blob storage emulator (Phase 8, Open Question 2 → Azurite): job files — the customer signature, later photos
   # and reports — live here, never in SQL. The browser never talks to it: files go through the API.
   azurite:
@@ -51,9 +81,14 @@ services:
         condition: service_healthy
       azurite:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: Server=sqlserver;Database=SarawakBizOpsDb;User Id=sa;Password=${MSSQL_SA_PASSWORD:-Demo_Passw0rd!};TrustServerCertificate=True;MultipleActiveResultSets=true
+      # Least privilege (see scripts/sql/create-logins.sql): the API's own login for its database only, and a
+      # SELECT-only login for the AI features. Neither is sa.
+      ConnectionStrings__DefaultConnection: Server=sqlserver;Database=SarawakBizOpsDb;User Id=sarawakbizops_app;Password=${APP_DB_PASSWORD:-Demo_App_Passw0rd!};TrustServerCertificate=True;MultipleActiveResultSets=true
+      ConnectionStrings__AiReadOnly: Server=sqlserver;Database=SarawakBizOpsDb;User Id=sarawakbizops_ai_reader;Password=${AI_DB_PASSWORD:-Demo_AiRead_Passw0rd!};TrustServerCertificate=True
       Jwt__Key: ${JWT_KEY:-demo-only-signing-key-do-not-use-in-production-0123456789}
       # Azurite's built-in development account. Its key is published by Microsoft for the emulator only;
       # it is not a secret and grants nothing outside this compose network.

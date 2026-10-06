@@ -326,9 +326,11 @@ The sample data is fictional (names, companies, phone numbers and addresses) and
 - The API is healthy (`/health/ready`) only once migrations and seeding are done, because it does its startup work before it starts listening. `/health` is a plain liveness check. Both are unauthenticated and return no data.
 - The seeding is idempotent: every row is inserted only if its key (email, company name, serial number) is missing, so restarting is safe.
 - Files (the customer signature, job photos and service reports) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
+- **The API never connects as `sa`.** A one-shot `db-init` container runs [`scripts/sql/create-logins.sql`](./scripts/sql/create-logins.sql) as `sa` on every `up` and exits; it creates the database and two logins. `sarawakbizops_app` is the API's own: its database only, read/write on the data, and schema changes because the demo migrates on startup. `sarawakbizops_ai_reader` is used by the AI features (`ConnectionStrings__AiReadOnly`) and can only `SELECT`, so SQL Server itself refuses an AI write, behind the in-app guard. Without `AiReadOnly` (manual setup, tests) the AI uses the main connection and the in-app guard alone.
+- nginx passes the browser's address in `X-Forwarded-For`; the API trusts it only from proxies in `ForwardedHeaders:KnownNetworks` (the private ranges by default), so logs and anything keyed on the client IP see the real caller and a caller cannot forge its own.
 - SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
 
-**Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`.
+**Overriding the demo defaults.** Every secret in `docker-compose.yml` is a labelled, demo-only default so a fresh clone runs with no setup. To change any of them, copy [`.env.example`](./.env.example) to `.env` and uncomment the line: `WEB_PORT`, `DEMO_PASSWORD`, `JWT_KEY`, `MSSQL_SA_PASSWORD`, `APP_DB_PASSWORD`, `AI_DB_PASSWORD`, `SQL_HOST_PORT`, `AZURITE_HOST_PORT`. The database volume keeps the old `sa` password, so run `docker compose down -v` after changing `MSSQL_SA_PASSWORD`; the two API logins pick up a new password on the next `up`.
 
 **Smoke test.** [`scripts/compose-smoke.sh`](./scripts/compose-smoke.sh) drives the running stack through the web container with `curl` and `jq`, the way the browser does (each record's `rowVersion` included): every role signs in; the seed is there; request intake (raise, approve, reject, wrong roles and invalid moves refused); a first job end to end (assign, start, the completion rules, signature and photo uploads with bad files refused, complete, report, approve, the lock, exact file bytes downloaded); parts and stock (create, receive, adjust with a reason, below zero refused, the ledger sums to the stock); parts on a job (issue at the snapshotted price, over-stock refused, return, pause for parts, resume); the dashboards (figures equal the lists); the AI assistant and the AI insights on the mock (figures equal the dashboard's, a revenue question refused, other roles 403). CI runs it on every push. It changes the demo data, so run it against a fresh volume (`docker compose down -v`).
 
@@ -420,19 +422,23 @@ The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which
   served only through authorized endpoints with `no-store` and `nosniff`.
 - **Browser hardening:** a same-origin Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff`, a referrer and a
   permissions policy from nginx; CORS is closed outside Development unless origins are configured.
-- **Secrets** come from user-secrets or environment variables. The API refuses to start with the placeholder JWT key
-  or without an admin password outside the demo; the demo's published defaults are labelled demo-only. The full git
+- **Least-privilege database access** in Docker: the API's own login (no server rights) and a `SELECT`-only login
+  for the AI features; `sa` only creates them.
+- **Secrets** come from user-secrets or environment variables. The API refuses to start with the placeholder JWT key,
+  without a connection string, or without an admin password outside the demo; the demo's published defaults are labelled demo-only. The full git
   history is scanned in CI.
 - **Logs** carry ids and outcomes, never passwords, tokens, prompts or AI answers.
 - **Dependencies** are audited: `npm audit` and `dotnet list package --vulnerable --include-transitive` were clean at
-  the Phase 15 sweep.
+  the Phase 15 sweep, and Dependabot (`.github/dependabot.yml`) now raises NuGet, npm, Actions and Docker image
+  updates as weekly grouped PRs, and security fixes as soon as they are published.
 
 ## Architecture and conventions
 
 - **Layering:** `Controller (thin) → Service (rules, transactions) → ApplicationDbContext`. DTOs only,
   manual mapping, no repository layer.
 - **Errors** are RFC 7807 `application/problem+json` for every 4xx/5xx (validation failures add an
-  `errors` map; 500s carry a `traceId`, never a stack trace). The web `apiFetch` wrapper turns these into a
+  `errors` map; 500s carry a `traceId`, never a stack trace — `ErrorHandling/GlobalExceptionHandler`, an
+  `IExceptionHandler` under the framework's `UseExceptionHandler`). The web `apiFetch` wrapper turns these into a
   single `ApiError`, and a 401 on an authenticated call ends the session and redirects to `/login`.
 - **Conflicts are explicit.** Every mutating call sends the record's `rowVersion`; a stale one is a 409 the UI shows
   in a shared "changed since you opened it — refresh" banner.

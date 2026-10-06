@@ -43,7 +43,7 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     /// </summary>
     protected virtual bool MigrateBeforeStartup => true;
 
-    public async Task InitializeAsync()
+    public virtual async Task InitializeAsync()
     {
         await Task.WhenAll(Sql.StartAsync(), Blob.StartAsync());
 

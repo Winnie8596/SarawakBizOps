@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
@@ -14,6 +15,7 @@ using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Ai;
 using SarawakBizOps.Api.Tests.Infrastructure;
 
 namespace SarawakBizOps.Api.Tests;
@@ -482,6 +484,40 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         var median = timings.Order().ElementAt(2);
         Assert.True(median < TimeSpan.FromMilliseconds(500), $"median {median.TotalMilliseconds:F0} ms");
+    }
+
+    [Fact]
+    public async Task The_api_runs_on_least_privilege_logins_and_the_ai_login_can_only_read()
+    {
+        // Everything above already ran as the app login: migrations, seeding, every endpoint. Prove it is that
+        // login, and that it can use the report-number sequence but cannot reach beyond its own database.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        Assert.Equal(DemoApiFactory.AppLogin, new SqlConnectionStringBuilder(db.Database.GetConnectionString()).UserID);
+        Assert.True((await db.Database.SqlQueryRaw<long>("SELECT NEXT VALUE FOR [ServiceReportNumbers] AS [Value]").ToListAsync()).Single() > 0);
+        var createDatabase = await Assert.ThrowsAsync<SqlException>(() =>
+            db.Database.ExecuteSqlRawAsync("CREATE DATABASE [must_not_exist]"));
+        Assert.Equal(262, createDatabase.Number); // CREATE DATABASE permission denied
+
+        // The AI features read through the SELECT-only login, and SQL Server itself refuses that login a write.
+        var aiOptions = scope.ServiceProvider.GetRequiredService<AiReadOnlyDataOptions>();
+        await using (var aiDb = new ApplicationDbContext(aiOptions.DbOptions))
+        {
+            Assert.Equal(DemoApiFactory.AiLogin, new SqlConnectionStringBuilder(aiDb.Database.GetConnectionString()).UserID);
+        }
+
+        await using var reader = new SqlConnection(_factory.AiConnectionString);
+        await reader.OpenAsync();
+        await using var count = new SqlCommand("SELECT COUNT(*) FROM [WorkOrders]", reader);
+        Assert.True((int)(await count.ExecuteScalarAsync())! > 0);
+        await using var write = new SqlCommand("UPDATE [Parts] SET [QuantityOnHand] = [QuantityOnHand] WHERE 1 = 0", reader);
+        Assert.Equal(229, (await Assert.ThrowsAsync<SqlException>(() => write.ExecuteNonQueryAsync())).Number); // permission denied
+
+        // And the Manager AI's analytics answer through it.
+        var manager = await _factory.CreateAuthenticatedClientAsync("manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
+        var insight = await manager.PostAsJsonAsync("/api/ai/manager-insights",
+            new ManagerInsightsRequest { Question = "Which equipment keeps failing?" });
+        Assert.Equal(HttpStatusCode.OK, insight.StatusCode);
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)
