@@ -166,14 +166,21 @@ Reference for the details below: Addendum v1.2 §6.1 and §6.3–6.5 (not commit
       `{ text, source: Manual | History | General, isSafetyStep, manualSectionIds, workOrderIds }`. `possibleCauses`,
       `relevantPastCases` and `relevantParts` are unchanged.
 - [ ] `SafetyTerms` (static class, G13): case-insensitive match on whole words and phrases; hyphen and space variants
-      (`de-energise`, `lock out`) both match. Initial list from v1.2 §6.4, plus G19's additions (owner reviews
-      before AI-2):
+      (`de-energise`, `lock out`) both match. Initial list from v1.2 §6.4, plus G19's reviewed additions and G20's
+      patterns:
       - English: isolate, isolation, lockout, lock out, tagout, de-energise, de-energize, live, voltage, high voltage,
         electrical panel, busbar, capacitor, discharge, pressure, pressurised, pressurized, refrigerant, gas line, fuel,
         hot surface, rotating, remove guard, bypass, earth, ground fault; *G19:* steam, hydraulic, blade, moving parts.
       - Malay: voltan, elektrik, bekalan elektrik, putuskan bekalan, tekanan, bahan penyejuk, gas, bahan api,
-        permukaan panas; *G19:* asingkan, pengasingan, kunci, arus, litar, kapasitor, nyahcas, berputar, wap,
-        hidraulik, bilah.
+        permukaan panas; *G19:* asingkan bekalan, asingkan kuasa, diasingkan, mengasingkan, pengasingan, kunci suis,
+        kunci dan tag, arus elektrik, arus tinggi, arus bocor, litar, litar pintas, kapasitor, nyahcas, buang cas,
+        lepas cas, berputar, wap, wap panas, hidraulik, bilah, renjatan, potong bekalan, suis utama, tiga fasa.
+      - Loanwords (*G19*): LOTO, ampere, amp, freon, MCB, DB, breaker.
+      - Patterns (*G20*): voltage (`415V`, `11 kV`), pressure (`150 psi`, `8 bar`, `600 kPa`), refrigerant code
+        (`R410A`, `R-22`).
+      - Tests: every term and pattern matches; whole-word only (`tekan` and `tekanan` differ); narrowed words do
+        **not** match on their own (`asingkan skru`, `kunci 10mm`, `arus udara`); phrases inside longer sentences
+        (`bahagian berputar`, `kipas berputar`, `tutup suis utama`).
 - [ ] Validation in `TechnicianAssistantOutput`, applied to every check **in this order**:
       1. Drop `manualSectionIds` not in this request's map and `workOrderIds` not in this request's `pastCases` (G14).
       2. `Manual` with no section ID left → `General` (G12). `History` with no work order ID left → `General` (G14).
