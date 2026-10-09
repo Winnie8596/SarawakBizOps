@@ -22,7 +22,6 @@ public class ReportRulesTests
     }
 
     [Theory]
-    [InlineData(WorkOrderStatus.New)]
     [InlineData(WorkOrderStatus.Assigned)]
     [InlineData(WorkOrderStatus.InProgress)]
     [InlineData(WorkOrderStatus.PendingParts)]

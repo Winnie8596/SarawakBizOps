@@ -114,11 +114,16 @@ public static class ServiceReportRenderer
                     lines.Add(line);
                 }
 
+                // Text without spaces (a long code, or a sentence in Chinese) breaks between characters, never
+                // inside a surrogate pair.
                 line = word;
-                while (font.Width(line, size) > width && line.Length > 1)
+                while (font.Width(line, size) > width && NextCharacter(line, 0) < line.Length)
                 {
-                    var fit = 1;
-                    while (fit < line.Length && font.Width(line[..(fit + 1)], size) <= width) fit++;
+                    var fit = NextCharacter(line, 0);
+                    while (fit < line.Length && font.Width(line[..NextCharacter(line, fit)], size) <= width)
+                    {
+                        fit = NextCharacter(line, fit);
+                    }
                     lines.Add(line[..fit]);
                     line = line[fit..];
                 }
@@ -127,6 +132,9 @@ public static class ServiceReportRenderer
         }
         return lines;
     }
+
+    private static int NextCharacter(string text, int index)
+        => index + (char.IsSurrogatePair(text, index) ? 2 : 1);
 
     // Keeps the cursor (y, falling down the page) and starts new pages as content runs out of room.
     private sealed class Layout

@@ -1,3 +1,4 @@
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.Services.Common;
 
@@ -5,7 +6,8 @@ namespace SarawakBizOps.Api.Services.Parts;
 
 public interface IPartService
 {
-    Task<IReadOnlyList<PartDto>> GetAllAsync(PartFilter filter, CancellationToken ct);
+    /// <summary>One page of the catalogue, by PartNumber, with the total count for the pager.</summary>
+    Task<ServiceResult<PagedResult<PartDto>>> GetAllAsync(PartFilter filter, CancellationToken ct);
     Task<PartDto?> GetByIdAsync(int id, CancellationToken ct);
 
     /// <summary>AC-09 (API half): active parts whose QuantityOnHand is at or below their MinimumStockLevel.</summary>

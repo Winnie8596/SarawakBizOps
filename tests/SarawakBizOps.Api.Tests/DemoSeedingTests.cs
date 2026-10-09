@@ -5,6 +5,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Ai;
 using SarawakBizOps.Api.DTOs.Auth;
 using SarawakBizOps.Api.DTOs.Dashboard;
@@ -69,8 +70,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
     }
 
     /// <summary>
-    /// Phase 15 seed review (PRD §9): a reviewer can see every state without making one first. A work order is
-    /// never New in practice (assigning creates it Assigned), so that is the one state the seed does not show.
+    /// Phase 15 seed review (PRD §9): a reviewer can see every state without making one first.
     /// </summary>
     [Fact]
     public async Task Demo_data_has_a_record_in_every_reachable_state()
@@ -80,7 +80,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
 
         Assert.Equal(Enum.GetValues<ServiceRequestStatus>().Order(),
             (await db.ServiceRequests.Select(r => r.Status).Distinct().ToListAsync()).Order());
-        Assert.Equal(Enum.GetValues<WorkOrderStatus>().Where(s => s != WorkOrderStatus.New).Order(),
+        Assert.Equal(Enum.GetValues<WorkOrderStatus>().Order(),
             (await db.WorkOrders.Select(w => w.Status).Distinct().ToListAsync()).Order());
         Assert.Equal(Enum.GetValues<EquipmentStatus>().Order(),
             (await db.Equipment.Select(e => e.Status).Distinct().ToListAsync()).Order());
@@ -301,13 +301,14 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var warehouse = await _factory.CreateAuthenticatedClientAsync(
             "warehouse@sarawakbizops.local", DemoApiFactory.DemoPassword);
 
-        var active = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts");
-        var all = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts?includeInactive=true");
+        var active = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>("/api/parts"))!;
+        var all = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>("/api/parts?includeInactive=true"))!;
         var lowStock = await warehouse.GetFromJsonAsync<List<PartDto>>("/api/parts/low-stock");
-        var ledger = await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>("/api/inventory-transactions");
+        var ledger = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>("/api/inventory-transactions?limit=200"))!.Items;
 
-        Assert.Equal(11, active!.Count);
-        Assert.Equal(12, all!.Count);
+        Assert.Equal(11, active.TotalCount);
+        Assert.Equal(11, active.Items.Count);
+        Assert.Equal(12, all.TotalCount);
         // AC-09 groundwork: the four active parts at or below their minimum. The discontinued fuse is
         // below its minimum too but inactive, so it must stay off the list.
         Assert.Equal(
@@ -329,7 +330,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.All(issues, t => Assert.Equal("Ahmad Bujang", t.CreatedByName));
         Assert.All(issues, t => Assert.NotNull(t.WorkOrderId));
         Assert.All(issues, t => Assert.True(t.Quantity < 0));
-        Assert.Equal(244.5m, all.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand); // 256.5 received less 12 used
+        Assert.Equal(244.5m, all.Items.Single(p => p.PartNumber == "OIL-HYD-46").QuantityOnHand); // 256.5 received less 12 used
 
         await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
     }
@@ -340,7 +341,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         // Phase 11 exit criterion. Counted by hand from the arrays in DemoSeeder:
         //   open requests — New: chiller (High), filling line A bottles (Medium), boiler (Urgent);
         //                   Approved: pump seal (High), filling line A belt (Medium, its job was cancelled);
-        //   work orders   — the six live ones (one per status except New) plus ten approved in earlier months;
+        //   work orders   — the six live ones (one per status) plus ten approved in earlier months;
         //   low stock     — AVR-SX460, BLD-BSW-900, SEAL-MECH-35 and BLT-CNV-600 (the only one at zero).
         var manager = await _factory.CreateAuthenticatedClientAsync(
             "manager@sarawakbizops.local", DemoApiFactory.DemoPassword);
@@ -518,6 +519,32 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         var insight = await manager.PostAsJsonAsync("/api/ai/manager-insights",
             new ManagerInsightsRequest { Question = "Which equipment keeps failing?" });
         Assert.Equal(HttpStatusCode.OK, insight.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_app_login_can_append_to_the_ledger_but_SQL_Server_denies_it_any_edit_or_delete()
+    {
+        // BR-09 as a permission, not only the trigger: create-logins.sql DENYs the API's own login UPDATE and
+        // DELETE on the ledger schema. Error 229 is "permission denied", raised before the trigger is reached.
+        await using var app = new SqlConnection(_factory.AppConnectionString);
+        await app.OpenAsync();
+
+        await using var count = new SqlCommand("SELECT COUNT(*) FROM [ledger].[InventoryTransactions]", app);
+        Assert.True((int)(await count.ExecuteScalarAsync())! > 0); // seeded through this same login, so INSERT works
+
+        foreach (var sql in new[]
+                 {
+                     "UPDATE [ledger].[InventoryTransactions] SET [Notes] = [Notes] WHERE 1 = 0",
+                     "DELETE FROM [ledger].[InventoryTransactions] WHERE 1 = 0"
+                 })
+        {
+            await using var write = new SqlCommand(sql, app);
+            Assert.Equal(229, (await Assert.ThrowsAsync<SqlException>(() => write.ExecuteNonQueryAsync())).Number);
+        }
+
+        // The rest of the schema is untouched: the same login still updates other tables.
+        await using var other = new SqlCommand("UPDATE [Parts] SET [QuantityOnHand] = [QuantityOnHand] WHERE 1 = 0", app);
+        Assert.Equal(0, await other.ExecuteNonQueryAsync());
     }
 
     private async Task<LoginResponse> LoginAsync(string email, string password)

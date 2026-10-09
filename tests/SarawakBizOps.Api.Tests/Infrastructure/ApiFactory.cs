@@ -74,6 +74,8 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         // Every test signs in through the real endpoint from the same (absent) address; AuthSessionTests proves the
         // per-address login limit on a host with it set low.
         builder.UseSetting("Auth:LoginPermitsPerMinute", "100000");
+        // Tests read the dashboard straight after changing data; DashboardCacheTests proves the cache itself.
+        builder.UseSetting("Dashboard:CacheSeconds", "0");
     }
 
     async Task IAsyncLifetime.DisposeAsync()

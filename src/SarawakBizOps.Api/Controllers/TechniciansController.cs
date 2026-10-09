@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.WorkOrders;
 
@@ -19,6 +20,7 @@ public class TechniciansController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<TechnicianSummaryDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(CancellationToken ct)
         => Ok(await _service.GetTechniciansAsync(ct));
 }

@@ -162,10 +162,34 @@ public class ServiceReportTests
     }
 
     [Fact]
-    public async Task A_job_approved_without_a_report_can_get_exactly_one()
+    public async Task A_completed_job_cannot_be_approved_until_its_report_is_generated()
     {
         var job = await CompletedJobAsync();
-        await ApproveWorkOrderAsync(job.Manager, job.WorkOrder.Id);
+
+        var refused = await PostApproveWorkOrderAsync(job.Manager, job.WorkOrder.Id);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Equal("Generate the service report before approving this job.", await DetailAsync(refused));
+        Assert.Equal("Completed", (await GetWorkOrderAsync(job.Manager, job.WorkOrder.Id))!.Status);
+
+        await GenerateReportAsync(job.Manager, job.WorkOrder.Id);
+        var approved = await ApproveWorkOrderAsync(job.Manager, job.WorkOrder.Id);
+        Assert.Equal(("Approved", true), (approved.Status, approved.Report!.IsLocked));
+    }
+
+    [Fact]
+    public async Task A_job_approved_before_reports_were_required_can_get_exactly_one()
+    {
+        // Only older data can be in this state now (the API refuses approval without a report), so it is set up
+        // directly, as such a row would look.
+        var job = await CompletedJobAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await db.WorkOrders.Where(w => w.Id == job.WorkOrder.Id).ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.Status, WorkOrderStatus.Approved)
+                .SetProperty(w => w.ApprovedAt, DateTime.UtcNow));
+        }
 
         var first = await PostGenerateReportAsync(job.Manager, job.WorkOrder.Id);
         var second = await PostGenerateReportAsync(job.Manager, job.WorkOrder.Id);

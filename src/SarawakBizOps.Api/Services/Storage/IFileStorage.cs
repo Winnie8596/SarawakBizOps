@@ -15,6 +15,11 @@ public interface IFileStorage
 
     /// <summary>Idempotent: deleting a key that does not exist is not an error.</summary>
     Task DeleteAsync(string key, CancellationToken ct);
+
+    /// <summary>Every stored file whose key starts with <paramref name="prefix"/>, and when it was written.</summary>
+    IAsyncEnumerable<StoredFileInfo> ListAsync(string prefix, CancellationToken ct);
 }
 
 public sealed record StoredFile(Stream Content, string ContentType, long Length);
+
+public sealed record StoredFileInfo(string Key, DateTimeOffset LastModified);

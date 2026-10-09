@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace SarawakBizOps.Api.DTOs.Parts;
 
 // QuantityOnHand is deliberately absent: stock changes only through inventory transactions (BR-09).
-public class UpdatePartRequest
+public class UpdatePartRequest : IRowVersionRequest
 {
     [Required, MaxLength(60)]
     public string PartNumber { get; set; } = string.Empty;

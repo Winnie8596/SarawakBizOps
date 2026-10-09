@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Services.Common;
@@ -18,8 +19,19 @@ public class PartService : IPartService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<PartDto>> GetAllAsync(PartFilter filter, CancellationToken ct)
+    public async Task<ServiceResult<PagedResult<PartDto>>> GetAllAsync(PartFilter filter, CancellationToken ct)
     {
+        if (filter.Page < 1)
+        {
+            return ServiceResult<PagedResult<PartDto>>.Fail(ServiceErrorKind.Validation, "Page must be 1 or more.");
+        }
+
+        if (filter.PageSize is < 1 or > PartFilter.MaxPageSize)
+        {
+            return ServiceResult<PagedResult<PartDto>>.Fail(ServiceErrorKind.Validation,
+                $"PageSize must be between 1 and {PartFilter.MaxPageSize}.");
+        }
+
         var query = _db.Parts.AsNoTracking();
 
         if (!filter.IncludeInactive)
@@ -33,8 +45,22 @@ public class PartService : IPartService
             query = query.Where(p => p.PartNumber.Contains(term) || p.Name.Contains(term));
         }
 
-        var parts = await query.OrderBy(p => p.PartNumber).ToListAsync(ct);
-        return parts.Select(ToDto).ToList();
+        var total = await query.CountAsync(ct);
+
+        // PartNumber is unique, so the order is total and a part never shows up on two pages.
+        var parts = await query
+            .OrderBy(p => p.PartNumber)
+            .Skip((filter.Page - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .ToListAsync(ct);
+
+        return ServiceResult<PagedResult<PartDto>>.Ok(new PagedResult<PartDto>
+        {
+            Items = parts.Select(ToDto).ToList(),
+            TotalCount = total,
+            Page = filter.Page,
+            PageSize = filter.PageSize
+        });
     }
 
     public async Task<PartDto?> GetByIdAsync(int id, CancellationToken ct)
@@ -200,7 +226,7 @@ public class PartService : IPartService
         QuantityOnHand = p.QuantityOnHand,
         MinimumStockLevel = p.MinimumStockLevel,
         IsActive = p.IsActive,
-        IsLowStock = p.IsActive && p.QuantityOnHand <= p.MinimumStockLevel,
+        IsLowStock = StockLevels.IsLowStock(p),
         CreatedAt = p.CreatedAt,
         RowVersion = p.RowVersion is null ? string.Empty : Convert.ToBase64String(p.RowVersion)
     };

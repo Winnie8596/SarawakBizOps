@@ -6,7 +6,7 @@ namespace SarawakBizOps.Api.DTOs.WorkOrders;
 /// A technician puts a part on their job (AC-03). There is deliberately no price field: the unit price is
 /// snapshotted from the catalogue on the server, never taken from the client.
 /// </summary>
-public class AddWorkOrderPartRequest
+public class AddWorkOrderPartRequest : IRowVersionRequest
 {
     public int PartId { get; set; }
 

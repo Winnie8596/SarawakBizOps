@@ -49,6 +49,18 @@ public sealed class AzureBlobFileStorage : IFileStorage
         await _container.GetBlobClient(key).DeleteIfExistsAsync(cancellationToken: ct);
     }
 
+    public async IAsyncEnumerable<StoredFileInfo> ListAsync(
+        string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        await EnsureContainerAsync(ct);
+        await foreach (var blob in _container.GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, ct))
+        {
+            // Every blob has a Last-Modified time; if one ever came back without it, MaxValue keeps it from ever
+            // looking old enough for the orphan sweep to touch.
+            yield return new StoredFileInfo(blob.Name, blob.Properties.LastModified ?? DateTimeOffset.MaxValue);
+        }
+    }
+
     // Idempotent, so two first calls racing here is harmless; a failure (emulator not up yet) is simply
     // retried by the next call instead of being remembered.
     private async Task EnsureContainerAsync(CancellationToken ct)

@@ -50,24 +50,12 @@ public class ServiceReportPdfTests
     public void A_report_is_a_structurally_valid_pdf()
     {
         var pdf = Render(Model());
-        var text = Encoding.Latin1.GetString(pdf);
-
-        Assert.StartsWith("%PDF-1.4\n", text);
-        Assert.EndsWith("%%EOF\n", text);
-
-        // startxref points at the xref table, and every entry in it points at the start of its object.
-        var startXref = int.Parse(Regex.Match(text, @"startxref\n(\d+)\n%%EOF\n$").Groups[1].Value);
-        Assert.StartsWith("xref\n0 ", text[startXref..]);
-        var entries = Regex.Matches(text[startXref..], @"(\d{10}) 00000 n ").Select(m => int.Parse(m.Groups[1].Value)).ToList();
-        Assert.NotEmpty(entries);
-        for (var i = 0; i < entries.Count; i++)
-        {
-            Assert.StartsWith($"{i + 1} 0 obj\n", text[entries[i]..]);
-        }
+        var text = AssertStructurallyValid(pdf);
 
         Assert.Contains("/Title (Service report SR-2026-000123)", text);
         Assert.Contains("/BaseFont /Helvetica ", text);
         Assert.Contains("/BaseFont /Helvetica-Bold ", text);
+        Assert.DoesNotContain("/FontFile2", text); // Latin script only: nothing is embedded
     }
 
     [Fact]
@@ -170,6 +158,114 @@ public class ServiceReportPdfTests
         Assert.Equal("The compressor relay tripped", lines[0]);
         Assert.Contains(lines, l => l == "See also:");
         Assert.Equal(text.Replace("\n", "").Replace(" ", ""), string.Concat(lines).Replace(" ", ""));
+    }
+
+    // ---- Text Helvetica cannot show (6.11) ----
+
+    [Fact]
+    public void Text_is_split_between_helvetica_and_the_embedded_font_only_where_helvetica_cannot_show_it()
+    {
+        Assert.Equal(new[] { new TextRun(false, "Café – "), new TextRun(true, "古晋"), new TextRun(false, " ok") },
+            PdfFont.Runs("Café – 古晋 ok"));
+        Assert.Equal(new[] { new TextRun(false, "Rajang Timber Mills") }, PdfFont.Runs("Rajang Timber Mills"));
+
+        // Scripts the embedded font has no glyphs for (and that would need shaping) stay with Helvetica, as '?'.
+        Assert.Equal(new[] { new TextRun(false, "مرحبا") }, PdfFont.Runs("مرحبا"));
+        Assert.Equal("?????"u8.ToArray(), PdfFont.Encode("مرحبا"));
+    }
+
+    [Fact]
+    public void Chinese_greek_and_cyrillic_are_measured_with_the_embedded_font()
+    {
+        Assert.Equal(10, PdfFont.Regular.Width("古", 10), 3);       // a CJK ideograph is one em wide
+        Assert.Equal(20 + PdfFont.Regular.Width("ab", 10), PdfFont.Regular.Width("a古晋b", 10), 3);
+        Assert.True(PdfFont.Regular.Width("Пётр β", 10) > 0);
+    }
+
+    [Fact]
+    public void A_report_with_chinese_text_embeds_a_subset_of_the_font_and_stays_a_valid_pdf()
+    {
+        var model = Model() with
+        {
+            Customer = new ReportCustomer("古晋机械工程有限公司", "王先生 (site)", "082-000 222", null, "砂拉越古晋"),
+            Diagnosis = "Ремень изношен; β-bearing 磨损 \U00020087."
+        };
+
+        var pdf = Render(model);
+        var text = AssertStructurallyValid(pdf);
+        var content = PageContent(pdf);
+
+        Assert.Contains("/Subtype /Type0", text);
+        Assert.Contains("/Encoding /Identity-H", text);
+        Assert.Contains("/Subtype /CIDFontType2", text);
+        Assert.Contains("/CIDToGIDMap /Identity", text);
+        Assert.Matches(@"/BaseFont /[A-Z]{6}\+NotoSansSC-Regular ", text);
+        Assert.Contains("/F3 ", content);
+        Assert.Contains("(Ahmad Bujang)", content); // Latin text is still plain literals in Helvetica
+        Assert.Contains("( \\(site\\)) Tj", content);  // ...also the Latin part of a mixed line
+
+        // The ToUnicode map gives the characters back for copying and searching, a supplementary one as a pair.
+        Assert.Contains("<53E4>", text);  // 古
+        Assert.Contains("<664B>", text);  // 晋
+        Assert.Contains("<D840DC87>", text); // U+20087, outside the BMP
+        Assert.Equal(Render(model), pdf); // still deterministic
+
+        // The embedded file is a TrueType font with only the glyphs drawn, one em wide each for the ideographs.
+        var font = new TrueTypeFont(Inflate(FontFile(pdf)));
+        var distinct = (model.Customer.CompanyName + model.Customer.ContactPerson + model.Customer.Address + model.Diagnosis)
+            .EnumerateRunes()
+            .Where(r => PdfFont.Runs(r.ToString()) is [{ Embedded: true }])
+            .Select(r => PdfFont.Fallback.GlyphId(r.Value))
+            .Distinct()
+            .Count();
+        Assert.Equal(distinct + 1, font.GlyphCount); // + .notdef
+        Assert.Equal(1000, font.Advance(1));
+    }
+
+    [Fact]
+    public void Wrapping_text_without_spaces_breaks_between_characters_and_never_inside_a_surrogate_pair()
+    {
+        var chinese = string.Concat(Enumerable.Repeat("压缩机继电器在负载测试中跳闸两次", 4));
+        var pairs = string.Concat(Enumerable.Repeat("\U00020087", 30));
+
+        foreach (var text in new[] { chinese, pairs })
+        {
+            var lines = ServiceReportRenderer.Wrap(text, PdfFont.Regular, 10, 95);
+
+            Assert.True(lines.Count > 1);
+            Assert.All(lines, line => Assert.True(PdfFont.Regular.Width(line, 10) <= 95, line));
+            Assert.All(lines, line => Assert.False(char.IsLowSurrogate(line[0]) || char.IsHighSurrogate(line[^1]), line));
+            Assert.Equal(text, string.Concat(lines));
+        }
+    }
+
+    [Fact]
+    public void A_title_outside_ascii_is_written_as_utf16()
+    {
+        var document = new PdfDocument();
+        document.AddPage();
+
+        var text = Encoding.Latin1.GetString(document.Save("报告 SR-1", new DateTime(2026, 1, 1)));
+
+        Assert.Contains("/Title <FEFF62A5544A002000530052002D0031>", text);
+    }
+
+    [Fact]
+    public void A_font_subset_keeps_the_requested_glyphs_in_order_and_pulls_in_the_parts_of_composite_glyphs()
+    {
+        // Glyph 3 is a composite made of glyphs 1 and 2; asking for 3 alone brings 1 and 2 along after it.
+        var font = new TrueTypeFont(TestTrueType.Create());
+
+        var bytes = font.Subset(new ushort[] { 0, 3 });
+        var subset = new TrueTypeFont(bytes);
+
+        Assert.Equal(4, subset.GlyphCount);
+        Assert.Equal(font.Advance(3), subset.Advance(1));
+        Assert.Equal(new ushort[] { 2, 3 }, TestTrueType.ComponentsOf(bytes, 1)); // renumbered: old 1 → 2, old 2 → 3
+        Assert.Equal(font.Advance(1), subset.Advance(2));
+        Assert.Equal(font.Advance(2), subset.Advance(3));
+        Assert.Equal(0xB1B0AFBAu, TestTrueType.WholeFileChecksum(bytes)); // head.checkSumAdjustment is right
+        Assert.Throws<ArgumentException>(() => font.Subset(new ushort[] { 3 })); // .notdef must come first
     }
 
     // ---- Images ----
@@ -307,6 +403,34 @@ public class ServiceReportPdfTests
     private static string N(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     // ---- helpers ----
+
+    /// <summary>Header, trailer, and an xref whose every entry points at the start of its object; returns the text.</summary>
+    private static string AssertStructurallyValid(byte[] pdf)
+    {
+        var text = Encoding.Latin1.GetString(pdf);
+
+        Assert.StartsWith("%PDF-1.4\n", text);
+        Assert.EndsWith("%%EOF\n", text);
+
+        var startXref = int.Parse(Regex.Match(text, @"startxref\n(\d+)\n%%EOF\n$").Groups[1].Value);
+        Assert.StartsWith("xref\n0 ", text[startXref..]);
+        var entries = Regex.Matches(text[startXref..], @"(\d{10}) 00000 n ").Select(m => int.Parse(m.Groups[1].Value)).ToList();
+        Assert.NotEmpty(entries);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            Assert.StartsWith($"{i + 1} 0 obj\n", text[entries[i]..]);
+        }
+        return text;
+    }
+
+    /// <summary>The (still compressed) data of the one embedded font file.</summary>
+    private static byte[] FontFile(byte[] pdf)
+    {
+        var match = Regex.Match(Encoding.Latin1.GetString(pdf), @"<< /Length1 \d+ /Filter /FlateDecode /Length (\d+) >>\nstream\n");
+        Assert.True(match.Success, "no FontFile2 stream");
+        var start = match.Index + match.Length;
+        return pdf[start..(start + int.Parse(match.Groups[1].Value))];
+    }
 
     private static byte[] Inflate(byte[] data)
     {
@@ -458,5 +582,114 @@ internal static class TestJpeg
     {
         jpeg.Write(new byte[] { 0xFF, marker, (byte)((data.Length + 2) >> 8), (byte)(data.Length + 2) });
         jpeg.Write(data);
+    }
+}
+
+/// <summary>
+/// A four-glyph TrueType font for the subsetter: .notdef, two simple glyphs, and glyph 3, a composite of 1 and 2
+/// (the bundled Noto font has no composites, so this is what exercises the renumbering).
+/// </summary>
+internal static class TestTrueType
+{
+    public static byte[] Create()
+    {
+        var simple = new byte[] { 0, 1, 0, 0, 0, 0, 0, 10, 0, 10, 0, 0, 0, 0, 0x01, 0, 5, 0, 5, 0 };
+        var composite = new List<byte> { 0xFF, 0xFF, 0, 0, 0, 0, 0, 20, 0, 20 };
+        composite.AddRange(new byte[] { 0x00, 0x21, 0, 1, 0, 3, 0, 4 }); // words args, more components, glyph 1
+        composite.AddRange(new byte[] { 0x00, 0x00, 0, 2, 7, 8 });       // byte args, last component, glyph 2
+        var glyphs = new[] { Array.Empty<byte>(), simple, simple.Reverse().ToArray(), composite.ToArray() };
+
+        var glyf = new MemoryStream();
+        var loca = new byte[(glyphs.Length + 1) * 4];
+        for (var i = 0; i < glyphs.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(loca.AsSpan(i * 4), (uint)glyf.Position);
+            glyf.Write(glyphs[i]);
+        }
+        BinaryPrimitives.WriteUInt32BigEndian(loca.AsSpan(glyphs.Length * 4), (uint)glyf.Position);
+
+        var hmtx = new byte[glyphs.Length * 4];
+        for (var i = 0; i < glyphs.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(hmtx.AsSpan(i * 4), (ushort)(500 + 100 * i));
+        }
+
+        var head = new byte[54];
+        BinaryPrimitives.WriteUInt32BigEndian(head, 0x00010000);
+        BinaryPrimitives.WriteUInt32BigEndian(head.AsSpan(12), 0x5F0F3CF5);
+        BinaryPrimitives.WriteUInt16BigEndian(head.AsSpan(18), 1000);
+        BinaryPrimitives.WriteInt16BigEndian(head.AsSpan(50), 1);
+
+        var hhea = new byte[36];
+        BinaryPrimitives.WriteUInt32BigEndian(hhea, 0x00010000);
+        BinaryPrimitives.WriteInt16BigEndian(hhea.AsSpan(4), 800);
+        BinaryPrimitives.WriteInt16BigEndian(hhea.AsSpan(6), -200);
+        BinaryPrimitives.WriteUInt16BigEndian(hhea.AsSpan(34), (ushort)glyphs.Length);
+
+        var maxp = new byte[6];
+        BinaryPrimitives.WriteUInt32BigEndian(maxp, 0x00005000);
+        BinaryPrimitives.WriteUInt16BigEndian(maxp.AsSpan(4), (ushort)glyphs.Length);
+
+        var tables = new (string Tag, byte[] Data)[]
+        {
+            ("glyf", glyf.ToArray()), ("head", head), ("hhea", hhea), ("hmtx", hmtx), ("loca", loca), ("maxp", maxp)
+        };
+        using var font = new MemoryStream();
+        var directory = new byte[12 + tables.Length * 16];
+        BinaryPrimitives.WriteUInt32BigEndian(directory, 0x00010000);
+        BinaryPrimitives.WriteUInt16BigEndian(directory.AsSpan(4), (ushort)tables.Length);
+        font.Write(directory);
+        for (var i = 0; i < tables.Length; i++)
+        {
+            var record = 12 + i * 16;
+            Encoding.ASCII.GetBytes(tables[i].Tag).CopyTo(directory, record);
+            BinaryPrimitives.WriteUInt32BigEndian(directory.AsSpan(record + 8), (uint)font.Position);
+            BinaryPrimitives.WriteUInt32BigEndian(directory.AsSpan(record + 12), (uint)tables[i].Data.Length);
+            font.Write(tables[i].Data);
+            while (font.Position % 4 != 0) font.WriteByte(0);
+        }
+        font.Position = 0;
+        font.Write(directory);
+        return font.ToArray();
+    }
+
+    /// <summary>The glyph ids a composite glyph of <paramref name="font"/> (long loca) is built from.</summary>
+    public static ushort[] ComponentsOf(byte[] font, int glyph)
+    {
+        int TableOffset(string tag)
+        {
+            var count = BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(4));
+            for (var i = 0; i < count; i++)
+            {
+                if (Encoding.ASCII.GetString(font, 12 + i * 16, 4) == tag)
+                {
+                    return (int)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(12 + i * 16 + 8));
+                }
+            }
+            throw new InvalidDataException(tag);
+        }
+
+        var start = TableOffset("glyf") + (int)BinaryPrimitives.ReadUInt32BigEndian(font.AsSpan(TableOffset("loca") + glyph * 4));
+        var components = new List<ushort>();
+        var at = start + 10;
+        while (true)
+        {
+            var flags = BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(at));
+            components.Add(BinaryPrimitives.ReadUInt16BigEndian(font.AsSpan(at + 2)));
+            at += 4 + ((flags & 1) != 0 ? 4 : 2);
+            if ((flags & 0x20) == 0) return components.ToArray();
+        }
+    }
+
+    public static uint WholeFileChecksum(byte[] font)
+    {
+        uint sum = 0;
+        for (var i = 0; i < font.Length; i += 4)
+        {
+            var word = new byte[4];
+            font.AsSpan(i, Math.Min(4, font.Length - i)).CopyTo(word);
+            sum += BinaryPrimitives.ReadUInt32BigEndian(word);
+        }
+        return sum;
     }
 }

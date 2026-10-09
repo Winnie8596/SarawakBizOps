@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SarawakBizOps.Api.DTOs.ServiceRequests;
 
-public class CancelServiceRequestRequest
+public class CancelServiceRequestRequest : IRowVersionRequest
 {
     [Required, MaxLength(500)]
     public string Reason { get; set; } = string.Empty;

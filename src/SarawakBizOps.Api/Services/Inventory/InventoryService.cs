@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
+using SarawakBizOps.Api.Services.Analytics;
+using static SarawakBizOps.Api.Services.Common.EnumNames;
 
 namespace SarawakBizOps.Api.Services.Inventory;
 
@@ -18,9 +21,12 @@ public class InventoryService : IInventoryService
         _logger = logger;
     }
 
-    public async Task<ServiceResult<IReadOnlyList<InventoryTransactionDto>>> GetAllAsync(
+    public async Task<ServiceResult<CursorPage<InventoryTransactionDto>>> GetAllAsync(
         InventoryTransactionFilter filter, CancellationToken ct)
     {
+        static ServiceResult<CursorPage<InventoryTransactionDto>> Invalid(string message)
+            => ServiceResult<CursorPage<InventoryTransactionDto>>.Fail(ServiceErrorKind.Validation, message);
+
         var query = _db.InventoryTransactions.AsNoTracking()
             .Include(t => t.Part)
             .Include(t => t.CreatedByUser)
@@ -35,8 +41,7 @@ public class InventoryService : IInventoryService
         {
             if (!TryParseName<InventoryTransactionType>(filter.Type, out var type))
             {
-                return ServiceResult<IReadOnlyList<InventoryTransactionDto>>.Fail(
-                    ServiceErrorKind.Validation, NameListMessage<InventoryTransactionType>("Type"));
+                return Invalid(NameListMessage<InventoryTransactionType>("Type"));
             }
             query = query.Where(t => t.TransactionType == type);
         }
@@ -46,30 +51,72 @@ public class InventoryService : IInventoryService
             query = query.Where(t => t.WorkOrderId == workOrderId);
         }
 
-        if (filter.From is { } from && filter.To is { } to && from >= to)
+        if ((filter.From is not null && filter.FromDate is not null) || (filter.To is not null && filter.ToDate is not null))
         {
-            return ServiceResult<IReadOnlyList<InventoryTransactionDto>>.Fail(
-                ServiceErrorKind.Validation, "The 'from' date must be before the 'to' date.");
+            return Invalid("Give each bound either as a MYT day (fromDate/toDate) or as an instant (from/to), not both.");
         }
 
-        if (filter.From is { } fromUtc)
+        if (filter.From is { Kind: DateTimeKind.Unspecified } || filter.To is { Kind: DateTimeKind.Unspecified })
         {
-            var bound = AsUtc(fromUtc);
-            query = query.Where(t => t.CreatedAt >= bound);
+            return Invalid("'from' and 'to' must include a UTC offset, e.g. 2026-09-01T00:00:00Z or " +
+                           "2026-09-01T08:00:00+08:00. To filter by whole days, use fromDate and toDate.");
         }
 
-        if (filter.To is { } toUtc)
+        // A MYT day runs from 00:00 MYT (16:00 UTC the day before) up to 00:00 MYT on the next day.
+        var lower = filter.From?.ToUniversalTime() ?? (filter.FromDate is { } fromDay ? AnalyticsRules.MytDayStartUtc(fromDay) : (DateTime?)null);
+        var upper = filter.To?.ToUniversalTime() ?? (filter.ToDate is { } toDay ? AnalyticsRules.MytDayStartUtc(toDay.AddDays(1)) : (DateTime?)null);
+
+        if (lower is { } l && upper is { } u && l >= u)
         {
-            var bound = AsUtc(toUtc);
-            query = query.Where(t => t.CreatedAt < bound);
+            return Invalid(filter.FromDate is not null && filter.ToDate is not null
+                ? "The 'fromDate' must not be after the 'toDate'."
+                : "The 'from' date must be before the 'to' date.");
         }
 
+        if (lower is { } fromUtc)
+        {
+            query = query.Where(t => t.CreatedAt >= fromUtc);
+        }
+
+        if (upper is { } toUtc)
+        {
+            query = query.Where(t => t.CreatedAt < toUtc);
+        }
+
+        if (filter.Limit is < 1 or > InventoryTransactionFilter.MaxLimit)
+        {
+            return Invalid($"Limit must be between 1 and {InventoryTransactionFilter.MaxLimit}.");
+        }
+
+        if (!string.IsNullOrEmpty(filter.Cursor))
+        {
+            if (!LedgerCursor.TryDecode(filter.Cursor, out var after))
+            {
+                return Invalid("The cursor is not valid. Start again from the first page.");
+            }
+
+            // Keyset paging: strictly after the last row seen, in (CreatedAt DESC, Id DESC) order. The CreatedAt
+            // and (PartId, CreatedAt) indexes carry the clustered key Id too, so this is a seek, not a scan.
+            query = query.Where(t => t.CreatedAt < after.CreatedAt
+                                     || (t.CreatedAt == after.CreatedAt && t.Id < after.Id));
+        }
+
+        // One row more than asked for says whether another page exists, without a COUNT.
         var rows = await query
             .OrderByDescending(t => t.CreatedAt)
             .ThenByDescending(t => t.Id)
+            .Take(filter.Limit + 1)
             .ToListAsync(ct);
 
-        return ServiceResult<IReadOnlyList<InventoryTransactionDto>>.Ok(rows.Select(r => ToDto(r)).ToList());
+        var page = rows.Take(filter.Limit).ToList();
+        var last = page.LastOrDefault();
+        return ServiceResult<CursorPage<InventoryTransactionDto>>.Ok(new CursorPage<InventoryTransactionDto>
+        {
+            Items = page.Select(r => ToDto(r)).ToList(),
+            NextCursor = rows.Count > filter.Limit && last is not null
+                ? new LedgerCursor(last.CreatedAt, last.Id).Encode()
+                : null
+        });
     }
 
     public async Task<ServiceResult<InventoryTransactionDto>> CreateAsync(
@@ -178,24 +225,6 @@ public class InventoryService : IInventoryService
         return ServiceResult<InventoryTransactionDto>.Fail(ServiceErrorKind.Conflict,
             "This part is inactive; reactivate it before receiving stock.");
     }
-
-    // Query-string DateTimes arrive as Unspecified (no offset) or Local (with one); the column holds UTC.
-    private static DateTime AsUtc(DateTime value) => value.Kind switch
-    {
-        DateTimeKind.Utc => value,
-        DateTimeKind.Local => value.ToUniversalTime(),
-        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-    };
-
-    private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
-    {
-        result = default;
-        return Enum.GetNames<TEnum>().Contains(value, StringComparer.Ordinal)
-            && Enum.TryParse(value, ignoreCase: false, out result);
-    }
-
-    private static string NameListMessage<TEnum>(string field) where TEnum : struct, Enum
-        => $"{field} must be one of: {string.Join(", ", Enum.GetNames<TEnum>())}.";
 
     private static InventoryTransactionDto ToDto(InventoryTransaction t, decimal? onHandAfter = null) => new()
     {

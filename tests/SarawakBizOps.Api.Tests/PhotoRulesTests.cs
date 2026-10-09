@@ -10,15 +10,21 @@ public class PhotoRulesTests
     public static TheoryData<string, byte[], string> Accepted() => new()
     {
         { "JPEG", PhotoJpeg, PhotoRules.Jpeg },
-        { "PNG from the demo generator", DemoPhotoImage.Create("any seed"), PhotoRules.Png },
-        { "WebP", PhotoWebp, PhotoRules.Webp }
+        { "PNG from the demo generator", DemoPhotoImage.Create("any seed"), PhotoRules.Png }
     };
 
     [Theory]
     [MemberData(nameof(Accepted))]
-    public void Jpeg_png_and_webp_are_accepted_and_typed_from_their_bytes(string _, byte[] bytes, string expectedType)
+    public void Jpeg_and_png_are_accepted_and_typed_from_their_bytes(string _, byte[] bytes, string expectedType)
     {
         Assert.Equal((expectedType, (string?)null), PhotoRules.Validate(bytes));
+    }
+
+    [Fact]
+    public void Webp_is_recognised_but_refused_because_it_could_never_appear_in_the_report()
+    {
+        Assert.Equal(PhotoRules.Webp, PhotoRules.DetectContentType(PhotoWebp));
+        Assert.Equal((null, PhotoRules.WebpRefused), PhotoRules.Validate(PhotoWebp));
     }
 
     [Fact]
@@ -61,9 +67,9 @@ public class PhotoRulesTests
 
     [Theory]
     [MemberData(nameof(NotPhotos))]
-    public void Anything_that_is_not_a_jpeg_png_or_webp_is_refused(string _, byte[] bytes)
+    public void Anything_that_is_not_a_jpeg_or_png_is_refused(string _, byte[] bytes)
     {
-        Assert.Equal((null, "A photo must be a JPEG, PNG or WebP image."), PhotoRules.Validate(bytes));
+        Assert.Equal((null, "A photo must be a JPEG or PNG image."), PhotoRules.Validate(bytes));
     }
 
     [Fact]
@@ -75,7 +81,7 @@ public class PhotoRulesTests
         Assert.NotEqual(jpeg, again);
         Assert.Matches(@"^work-orders/42/photo-[0-9a-f]{32}\.jpg$", jpeg);
         Assert.EndsWith(".png", PhotoRules.NewKey(42, PhotoRules.Png));
-        Assert.EndsWith(".webp", PhotoRules.NewKey(42, PhotoRules.Webp));
+        Assert.Throws<ArgumentOutOfRangeException>(() => PhotoRules.NewKey(42, PhotoRules.Webp)); // never stored now
         Assert.Throws<ArgumentOutOfRangeException>(() => PhotoRules.NewKey(42, "image/svg+xml"));
     }
 }

@@ -21,10 +21,12 @@ public class UsersController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<UserDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(CancellationToken ct)
         => Ok(await _userService.GetAllAsync(ct));
 
     [HttpGet("{id}")]
+    [ProducesResponseType<UserDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetById(string id, CancellationToken ct)
     {
         var user = await _userService.GetByIdAsync(id, ct);
@@ -32,6 +34,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
+    [ProducesResponseType<UserDto>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken ct)
     {
         var result = await _userService.CreateAsync(request, ct);
@@ -41,6 +44,7 @@ public class UsersController : ControllerBase
     }
 
     [HttpPatch("{id}")]
+    [ProducesResponseType<UserDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Update(string id, [FromBody] UpdateUserRequest request, CancellationToken ct)
     {
         var actingUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
@@ -50,6 +54,7 @@ public class UsersController : ControllerBase
 
     // No email in this system, so an Admin is the recovery path for a forgotten password.
     [HttpPost("{id}/reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> ResetPassword(string id, [FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
         var result = await _userService.ResetPasswordAsync(id, request.NewPassword, ct);

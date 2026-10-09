@@ -10,9 +10,12 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.ErrorHandling;
+using SarawakBizOps.Api.Filters;
 using SarawakBizOps.Api.HealthChecks;
 using SarawakBizOps.Api.Models.Entities;
+using SarawakBizOps.Api.OpenApi;
 using SarawakBizOps.Api.RateLimiting;
+using SarawakBizOps.Api.Serialization;
 using SarawakBizOps.Api.Services.Ai;
 using SarawakBizOps.Api.Services.Analytics;
 using SarawakBizOps.Api.Services.Auth;
@@ -126,6 +129,12 @@ if (string.IsNullOrWhiteSpace(storageConnectionString))
 builder.Services.AddSingleton<IFileStorage>(new AzureBlobFileStorage(
     new BlobContainerClient(storageConnectionString, storageSection["Container"] ?? "sarawakbizops-files")));
 
+// 6.11: files no row points at (a lost commit, a failed cleanup) are swept up on a timer — only once they are
+// older than any upload could take. "Storage:OrphanCleanup" tunes or disables it.
+builder.Services.Configure<OrphanFileCleanupOptions>(builder.Configuration.GetSection(OrphanFileCleanupOptions.SectionName));
+builder.Services.AddScoped<OrphanFileSweeper>();
+builder.Services.AddHostedService<OrphanFileCleanupService>();
+
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
 
@@ -147,6 +156,10 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IPartService, PartService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+// Each dashboard payload is kept for "Dashboard:CacheSeconds" (15 by default; 0 turns it off).
+builder.Services.Configure<DashboardOptions>(builder.Configuration.GetSection(DashboardOptions.SectionName));
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<DashboardCache>();
 // "Now" for the dashboard's current-month metrics; tests substitute a fixed clock.
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -206,7 +219,10 @@ builder.Services.AddCors(options =>
 // ---------------------------------------------------------------------
 // Controllers + Swagger (with a JWT "Authorize" button for manual testing)
 // ---------------------------------------------------------------------
-builder.Services.AddControllers();
+// Every mutating request's rowVersion is checked once, here, before the action runs (RowVersionFilter).
+// Every DateTime goes out as UTC with its "Z" (UtcDateTimeConverter), so no client has to guess the offset.
+builder.Services.AddControllers(options => options.Filters.Add<RowVersionFilter>())
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter()));
 // RFC 7807 ProblemDetails is the single error shape for every 4xx/5xx response.
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -214,6 +230,11 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "SarawakBizOps API", Version = "v1" });
+    // The document is the web app's contract: its TypeScript types are generated from openapi.json (checked in;
+    // OpenApiDocumentTests keeps it current). Nullable reference types decide what may be null.
+    options.SupportNonNullableReferenceTypes();
+    options.UseAllOfToExtendReferenceSchemas(); // so a nullable DTO property (WorkOrderDto.Report) can say so
+    options.SchemaFilter<RequiredNonNullablePropertiesFilter>();
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {

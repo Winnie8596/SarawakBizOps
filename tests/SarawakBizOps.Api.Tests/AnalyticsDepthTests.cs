@@ -39,7 +39,7 @@ public class AnalyticsDepthTests
         await using var scratch = await ScratchDatabase.CreateAsync(_factory);
         var analytics = Analytics(scratch, MidSeptember);
 
-        var summary = await analytics.GetSummaryAsync(default);
+        var summary = await analytics.GetSummaryAsync(AnalyticsRules.DefaultMonths, default);
 
         Assert.Equal(((double?)null, 0), (summary.AverageTimeToAssignment.AverageHours, summary.AverageTimeToAssignment.Count));
         Assert.Equal(((double?)null, 0), (summary.AverageCompletionDuration.AverageHours, summary.AverageCompletionDuration.Count));
@@ -67,7 +67,7 @@ public class AnalyticsDepthTests
             scratch.Job(WorkOrderStatus.Approved, Utc(2026, 3, 31, 10), assignedAtUtc: FirstInstant),          // 6 h: first instant counts
             scratch.Job(WorkOrderStatus.Approved, Utc(2026, 3, 1), assignedAtUtc: JustBefore),                 // assigned before the period
             scratch.Job(WorkOrderStatus.Assigned, Utc(2026, 9, 30, 10), assignedAtUtc: Utc(2026, 9, 30, 16)),  // assigned after it (1 Oct MYT)
-            scratch.Job(WorkOrderStatus.New, Utc(2026, 9, 2)));                                                // never assigned
+            scratch.Job(WorkOrderStatus.Assigned, Utc(2026, 9, 2)));                                           // no assignment time recorded
 
         var average = await Analytics(scratch, MidSeptember).AverageTimeToAssignmentAsync(6, default);
 
@@ -169,6 +169,69 @@ public class AnalyticsDepthTests
         var all = await analytics.TopPartsByUsageAsync(6, 10, default);
         Assert.Equal(new[] { "OIL", "BRG", "FUSE" }, all.Select(p => p.PartNumber));
         Assert.Equal(0.33m, all[2].Cost);
+    }
+
+    [Fact]
+    public async Task Part_usage_rounds_each_line_to_sen_before_summing_as_a_job_total_does()
+    {
+        await using var scratch = await ScratchDatabase.CreateAsync(_factory);
+        var raised = Utc(2026, 6, 1);
+        var washer = new Part { PartNumber = "WSH", Name = "Washer", UnitCost = 1m };
+        WorkOrderPart Line(decimal quantity) => new()
+        {
+            WorkOrder = scratch.Job(WorkOrderStatus.Approved, raised, raised), Part = washer,
+            Quantity = quantity, UnitPrice = 1m, CreatedAt = Utc(2026, 6, 2)
+        };
+        // Three jobs, each RM 0.005 → RM 0.01 on its own job total: RM 0.03, not RM 0.015 → 0.02.
+        await scratch.AddAsync(Line(0.005m), Line(0.005m), Line(0.005m));
+
+        var usage = Assert.Single(await Analytics(scratch, MidSeptember).TopPartsByUsageAsync(6, 5, default));
+
+        Assert.Equal((0.015m, 0.03m, 3), (usage.Quantity, usage.Cost, usage.JobCount));
+    }
+
+    [Fact]
+    public async Task The_period_is_a_query_parameter_of_1_to_24_months()
+    {
+        var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
+        var warehouse = await _factory.ClientWithRoleAsync(AppRoles.WarehouseStaff);
+
+        var three = await manager.GetFromJsonAsync<DashboardSummaryDto>("/api/dashboard/manager?months=3");
+        Assert.Equal(3, three!.JobsCompletedPerMonth.Count);
+        Assert.Equal(three.Period.FromMonth, three.JobsCompletedPerMonth[0].Month);
+        var year = await warehouse.GetFromJsonAsync<WarehouseDashboardDto>("/api/dashboard/summary?months=12");
+        Assert.Equal(year!.Period.ToMonth, AddMonths(year.Period.FromMonth, 11));
+        var byDefault = await manager.GetFromJsonAsync<DashboardSummaryDto>("/api/dashboard/summary");
+        Assert.Equal(AnalyticsRules.DefaultMonths, byDefault!.JobsCompletedPerMonth.Count);
+
+        foreach (var bad in new[] { "0", "25", "-1", "six" })
+        {
+            foreach (var path in new[] { "summary", "manager" })
+            {
+                var response = await manager.GetAsync($"/api/dashboard/{path}?months={bad}");
+                Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            }
+        }
+
+        static string AddMonths(string monthKey, int months)
+            => DateOnly.ParseExact(monthKey + "-01", "yyyy-MM-dd").AddMonths(months).ToString("yyyy-MM");
+    }
+
+    [Fact]
+    public async Task Each_dashboard_has_its_own_endpoint_with_one_shape()
+    {
+        // A Manager may read all three; whoever calls, each endpoint returns its own view.
+        var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
+
+        Assert.Equal(("Manager", true), await View(manager, "manager", "workOrdersByStatus"));
+        Assert.Equal(("Warehouse", true), await View(manager, "warehouse", "jobsWaitingForParts"));
+        Assert.Equal(("ServiceQueue", true), await View(manager, "service-queue", "queue"));
+
+        static async Task<(string?, bool)> View(HttpClient client, string path, string property)
+        {
+            var json = await client.GetFromJsonAsync<JsonElement>($"/api/dashboard/{path}");
+            return (json.GetProperty("view").GetString(), json.TryGetProperty(property, out _));
+        }
     }
 
     [Fact]

@@ -23,6 +23,7 @@ public class AiController : ControllerBase
     // AI-01. The job's own Technician (another technician's job is a 404, BR-02) or a Manager.
     [HttpPost("technician-assistant")]
     [Authorize(Roles = $"{AppRoles.Technician},{AppRoles.Manager}")]
+    [ProducesResponseType<TechnicianAssistanceDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> TechnicianAssistant([FromBody] TechnicianAssistantRequest request, CancellationToken ct)
     {
         var result = await _ai.GetTechnicianAssistanceAsync(
@@ -35,12 +36,14 @@ public class AiController : ControllerBase
     [HttpGet("manager-insights/topics")]
     [Authorize(Roles = AppRoles.Manager)]
     [DisableRateLimiting]
+    [ProducesResponseType<IReadOnlyList<ManagerInsightTopicDto>>(StatusCodes.Status200OK)]
     public IActionResult ManagerInsightTopics() => Ok(_ai.GetManagerInsightTopics());
 
     // AI-02, AC-10. Always 200: an answer (figures from the analytics, and the model's wording of them when it
     // could give one) or a refusal listing the supported topics.
     [HttpPost("manager-insights")]
     [Authorize(Roles = AppRoles.Manager)]
+    [ProducesResponseType<ManagerInsightDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> ManagerInsights([FromBody] ManagerInsightsRequest request, CancellationToken ct)
         => Ok(await _ai.AskManagerInsightsAsync(request.Question, ct));
 }

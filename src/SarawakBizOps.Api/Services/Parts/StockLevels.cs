@@ -12,4 +12,9 @@ public static class StockLevels
 {
     public static readonly Expression<Func<Part, bool>> IsLow =
         p => p.IsActive && p.QuantityOnHand <= p.MinimumStockLevel;
+
+    private static readonly Func<Part, bool> IsLowCompiled = IsLow.Compile();
+
+    /// <summary>The same rule applied to a part already in memory (e.g. when shaping a DTO).</summary>
+    public static bool IsLowStock(Part part) => IsLowCompiled(part);
 }

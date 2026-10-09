@@ -64,7 +64,7 @@ public static class AnalyticsRules
     /// <summary>Statuses in lifecycle order (SDD §9), the terminal Cancelled last.</summary>
     public static readonly WorkOrderStatus[] StatusOrder =
     {
-        WorkOrderStatus.New, WorkOrderStatus.Assigned, WorkOrderStatus.InProgress, WorkOrderStatus.PendingParts,
+        WorkOrderStatus.Assigned, WorkOrderStatus.InProgress, WorkOrderStatus.PendingParts,
         WorkOrderStatus.Completed, WorkOrderStatus.Approved, WorkOrderStatus.Cancelled
     };
 
@@ -84,15 +84,23 @@ public static class AnalyticsRules
         }
 
         var nowMyt = ReportRules.ToMyt(nowUtc);
-        var current = new DateTime(nowMyt.Year, nowMyt.Month, 1);
+        var current = new DateOnly(nowMyt.Year, nowMyt.Month, 1);
         var first = current.AddMonths(-(months - 1));
         var list = Enumerable.Range(0, months).Select(i => first.AddMonths(i)).ToList();
 
         return new MonthWindow(
             list.Select(m => (m.Year, m.Month)).ToList(),
-            DateTime.SpecifyKind(first - ReportRules.MytOffset, DateTimeKind.Utc),
-            DateTime.SpecifyKind(current.AddMonths(1) - ReportRules.MytOffset, DateTimeKind.Utc));
+            MytDayStartUtc(first),
+            MytDayStartUtc(current.AddMonths(1)));
     }
+
+    /// <summary>
+    /// 00:00 MYT on <paramref name="day"/> as a UTC instant (16:00 UTC the day before). The one place a Malaysian
+    /// calendar day becomes a UTC bound: the month windows above and the inventory history's day filters both use it,
+    /// so no client has to know the offset.
+    /// </summary>
+    public static DateTime MytDayStartUtc(DateOnly day)
+        => DateTime.SpecifyKind(day.ToDateTime(TimeOnly.MinValue) - ReportRules.MytOffset, DateTimeKind.Utc);
 
     /// <summary>The period a window covers, as the payload shows it.</summary>
     public static AnalyticsPeriodDto Period(MonthWindow window) => new()

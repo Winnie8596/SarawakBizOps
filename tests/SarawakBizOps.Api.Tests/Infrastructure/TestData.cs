@@ -263,7 +263,7 @@ public static class TestData
     public static readonly byte[] PhotoJpeg =
         { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9 };
 
-    /// <summary>The smallest thing that passes as a WebP: a RIFF container whose form type is WEBP.</summary>
+    /// <summary>The smallest thing recognised as a WebP (a RIFF container whose form type is WEBP), which uploads refuse.</summary>
     public static readonly byte[] PhotoWebp =
         "RIFF"u8.ToArray().Concat(new byte[] { 0x1A, 0, 0, 0 }).Concat("WEBPVP8 "u8.ToArray()).Concat(new byte[18]).ToArray();
 
@@ -315,6 +315,14 @@ public static class TestData
     {
         var ready = await CreateReadyToCompleteWorkOrderAsync(admin, manager, technician, technicianId);
         return await CompleteWorkOrderAsync(technician, ready.Id);
+    }
+
+    /// <summary>Completed and with its service report: ready to approve (approval requires the report).</summary>
+    public static async Task<WorkOrderDto> CreateReportedWorkOrderAsync(
+        HttpClient admin, HttpClient manager, HttpClient technician, string technicianId)
+    {
+        var completed = await CreateCompletedWorkOrderAsync(admin, manager, technician, technicianId);
+        return await GenerateReportAsync(manager, completed.Id);
     }
 
     public static async Task<HttpResponseMessage> PostApproveWorkOrderAsync(HttpClient manager, int workOrderId)

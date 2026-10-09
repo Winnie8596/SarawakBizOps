@@ -4,7 +4,7 @@ namespace SarawakBizOps.Api.DTOs.WorkOrders;
 
 // Saved while a job is InProgress; both fields are required before Complete will succeed (BR-03),
 // but the PATCH itself just stores whatever the technician has typed so far.
-public class DiagnosisUpdateRequest
+public class DiagnosisUpdateRequest : IRowVersionRequest
 {
     [Required, MaxLength(4000)]
     public string Diagnosis { get; set; } = string.Empty;

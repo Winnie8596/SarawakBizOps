@@ -47,6 +47,8 @@ public class ServiceRequest
     [Timestamp]
     public byte[]? RowVersion { get; set; }
 
-    // 1:1 for MVP — BR-12: a ServiceRequest can produce at most one WorkOrder.
-    public WorkOrder? WorkOrder { get; set; }
+    // Every job ever created for this request. BR-12: at most one that is not Cancelled (a filtered unique
+    // index) — cancelling a job returns the request to Approved and it can be assigned again, so a request can
+    // have any number of cancelled jobs and then one live one.
+    public ICollection<WorkOrder> WorkOrders { get; set; } = new List<WorkOrder>();
 }

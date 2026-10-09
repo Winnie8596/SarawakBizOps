@@ -1,4 +1,3 @@
-using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.WorkOrders;
@@ -38,6 +37,15 @@ public class WorkOrderPhotoService : IWorkOrderPhotoService
         {
             return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation, invalid);
         }
+
+        // 6.11: what is stored (and later served and put in the report) carries no GPS position, camera or owner
+        // details, only the orientation. A photo whose structure cannot be followed cannot be cleaned, so it is
+        // refused rather than stored with its metadata.
+        if (PhotoMetadata.Strip(image, contentType!) is not { } stripped)
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation, PhotoRules.Unreadable);
+        }
+        image = stripped;
 
         var current = await _db.WorkOrders.AsNoTracking()
             .Where(w => w.Id == workOrderId)
@@ -84,8 +92,8 @@ public class WorkOrderPhotoService : IWorkOrderPhotoService
 
             // The limit is repeated inside the claim, under the job row's lock, so two uploads cannot both
             // squeeze past it (and the rowVersion already lets only one of two same-screen uploads through).
-            if (!await ClaimJobAsync(workOrderId, technicianId, rowVersion,
-                    w => w.Photos.Count() < PhotoRules.MaxPhotosPerJob, ct))
+            if (!await _db.ClaimInProgressJobAsync(workOrderId, technicianId, rowVersion, ct,
+                    alsoRequire: w => w.Photos.Count() < PhotoRules.MaxPhotosPerJob))
             {
                 await tx.RollbackAsync(ct);
                 await DeleteQuietlyAsync(key, workOrderId);
@@ -140,7 +148,7 @@ public class WorkOrderPhotoService : IWorkOrderPhotoService
 
         await using (var tx = await _db.Database.BeginTransactionAsync(ct))
         {
-            if (!await ClaimJobAsync(workOrderId, technicianId, rowVersion, _ => true, ct))
+            if (!await _db.ClaimInProgressJobAsync(workOrderId, technicianId, rowVersion, ct))
             {
                 await tx.RollbackAsync(ct);
                 return await LostJobRaceAsync(workOrderId, technicianId, "removed", ct);
@@ -199,23 +207,6 @@ public class WorkOrderPhotoService : IWorkOrderPhotoService
         // Served with the type recorded from the bytes at upload, not whatever storage says.
         return ServiceResult<StoredFile>.Ok(file with { ContentType = photo.ContentType });
     }
-
-    /// <summary>
-    /// The Phase 5 conflict guard applied to a photo change (as for parts, Phase 7): a no-op UPDATE of the job
-    /// that matches only while it is still this technician's, still InProgress and still at the caller's
-    /// RowVersion. Matching bumps the RowVersion and holds the job row's lock until commit, so a Manager's
-    /// cancel or the technician's own Complete cannot interleave with the change.
-    /// </summary>
-    private async Task<bool> ClaimJobAsync(
-        int workOrderId, string technicianId, byte[] rowVersion,
-        Expression<Func<WorkOrder, bool>> alsoRequire, CancellationToken ct)
-        => await _db.WorkOrders
-            .Where(w => w.Id == workOrderId
-                        && w.TechnicianId == technicianId
-                        && w.Status == WorkOrderStatus.InProgress
-                        && w.RowVersion == rowVersion)
-            .Where(alsoRequire)
-            .ExecuteUpdateAsync(s => s.SetProperty(w => w.Status, w => w.Status), ct) == 1;
 
     private async Task<ServiceResult<WorkOrderDto>> LostJobRaceAsync(
         int workOrderId, string technicianId, string verb, CancellationToken ct)

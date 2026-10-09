@@ -263,7 +263,7 @@ public class WorkOrderSignatureTests
         var (technician, user) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var assigned = await CreateAssignedWorkOrderAsync(admin, manager, user.Id);
         var completed = await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id);
-        var approved = await ApproveWorkOrderAsync(manager, (await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
+        var approved = await ApproveWorkOrderAsync(manager, (await CreateReportedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
         var cancelled = await CancelWorkOrderAsync(manager, (await CreateInProgressWorkOrderAsync(admin, manager, technician, user.Id)).Id);
 
         var onAssigned = await PostSignatureAsync(technician, assigned.Id);

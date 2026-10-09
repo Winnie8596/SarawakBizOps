@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SarawakBizOps.Api.DTOs.Customers;
+using SarawakBizOps.Api.DTOs.History;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Customers;
 using SarawakBizOps.Api.Services.History;
@@ -27,6 +28,7 @@ public class CustomersController : ControllerBase
     // Office roles only: a Technician's view of history is limited to their own jobs (BR-02).
     [HttpGet("{id:int}/history")]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Manager},{AppRoles.ServiceStaff}")]
+    [ProducesResponseType<ServiceHistoryDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHistory(int id, CancellationToken ct)
     {
         var history = await _historyService.ForCustomerAsync(id, ct);
@@ -34,10 +36,12 @@ public class CustomersController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<CustomerDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(CancellationToken ct)
         => Ok(await _customerService.GetAllAsync(ct));
 
     [HttpGet("{id:int}")]
+    [ProducesResponseType<CustomerDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
         var customer = await _customerService.GetByIdAsync(id, ct);
@@ -50,6 +54,7 @@ public class CustomersController : ControllerBase
     // arguments must be compile-time constants.
     [HttpPost]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
+    [ProducesResponseType<CustomerDto>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CustomerRequest request, CancellationToken ct)
     {
         var customer = await _customerService.CreateAsync(request, ct);
@@ -59,6 +64,7 @@ public class CustomersController : ControllerBase
     // FR-05
     [HttpPut("{id:int}")]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Update(int id, [FromBody] CustomerRequest request, CancellationToken ct)
     {
         var updated = await _customerService.UpdateAsync(id, request, ct);

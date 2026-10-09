@@ -262,7 +262,7 @@ public class EndpointAccessTests
             new[] { AppRoles.Manager }, HttpStatusCode.OK,
             Prepare: async ctx =>
             {
-                var wo = await CreateCompletedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
+                var wo = await CreateReportedWorkOrderAsync(ctx.Admin, ctx.Manager, ctx.TechnicianClient, ctx.TechnicianId);
                 return new Fixture(0, 0, 0, wo.Id, ctx.TechnicianId, wo.RowVersion);
             }),
 
@@ -455,6 +455,20 @@ public class EndpointAccessTests
         new("GET /api/dashboard/summary", HttpMethod.Get,
             _ => "/api/dashboard/summary", _ => null,
             new[] { AppRoles.Admin, AppRoles.Manager, AppRoles.ServiceStaff, AppRoles.WarehouseStaff }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        // One endpoint per dashboard, one shape each; a Manager or Admin may read every one.
+        new("GET /api/dashboard/manager", HttpMethod.Get,
+            _ => "/api/dashboard/manager", _ => null,
+            new[] { AppRoles.Admin, AppRoles.Manager }, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/dashboard/warehouse", HttpMethod.Get,
+            _ => "/api/dashboard/warehouse", _ => null, InventoryReaders, HttpStatusCode.OK,
+            Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
+
+        new("GET /api/dashboard/service-queue", HttpMethod.Get,
+            _ => "/api/dashboard/service-queue", _ => null, Office, HttpStatusCode.OK,
             Prepare: async ctx => new Fixture(0, 0, 0, 0, ctx.TechnicianId)),
 
         // ---- Phase 13: the AI technician assistant — the job's own Technician (another technician's job reads as 404,

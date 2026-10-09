@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Auth;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
@@ -37,8 +38,8 @@ public class WorkOrderPartsTests
     private static async Task<string> DetailAsync(HttpResponseMessage response)
         => (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail ?? string.Empty;
 
-    private static async Task<List<InventoryTransactionDto>> JobLedgerAsync(HttpClient client, int workOrderId)
-        => (await client.GetFromJsonAsync<List<InventoryTransactionDto>>($"/api/inventory-transactions?workOrderId={workOrderId}"))!;
+    private static async Task<IReadOnlyList<InventoryTransactionDto>> JobLedgerAsync(HttpClient client, int workOrderId)
+        => (await client.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>($"/api/inventory-transactions?workOrderId={workOrderId}"))!.Items;
 
     /// <summary>A fresh technician with an InProgress job of their own, plus admin and manager clients.</summary>
     private async Task<(HttpClient Admin, HttpClient Manager, HttpClient Technician, TestUser User, WorkOrderDto Job)> JobInProgressAsync()
@@ -239,8 +240,8 @@ public class WorkOrderPartsTests
         Assert.Equal(racers - winners, responses.Count(r => r.StatusCode == HttpStatusCode.Conflict));
         Assert.Equal(0m, (await GetPartAsync(admin, part.Id)).QuantityOnHand);
 
-        var issues = (await admin.GetFromJsonAsync<List<InventoryTransactionDto>>(
-            $"/api/inventory-transactions?partId={part.Id}&type=Issue"))!;
+        var issues = (await admin.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&type=Issue"))!.Items;
         Assert.Equal(winners, issues.Count);
         // Every job that won has exactly one line; every job that lost has none.
         foreach (var (contender, response) in contenders.Zip(responses))
@@ -343,7 +344,7 @@ public class WorkOrderPartsTests
 
         var assigned = await CreateAssignedWorkOrderAsync(admin, manager, user.Id);
         var completed = await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id);
-        var approved = await ApproveWorkOrderAsync(manager, (await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
+        var approved = await ApproveWorkOrderAsync(manager, (await CreateReportedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
 
         var onAssigned = await PostAddPartAsync(technician, assigned.Id, part.Id, 1);
         var onCompleted = await PostAddPartAsync(technician, completed.Id, part.Id, 1);
@@ -425,7 +426,7 @@ public class WorkOrderPartsTests
         edit.EnsureSuccessStatusCode();
 
         // Asking for inactive parts is ignored for a technician.
-        var parts = await technician.GetFromJsonAsync<List<PartDto>>($"/api/parts?search={marker}&includeInactive=true");
+        var parts = (await technician.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}&includeInactive=true"))!.Items;
 
         Assert.Equal(new[] { active.Id }, parts!.Select(p => p.Id));
     }
@@ -546,6 +547,33 @@ public class WorkOrderPartsTests
 
         Assert.Equal("Cancelled", cancelled.Status);
         Assert.Equal("Approved", (await GetServiceRequestAsync(manager, job.ServiceRequestId))!.Status);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_job_returns_every_part_still_issued_to_it()
+    {
+        var (admin, manager, technician, _, job) = await JobInProgressAsync();
+        var belt = await CreateStockedPartAsync(admin, onHand: 5);
+        var oil = await CreateStockedPartAsync(admin, onHand: 10);
+        await AddPartAsync(technician, job.Id, belt.Id, 2);
+        await AddPartAsync(technician, job.Id, oil.Id, 1.5m);
+        var withParts = await AddPartAsync(technician, job.Id, belt.Id, 1);
+        Assert.Equal(3, withParts.Parts.Count);
+
+        var cancelled = await CancelWorkOrderAsync(manager, job.Id, "Customer replaced the machine");
+
+        // Stock is back where it started; the job (locked now) has no parts left on it.
+        Assert.Equal("Cancelled", cancelled.Status);
+        Assert.Empty(cancelled.Parts);
+        Assert.Equal(5m, (await GetPartAsync(admin, belt.Id)).QuantityOnHand);
+        Assert.Equal(10m, (await GetPartAsync(admin, oil.Id)).QuantityOnHand);
+
+        // One Return row per line, each against the job and recorded as the manager's cancellation.
+        var returns = (await JobLedgerAsync(admin, job.Id)).Where(t => t.TransactionType == "Return").ToList();
+        Assert.Equal(new[] { 1m, 1.5m, 2m }, returns.Select(t => t.Quantity).Order());
+        Assert.All(returns, t => Assert.Equal($"Returned when work order #{job.Id} was cancelled", t.Notes));
+        Assert.All(returns, t => Assert.Equal("Test Manager", t.CreatedByName));
+        await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
     }
 
     [Fact]

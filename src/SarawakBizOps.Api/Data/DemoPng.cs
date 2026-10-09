@@ -1,6 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
-using System.Text;
+using SarawakBizOps.Api.Services.Common;
 
 namespace SarawakBizOps.Api.Data;
 
@@ -43,45 +43,9 @@ internal static class DemoPng
 
         using var png = new MemoryStream();
         png.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
-        WriteChunk(png, "IHDR", header);
-        WriteChunk(png, "IDAT", compressed.ToArray());
-        WriteChunk(png, "IEND", Array.Empty<byte>());
+        PngChunks.Write(png, "IHDR", header);
+        PngChunks.Write(png, "IDAT", compressed.ToArray());
+        PngChunks.Write(png, "IEND", Array.Empty<byte>());
         return png.ToArray();
-    }
-
-    private static void WriteChunk(Stream png, string type, byte[] data)
-    {
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(length, (uint)data.Length);
-        png.Write(length);
-
-        var typeAndData = new byte[4 + data.Length];
-        Encoding.ASCII.GetBytes(type, typeAndData);
-        data.CopyTo(typeAndData, 4);
-        png.Write(typeAndData);
-
-        Span<byte> crc = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crc, Crc32(typeAndData));
-        png.Write(crc);
-    }
-
-    private static readonly uint[] CrcTable = Enumerable.Range(0, 256).Select(n =>
-    {
-        var c = (uint)n;
-        for (var k = 0; k < 8; k++)
-        {
-            c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-        }
-        return c;
-    }).ToArray();
-
-    private static uint Crc32(byte[] bytes)
-    {
-        var c = 0xFFFFFFFFu;
-        foreach (var b in bytes)
-        {
-            c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
-        }
-        return c ^ 0xFFFFFFFFu;
     }
 }

@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SarawakBizOps.Api.DTOs.WorkOrders;
 
-public class AssignWorkOrderRequest
+public class AssignWorkOrderRequest : IRowVersionRequest
 {
     [Required]
     public string TechnicianId { get; set; } = string.Empty;

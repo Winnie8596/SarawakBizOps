@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
@@ -27,6 +28,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<ServiceRequestDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll([FromQuery] ServiceRequestFilter filter, CancellationToken ct)
     {
         var result = await _service.GetAllAsync(filter, ct);
@@ -34,6 +36,7 @@ public class ServiceRequestsController : ControllerBase
     }
 
     [HttpGet("{id:int}")]
+    [ProducesResponseType<ServiceRequestDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
         var request = await _service.GetByIdAsync(id, ct);
@@ -42,6 +45,7 @@ public class ServiceRequestsController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.ServiceStaff}")]
+    [ProducesResponseType<ServiceRequestDto>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreateServiceRequestRequest request, CancellationToken ct)
     {
         var result = await _service.CreateAsync(request, ActingUserId, ct);
@@ -52,12 +56,10 @@ public class ServiceRequestsController : ControllerBase
 
     [HttpPost("{id:int}/approve")]
     [Authorize(Roles = AppRoles.Manager)]
+    [ProducesResponseType<ServiceRequestDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Approve(int id, [FromBody] ApproveServiceRequestRequest request, CancellationToken ct)
     {
-        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
-        {
-            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
-        }
+        var rowVersion = request.RowVersionBytes();
 
         var result = await _service.ApproveAsync(id, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
@@ -65,12 +67,10 @@ public class ServiceRequestsController : ControllerBase
 
     [HttpPost("{id:int}/reject")]
     [Authorize(Roles = AppRoles.Manager)]
+    [ProducesResponseType<ServiceRequestDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Reject(int id, [FromBody] RejectServiceRequestRequest request, CancellationToken ct)
     {
-        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
-        {
-            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
-        }
+        var rowVersion = request.RowVersionBytes();
 
         var result = await _service.RejectAsync(id, request.Reason, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
@@ -80,12 +80,10 @@ public class ServiceRequestsController : ControllerBase
     // Admin) may only undo their own mistake while it is still New — enforced inside the service, since
     // it depends on both role and current status.
     [HttpPost("{id:int}/cancel")]
+    [ProducesResponseType<ServiceRequestDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Cancel(int id, [FromBody] CancelServiceRequestRequest request, CancellationToken ct)
     {
-        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
-        {
-            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
-        }
+        var rowVersion = request.RowVersionBytes();
 
         var result = await _service.CancelAsync(id, request.Reason, ActingUserId, User.IsInRole(AppRoles.Manager), rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
@@ -94,12 +92,10 @@ public class ServiceRequestsController : ControllerBase
     // Atomically creates the WorkOrder and marks the request Assigned (BR-01, BR-12, BR-13, AC-01).
     [HttpPost("{id:int}/assign")]
     [Authorize(Roles = AppRoles.Manager)]
+    [ProducesResponseType<WorkOrderDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Assign(int id, [FromBody] AssignWorkOrderRequest request, CancellationToken ct)
     {
-        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
-        {
-            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
-        }
+        var rowVersion = request.RowVersionBytes();
 
         var result = await _workOrderService.AssignAsync(id, request.TechnicianId, ActingUserId, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);

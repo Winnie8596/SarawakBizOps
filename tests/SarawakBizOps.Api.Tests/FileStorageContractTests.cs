@@ -47,6 +47,26 @@ public abstract class FileStorageContractTests
     }
 
     [Fact]
+    public async Task Listing_gives_the_files_under_a_prefix_and_when_each_was_written()
+    {
+        // 6.11: what the orphan sweep walks. The window allows for the emulator's clock being a little off.
+        var folder = $"contract/{Guid.NewGuid():N}/";
+        var before = DateTimeOffset.UtcNow.AddMinutes(-5);
+        await Storage.SaveAsync(folder + "b.png", new MemoryStream(TestData.SignaturePng), "image/png", CancellationToken.None);
+        await Storage.SaveAsync(folder + "a.png", new MemoryStream(TestData.SignaturePng), "image/png", CancellationToken.None);
+        await Storage.SaveAsync($"contract/{Guid.NewGuid():N}/elsewhere.png", new MemoryStream(TestData.SignaturePng), "image/png", CancellationToken.None);
+
+        var listed = new List<StoredFileInfo>();
+        await foreach (var file in Storage.ListAsync(folder, CancellationToken.None))
+        {
+            listed.Add(file);
+        }
+
+        Assert.Equal(new[] { folder + "a.png", folder + "b.png" }, listed.Select(f => f.Key).Order());
+        Assert.All(listed, f => Assert.InRange(f.LastModified, before, DateTimeOffset.UtcNow.AddMinutes(5)));
+    }
+
+    [Fact]
     public async Task A_deleted_file_is_gone_and_deleting_again_is_not_an_error()
     {
         var key = NewKey();

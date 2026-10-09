@@ -36,6 +36,14 @@ public class AnalyticsRulesTests
     }
 
     [Fact]
+    public void A_Malaysian_day_starts_at_16_00_UTC_the_day_before()
+    {
+        Assert.Equal(Utc(2026, 8, 31, 16), AnalyticsRules.MytDayStartUtc(new DateOnly(2026, 9, 1)));
+        Assert.Equal(Utc(2025, 12, 31, 16), AnalyticsRules.MytDayStartUtc(new DateOnly(2026, 1, 1)));
+        Assert.Equal(DateTimeKind.Utc, AnalyticsRules.MytDayStartUtc(new DateOnly(2026, 9, 1)).Kind);
+    }
+
+    [Fact]
     public void A_window_can_cross_a_year_boundary()
     {
         var window = AnalyticsRules.MonthsEnding(Utc(2027, 1, 5), 3);
@@ -73,7 +81,7 @@ public class AnalyticsRulesTests
 
         Assert.Equal(new[] { ("Urgent", 0), ("High", 0), ("Medium", 0), ("Low", 2) }, priorities.Select(c => (c.Key, c.Count)));
         Assert.Equal(
-            new[] { "New", "Assigned", "InProgress", "PendingParts", "Completed", "Approved", "Cancelled" },
+            new[] { "Assigned", "InProgress", "PendingParts", "Completed", "Approved", "Cancelled" },
             statuses.Select(c => c.Key));
         Assert.Equal(4, statuses.Single(c => c.Key == "Approved").Count);
         Assert.Equal(4, statuses.Sum(c => c.Count));

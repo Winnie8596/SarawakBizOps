@@ -49,7 +49,7 @@ public class WorkOrderPartService : IWorkOrderPartService
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        if (!await ClaimJobAsync(workOrderId, technicianId, rowVersion, ct))
+        if (!await _db.ClaimInProgressJobAsync(workOrderId, technicianId, rowVersion, ct))
         {
             await tx.RollbackAsync(ct);
             return await LostJobRaceAsync(workOrderId, technicianId, "added", ct);
@@ -126,7 +126,7 @@ public class WorkOrderPartService : IWorkOrderPartService
 
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
-        if (!await ClaimJobAsync(workOrderId, technicianId, rowVersion, ct))
+        if (!await _db.ClaimInProgressJobAsync(workOrderId, technicianId, rowVersion, ct))
         {
             await tx.RollbackAsync(ct);
             return await LostJobRaceAsync(workOrderId, technicianId, "returned", ct);
@@ -201,21 +201,6 @@ public class WorkOrderPartService : IWorkOrderPartService
             ? null
             : $"This job is {status}; parts can only be {verb} while it is in progress.";
     }
-
-    /// <summary>
-    /// The Phase 5 conflict guard applied to a parts change: a no-op UPDATE of the job that matches only
-    /// while it is still this technician's, still InProgress and still at the caller's RowVersion. Matching
-    /// bumps the RowVersion (the job's parts changed, so any screen showing it is now stale) and holds the
-    /// job row's lock until commit, so a Manager's cancel or the technician's own Complete cannot interleave
-    /// with the stock movement.
-    /// </summary>
-    private async Task<bool> ClaimJobAsync(int workOrderId, string technicianId, byte[] rowVersion, CancellationToken ct)
-        => await _db.WorkOrders
-            .Where(w => w.Id == workOrderId
-                        && w.TechnicianId == technicianId
-                        && w.Status == WorkOrderStatus.InProgress
-                        && w.RowVersion == rowVersion)
-            .ExecuteUpdateAsync(s => s.SetProperty(w => w.Status, w => w.Status), ct) == 1;
 
     private async Task<ServiceResult<WorkOrderDto>> LostJobRaceAsync(
         int workOrderId, string technicianId, string verb, CancellationToken ct)

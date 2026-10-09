@@ -6,8 +6,10 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.DTOs.Parts;
+using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Tests.Infrastructure;
 using static SarawakBizOps.Api.Tests.Infrastructure.TestData;
@@ -32,8 +34,8 @@ public class InventoryTests
     private static async Task<string> DetailAsync(HttpResponseMessage response)
         => (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail ?? string.Empty;
 
-    private static async Task<List<InventoryTransactionDto>> LedgerAsync(HttpClient client, int partId)
-        => (await client.GetFromJsonAsync<List<InventoryTransactionDto>>($"/api/inventory-transactions?partId={partId}"))!;
+    private static async Task<IReadOnlyList<InventoryTransactionDto>> LedgerAsync(HttpClient client, int partId)
+        => (await client.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>($"/api/inventory-transactions?partId={partId}"))!.Items;
 
     private static UpdatePartRequest EditOf(PartDto part, Action<UpdatePartRequest>? change = null)
     {
@@ -173,12 +175,45 @@ public class InventoryTests
         var retired = await CreatePartAsync(warehouse, name: $"Retired bearing {marker}");
         await warehouse.PutAsJsonAsync($"/api/parts/{retired.Id}", EditOf(retired, e => e.IsActive = false));
 
-        var byNumber = await warehouse.GetFromJsonAsync<List<PartDto>>($"/api/parts?search={marker}");
-        var withInactive = await warehouse.GetFromJsonAsync<List<PartDto>>($"/api/parts?search={marker}&includeInactive=true");
+        var byNumber = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}"))!.Items;
+        var withInactive = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}&includeInactive=true"))!.Items;
 
         Assert.Equal(new[] { active.Id }, byNumber!.Select(p => p.Id));
         Assert.Equal(new[] { active.Id, retired.Id }.Order(), withInactive!.Select(p => p.Id).Order());
         Assert.False(withInactive!.Single(p => p.Id == retired.Id).IsActive);
+    }
+
+    [Fact]
+    public async Task The_catalogue_is_paged_on_the_server_with_a_total_count()
+    {
+        var warehouse = await WarehouseAsync();
+        var marker = Guid.NewGuid().ToString("N")[..10];
+        var created = new List<PartDto>();
+        for (var i = 1; i <= 3; i++)
+        {
+            created.Add(await CreatePartAsync(warehouse, partNumber: $"PG-{marker}-{i}"));
+        }
+
+        var first = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}&pageSize=2"))!;
+        var second = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}&pageSize=2&page=2"))!;
+        var beyond = (await warehouse.GetFromJsonAsync<PagedResult<PartDto>>($"/api/parts?search={marker}&pageSize=2&page=3"))!;
+
+        Assert.Equal((3, 1, 2), (first.TotalCount, first.Page, first.PageSize));
+        Assert.Equal(created.Select(p => p.Id), first.Items.Concat(second.Items).Select(p => p.Id)); // by PartNumber
+        Assert.Equal(3, second.TotalCount);
+        Assert.Empty(beyond.Items);
+    }
+
+    [Theory]
+    [InlineData("page=0", "Page must be 1 or more")]
+    [InlineData("pageSize=0", "PageSize must be between 1 and 200")]
+    [InlineData("pageSize=201", "PageSize must be between 1 and 200")]
+    public async Task Invalid_catalogue_paging_is_a_400(string query, string expected)
+    {
+        var response = await (await WarehouseAsync()).GetAsync($"/api/parts?{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(expected, await DetailAsync(response));
     }
 
     // ---- Stock movements (BR-09) ----
@@ -453,14 +488,14 @@ public class InventoryTests
         await ReceiveAsync(warehouse, other.Id, 3, "other part");
 
         var forPart = await LedgerAsync(warehouse, part.Id);
-        var adjustments = (await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>(
-            $"/api/inventory-transactions?partId={part.Id}&type=Adjustment"))!;
-        var inWindow = (await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>(
-            $"/api/inventory-transactions?from={start:O}&to={DateTime.UtcNow.AddMinutes(1):O}"))!;
-        var beforeWindow = (await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>(
-            $"/api/inventory-transactions?partId={part.Id}&to={start:O}"))!;
-        var forWorkOrder = (await warehouse.GetFromJsonAsync<List<InventoryTransactionDto>>(
-            $"/api/inventory-transactions?partId={part.Id}&workOrderId=1"))!;
+        var adjustments = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&type=Adjustment"))!.Items;
+        var inWindow = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?from={start:O}&to={DateTime.UtcNow.AddMinutes(1):O}"))!.Items;
+        var beforeWindow = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&to={start:O}"))!.Items;
+        var forWorkOrder = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&workOrderId=1"))!.Items;
 
         Assert.Equal(new[] { "second", "first" }, forPart.Select(t => t.Notes));
         Assert.All(forPart, t => Assert.Equal(part.PartNumber, t.PartNumber));
@@ -471,9 +506,117 @@ public class InventoryTests
         Assert.Empty(forWorkOrder); // this part was never used on a job (WorkOrderPartsTests covers the filter)
     }
 
+    [Fact]
+    public async Task History_pages_with_a_cursor_that_never_skips_or_repeats_a_row()
+    {
+        var warehouse = await WarehouseAsync();
+        var part = await CreatePartAsync(warehouse);
+        for (var i = 1; i <= 5; i++)
+        {
+            await ReceiveAsync(warehouse, part.Id, i, $"delivery {i}");
+        }
+
+        var seen = new List<InventoryTransactionDto>();
+        string? cursor = null;
+        var pages = 0;
+        do
+        {
+            var url = $"/api/inventory-transactions?partId={part.Id}&limit=2" +
+                      (cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var page = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(url))!;
+            Assert.InRange(page.Items.Count, 1, 2);
+            seen.AddRange(page.Items);
+            cursor = page.NextCursor;
+            pages++;
+        } while (cursor is not null);
+
+        Assert.Equal(3, pages); // 2 + 2 + 1, and the last page says there is no next one
+        Assert.Equal(new[] { "delivery 5", "delivery 4", "delivery 3", "delivery 2", "delivery 1" }, seen.Select(t => t.Notes));
+        await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
+    }
+
+    [Fact]
+    public async Task Rows_sharing_a_timestamp_are_split_across_pages_by_id()
+    {
+        // Same CreatedAt down to the tick: only the Id tie-breaker keeps the page boundary exact. The rows are
+        // written straight to the table (an INSERT, which the ledger allows) and net to zero, so stock reconciles.
+        var warehouse = await WarehouseAsync();
+        var part = await CreatePartAsync(warehouse);
+        var at = new DateTime(2021, 6, 1, 4, 0, 0, DateTimeKind.Utc);
+        var ids = await InsertLedgerRowsAsync(part.Id, (at, 2m), (at, 3m), (at, -5m));
+
+        var first = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&limit=2"))!;
+        var second = (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+            $"/api/inventory-transactions?partId={part.Id}&limit=2&cursor={Uri.EscapeDataString(first.NextCursor!)}"))!;
+
+        Assert.Equal(ids.OrderDescending(), first.Items.Concat(second.Items).Select(t => t.Id));
+        Assert.Null(second.NextCursor);
+        await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
+    }
+
+    [Fact]
+    public async Task Date_filters_by_MYT_day_are_worked_out_on_the_server()
+    {
+        // 15:59:59 UTC on 1 March is 23:59:59 MYT on 1 March; 16:00 UTC is already 00:00 MYT on 2 March.
+        var warehouse = await WarehouseAsync();
+        var part = await CreatePartAsync(warehouse);
+        var lastSecondOfFirst = new DateTime(2021, 3, 1, 15, 59, 59, DateTimeKind.Utc);
+        var startOfSecond = new DateTime(2021, 3, 1, 16, 0, 0, DateTimeKind.Utc);
+        var endOfSecond = new DateTime(2021, 3, 2, 15, 59, 59, DateTimeKind.Utc);
+        var startOfThird = new DateTime(2021, 3, 2, 16, 0, 0, DateTimeKind.Utc);
+        var ids = await InsertLedgerRowsAsync(part.Id,
+            (lastSecondOfFirst, 4m), (startOfSecond, -1m), (endOfSecond, -1m), (startOfThird, -2m));
+
+        async Task<IEnumerable<int>> IdsAsync(string query) =>
+            (await warehouse.GetFromJsonAsync<CursorPage<InventoryTransactionDto>>(
+                $"/api/inventory-transactions?partId={part.Id}&{query}"))!.Items.Select(t => t.Id).Order();
+
+        Assert.Equal(new[] { ids[1], ids[2] }, await IdsAsync("fromDate=2021-03-02&toDate=2021-03-02"));
+        Assert.Equal(new[] { ids[0] }, await IdsAsync("toDate=2021-03-01"));
+        Assert.Equal(new[] { ids[3] }, await IdsAsync("fromDate=2021-03-03"));
+        // An instant with an explicit offset is the same moment however it is written.
+        Assert.Equal(new[] { ids[1], ids[2] },
+            await IdsAsync($"from={Uri.EscapeDataString("2021-03-02T00:00:00+08:00")}&to=2021-03-02T16:00:00Z"));
+        await LedgerReconciliation.AssertReconcilesAsync(_factory.Services);
+    }
+
+    private async Task<int[]> InsertLedgerRowsAsync(int partId, params (DateTime CreatedAt, decimal Quantity)[] rows)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var userId = await db.Users.Select(u => u.Id).FirstAsync();
+        var entries = rows.Select(r => new InventoryTransaction
+        {
+            PartId = partId,
+            TransactionType = InventoryTransactionType.Adjustment,
+            Quantity = r.Quantity,
+            CreatedByUserId = userId,
+            Notes = "Inserted by test",
+            CreatedAt = r.CreatedAt
+        }).ToList();
+        var net = rows.Sum(r => r.Quantity);
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+        db.InventoryTransactions.AddRange(entries);
+        await db.SaveChangesAsync();
+        await db.Parts.Where(p => p.Id == partId)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.QuantityOnHand, p => p.QuantityOnHand + net));
+        await tx.CommitAsync();
+        return entries.Select(e => e.Id).ToArray();
+    }
+
     [Theory]
     [InlineData("type=Shrinkage", "Type must be one of")]
     [InlineData("from=2026-09-10T00:00:00Z&to=2026-09-01T00:00:00Z", "before the 'to' date")]
+    [InlineData("from=2026-09-01T00:00:00", "must include a UTC offset")]
+    [InlineData("to=2026-09-01", "must include a UTC offset")]
+    [InlineData("fromDate=2026-09-10&toDate=2026-09-01", "'fromDate' must not be after the 'toDate'")]
+    [InlineData("from=2026-09-01T00:00:00Z&fromDate=2026-09-01", "not both")]
+    [InlineData("limit=0", "Limit must be between 1 and 200")]
+    [InlineData("limit=201", "Limit must be between 1 and 200")]
+    [InlineData("cursor=not-a-cursor!", "cursor is not valid")]
+    [InlineData("cursor=YWJj", "cursor is not valid")] // valid base64url, but not "{ticks}:{id}"
     public async Task Invalid_history_filters_are_a_400(string query, string expected)
     {
         var warehouse = await WarehouseAsync();

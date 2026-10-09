@@ -247,7 +247,7 @@ public class ReportService : IReportService
                     jpegBudget -= jpegBytes.Length;
                 }
             }
-            // WebP has no PDF filter, so it is listed but not pictured.
+            // WebP (only on photos stored before uploads refused it) has no PDF filter: listed, not pictured.
 
             photos.Add(image);
         }

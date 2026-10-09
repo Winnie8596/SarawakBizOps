@@ -50,8 +50,9 @@ public interface IAnalyticsService
 
     /// <summary>
     /// The <paramref name="top"/> parts by cost used on jobs in the period (by when each line was added), with
-    /// quantity and job count. Net of returns — a returned line no longer exists — and a cancelled job's parts
-    /// included, since that stock left the store.
+    /// quantity and job count. Each line's cost is rounded to sen before summing, as a job's total is. Net of
+    /// returns — a returned line no longer exists — and a cancelled job's parts included, since that stock left
+    /// the store.
     /// </summary>
     Task<IReadOnlyList<PartUsageDto>> TopPartsByUsageAsync(int months, int top, CancellationToken ct);
 
@@ -64,11 +65,13 @@ public interface IAnalyticsService
     /// </summary>
     Task<RequestQueueDto> RequestQueueAsync(int top, int recentDays, CancellationToken ct);
 
-    /// <summary>The whole Manager dashboard: every operation above plus the headline tiles derived from them.</summary>
-    Task<DashboardSummaryDto> GetSummaryAsync(CancellationToken ct);
+    /// <summary>The whole Manager dashboard: every operation above plus the headline tiles derived from them, over
+    /// the <paramref name="months"/> MYT months ending with the current one.</summary>
+    Task<DashboardSummaryDto> GetSummaryAsync(int months, CancellationToken ct);
 
-    /// <summary>The WarehouseStaff dashboard (Phase 12): stock, jobs waiting for parts, parts usage.</summary>
-    Task<WarehouseDashboardDto> GetWarehouseDashboardAsync(CancellationToken ct);
+    /// <summary>The WarehouseStaff dashboard (Phase 12): stock, jobs waiting for parts, parts usage over the
+    /// <paramref name="months"/> MYT months ending with the current one.</summary>
+    Task<WarehouseDashboardDto> GetWarehouseDashboardAsync(int months, CancellationToken ct);
 
     /// <summary>The ServiceStaff dashboard (Phase 12): the request queue.</summary>
     Task<ServiceQueueDashboardDto> GetServiceQueueDashboardAsync(CancellationToken ct);

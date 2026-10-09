@@ -363,7 +363,7 @@ namespace SarawakBizOps.Api.Migrations
 
                     b.HasIndex("PartId", "CreatedAt");
 
-                    b.ToTable("InventoryTransactions", t =>
+                    b.ToTable("InventoryTransactions", "ledger", t =>
                         {
                             t.HasTrigger("TR_InventoryTransactions_Immutable");
                         });
@@ -620,6 +620,9 @@ namespace SarawakBizOps.Api.Migrations
                     b.Property<DateTime?>("ApprovedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("ApprovedByUserId")
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<DateTime?>("AssignedAt")
                         .HasColumnType("datetime2");
 
@@ -694,6 +697,8 @@ namespace SarawakBizOps.Api.Migrations
                         .HasColumnType("nvarchar(4000)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByUserId");
 
                     b.HasIndex("CancelledByUserId");
 
@@ -958,6 +963,11 @@ namespace SarawakBizOps.Api.Migrations
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.WorkOrder", b =>
                 {
+                    b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "ApprovedByUser")
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SarawakBizOps.Api.Models.Entities.ApplicationUser", "CancelledByUser")
                         .WithMany()
                         .HasForeignKey("CancelledByUserId")
@@ -969,8 +979,8 @@ namespace SarawakBizOps.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SarawakBizOps.Api.Models.Entities.ServiceRequest", "ServiceRequest")
-                        .WithOne("WorkOrder")
-                        .HasForeignKey("SarawakBizOps.Api.Models.Entities.WorkOrder", "ServiceRequestId")
+                        .WithMany("WorkOrders")
+                        .HasForeignKey("ServiceRequestId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -978,6 +988,8 @@ namespace SarawakBizOps.Api.Migrations
                         .WithMany()
                         .HasForeignKey("TechnicianId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ApprovedByUser");
 
                     b.Navigation("CancelledByUser");
 
@@ -1047,7 +1059,7 @@ namespace SarawakBizOps.Api.Migrations
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.ServiceRequest", b =>
                 {
-                    b.Navigation("WorkOrder");
+                    b.Navigation("WorkOrders");
                 });
 
             modelBuilder.Entity("SarawakBizOps.Api.Models.Entities.WorkOrder", b =>

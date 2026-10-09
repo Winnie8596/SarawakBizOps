@@ -28,6 +28,7 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.Login)]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         var session = await _authService.LoginAsync(request, ct);
@@ -44,6 +45,7 @@ public class AuthController : ControllerBase
     // SameSite=Strict keeps other sites from making the browser send it.
     [HttpPost("refresh")]
     [AllowAnonymous]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Refresh(CancellationToken ct)
     {
         var session = await _authService.RefreshAsync(Request.Cookies[AuthOptions.RefreshCookieName], ct);
@@ -60,6 +62,7 @@ public class AuthController : ControllerBase
 
     [HttpPost("logout")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Logout(CancellationToken ct)
     {
         await _authService.LogoutAsync(Request.Cookies[AuthOptions.RefreshCookieName], ct);
@@ -71,6 +74,7 @@ public class AuthController : ControllerBase
     // caller's current token and session stop working and they must sign in again with the new password.
     [HttpPost("change-password")]
     [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
@@ -80,6 +84,7 @@ public class AuthController : ControllerBase
 
     [HttpGet("me")]
     [Authorize]
+    [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Me()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);

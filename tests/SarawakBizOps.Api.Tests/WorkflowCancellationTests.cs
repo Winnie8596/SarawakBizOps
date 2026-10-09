@@ -126,6 +126,34 @@ public class WorkflowCancellationTests
     }
 
     [Fact]
+    public async Task A_request_reads_correctly_after_its_job_is_cancelled_and_it_is_reassigned()
+    {
+        var admin = await _factory.AdminClientAsync();
+        var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
+        var (_, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
+        var first = await CreateAssignedWorkOrderAsync(admin, manager, technician.Id);
+        var requestId = first.ServiceRequestId;
+
+        await CancelWorkOrderAsync(manager, first.Id);
+        var waiting = (await GetServiceRequestAsync(manager, requestId))!;
+        Assert.Equal(("Approved", (int?)null), (waiting.Status, waiting.WorkOrderId));
+        Assert.Equal(new[] { first.Id }, waiting.CancelledWorkOrderIds);
+
+        var second = await AssignWorkOrderAsync(manager, requestId, technician.Id);
+        await CancelWorkOrderAsync(manager, second.Id);
+        var third = await AssignWorkOrderAsync(manager, requestId, technician.Id);
+
+        // The request now has three jobs, two of them cancelled: it still reads, and points at the live one.
+        var request = (await GetServiceRequestAsync(manager, requestId))!;
+        Assert.Equal(("Assigned", (int?)third.Id), (request.Status, request.WorkOrderId));
+        Assert.Equal(new[] { first.Id, second.Id }, request.CancelledWorkOrderIds);
+        var listed = (await manager.GetFromJsonAsync<List<ServiceRequestDto>>("/api/service-requests?status=Assigned"))!
+            .Single(r => r.Id == requestId);
+        Assert.Equal(third.Id, listed.WorkOrderId);
+        Assert.Equal("Assigned", (await GetWorkOrderAsync(manager, third.Id))!.Status);
+    }
+
+    [Fact]
     public async Task A_manager_cancels_an_in_progress_job()
     {
         var admin = await _factory.AdminClientAsync();
@@ -176,6 +204,7 @@ public class WorkflowCancellationTests
         var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
         var (technicianClient, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var completed = await CreateCompletedWorkOrderAsync(admin, manager, technicianClient, technician.Id);
+        await GenerateReportAsync(manager, completed.Id);
         await ApproveWorkOrderAsync(manager, completed.Id);
 
         var response = await PatchDiagnosisAsync(technicianClient, completed.Id, "Different diagnosis", "Different work");
@@ -249,6 +278,53 @@ public class WorkflowCancellationTests
 
         Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+        Assert.Equal("A valid rowVersion is required.", (await malformed.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail);
         Assert.Equal("New", (await GetServiceRequestAsync(manager, request.Id))!.Status);
+    }
+
+    [Fact]
+    public async Task A_malformed_RowVersion_is_refused_the_same_way_on_every_kind_of_write()
+    {
+        // One filter checks every request that carries a rowVersion: JSON bodies on both entities, and the
+        // multipart signature upload, all refused before the action runs.
+        var admin = await _factory.AdminClientAsync();
+        var manager = await _factory.ClientWithRoleAsync(AppRoles.Manager);
+        var (technicianClient, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
+        var job = await CreateInProgressWorkOrderAsync(admin, manager, technicianClient, technician.Id);
+
+        var signature = new MultipartFormDataContent
+        {
+            { new ByteArrayContent(new byte[] { 0x89, 0x50, 0x4E, 0x47 }), "file", "signature.png" },
+            { new StringContent("not-base64!"), "rowVersion" }
+        };
+        var responses = new[]
+        {
+            await technicianClient.PostAsJsonAsync($"/api/work-orders/{job.Id}/complete", new { rowVersion = "not-base64!" }),
+            await technicianClient.PatchAsJsonAsync($"/api/work-orders/{job.Id}/diagnosis",
+                new { diagnosis = "x", workPerformed = "y", rowVersion = "%%%" }),
+            await manager.PostAsJsonAsync($"/api/work-orders/{job.Id}/cancel", new { reason = "x", rowVersion = "not-base64!" }),
+            await technicianClient.PostAsync($"/api/work-orders/{job.Id}/signature", signature)
+        };
+
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode));
+        foreach (var response in responses)
+        {
+            Assert.Equal("A valid rowVersion is required.", (await response.Content.ReadFromJsonAsync<ProblemDetails>())!.Detail);
+        }
+        var after = (await GetWorkOrderAsync(manager, job.Id))!;
+        Assert.Equal(("InProgress", false), (after.Status, after.HasSignature));
+    }
+
+    [Fact]
+    public void Every_request_body_that_carries_a_RowVersion_is_checked_by_the_filter()
+    {
+        // A new request DTO with a RowVersion property but without the interface would skip the check silently.
+        var notChecked = typeof(Program).Assembly.GetTypes()
+            .Where(t => t.Namespace?.StartsWith("SarawakBizOps.Api.DTOs") == true && t.Name.EndsWith("Request"))
+            .Where(t => t.GetProperty("RowVersion")?.PropertyType == typeof(string))
+            .Where(t => !typeof(SarawakBizOps.Api.DTOs.IRowVersionRequest).IsAssignableFrom(t))
+            .Select(t => t.Name);
+
+        Assert.Empty(notChecked);
     }
 }

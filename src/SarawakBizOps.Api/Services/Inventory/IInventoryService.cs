@@ -1,3 +1,4 @@
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Inventory;
 using SarawakBizOps.Api.Services.Common;
 
@@ -9,7 +10,8 @@ namespace SarawakBizOps.Api.Services.Inventory;
 /// </summary>
 public interface IInventoryService
 {
-    Task<ServiceResult<IReadOnlyList<InventoryTransactionDto>>> GetAllAsync(
+    /// <summary>Newest first, one keyset page at a time (see <see cref="InventoryTransactionFilter"/>).</summary>
+    Task<ServiceResult<CursorPage<InventoryTransactionDto>>> GetAllAsync(
         InventoryTransactionFilter filter, CancellationToken ct);
 
     /// <summary>

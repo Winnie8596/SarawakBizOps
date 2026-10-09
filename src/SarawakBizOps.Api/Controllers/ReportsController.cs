@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.DTOs.Reports;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Reports;
 
@@ -17,5 +18,6 @@ public class ReportsController : ControllerBase
     public ReportsController(IReportService reports) => _reports = reports;
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<ServiceReportDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll(CancellationToken ct) => Ok(await _reports.GetAllAsync(ct));
 }

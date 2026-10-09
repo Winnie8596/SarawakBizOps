@@ -17,7 +17,6 @@ public class WorkOrderStateMachineTests
         (WorkOrderStatus.PendingParts, WorkOrderStatus.InProgress),
         (WorkOrderStatus.InProgress, WorkOrderStatus.Completed),
         (WorkOrderStatus.Completed, WorkOrderStatus.Approved),
-        (WorkOrderStatus.New, WorkOrderStatus.Cancelled),
         (WorkOrderStatus.Assigned, WorkOrderStatus.Cancelled),
         (WorkOrderStatus.InProgress, WorkOrderStatus.Cancelled),
         (WorkOrderStatus.PendingParts, WorkOrderStatus.Cancelled)
@@ -54,7 +53,6 @@ public class WorkOrderStateMachineTests
     }
 
     [Theory]
-    [InlineData(WorkOrderStatus.New, WorkOrderStatus.InProgress, "New")]
     [InlineData(WorkOrderStatus.Assigned, WorkOrderStatus.Completed, "Assigned")]
     [InlineData(WorkOrderStatus.Approved, WorkOrderStatus.InProgress, "Approved")]
     [InlineData(WorkOrderStatus.Cancelled, WorkOrderStatus.Approved, "Cancelled")]
@@ -78,7 +76,7 @@ public class WorkOrderStateMachineTests
 
         Assert.NotNull(refusal);
         Assert.Contains(expectedText, refusal);
-        Assert.Contains("Only a New, Assigned, InProgress or PendingParts job", refusal);
+        Assert.Contains("Only an Assigned, InProgress or PendingParts job", refusal);
     }
 
     // Start and resume both reach InProgress; each is allowed from exactly one state, so "start" cannot
@@ -136,7 +134,6 @@ public class WorkOrderStateMachineTests
     }
 
     [Theory]
-    [InlineData(WorkOrderStatus.New)]
     [InlineData(WorkOrderStatus.Assigned)]
     [InlineData(WorkOrderStatus.InProgress)]
     [InlineData(WorkOrderStatus.PendingParts)]

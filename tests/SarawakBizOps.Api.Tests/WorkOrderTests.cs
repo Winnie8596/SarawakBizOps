@@ -302,11 +302,13 @@ public class WorkOrderTests
         var (technicianClient, technician) = await _factory.ClientAndUserWithRoleAsync(AppRoles.Technician);
         var workOrder = await CreateReadyToCompleteWorkOrderAsync(admin, manager, technicianClient, technician.Id);
         await CompleteWorkOrderAsync(technicianClient, workOrder.Id);
+        await GenerateReportAsync(manager, workOrder.Id);
 
         var approved = await ApproveWorkOrderAsync(manager, workOrder.Id);
 
         Assert.Equal("Approved", approved.Status);
         Assert.NotNull(approved.ApprovedAt);
+        Assert.Equal("Test Manager", approved.ApprovedByName); // who approved is recorded, like who cancelled
 
         var editAfterApproval = await PatchDiagnosisAsync(technicianClient, workOrder.Id, "Changed my mind", "Different work");
         var completeAgain = await PostCompleteAsync(technicianClient, workOrder.Id);
@@ -394,6 +396,7 @@ public class WorkOrderTests
 
         var completed = await CompleteWorkOrderAsync(technicianClient, workOrder.Id);
         Assert.Equal("Completed", completed.Status);
+        await GenerateReportAsync(manager, workOrder.Id);
 
         var approved = await ApproveWorkOrderAsync(manager, workOrder.Id);
         Assert.Equal("Approved", approved.Status);

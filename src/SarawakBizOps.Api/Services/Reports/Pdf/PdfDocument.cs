@@ -8,13 +8,19 @@ namespace SarawakBizOps.Api.Services.Reports.Pdf;
 /// A deliberately small PDF 1.4 writer — pages of text, lines, rectangles and images, the two standard
 /// Helvetica fonts — which is all the service report needs. Hand-rolled instead of a PDF library (PRD D-06,
 /// Open Question 3): no licence to vet for a public MIT repository, no native graphics dependency in the Docker
-/// image, no font files, and output that is byte-for-byte deterministic for the same input.
+/// image, and output that is byte-for-byte deterministic for the same input. Text Helvetica cannot show is
+/// drawn with a subset of the embedded fallback font (<see cref="PdfFont.Fallback"/>), written only when a
+/// document uses it, so a report in Latin script has no embedded font at all.
 /// Coordinates are PDF points (1/72 inch) with the origin at the bottom-left of an A4 page.
 /// </summary>
 public sealed class PdfDocument
 {
     private readonly List<PdfPage> _pages = new();
     private readonly List<PdfImage> _images = new();
+    private EmbeddedGlyphs? _embedded;
+
+    /// <summary>The resource name of the embedded fallback font in content streams.</summary>
+    internal const string EmbeddedFontResource = "F3";
 
     public IReadOnlyList<PdfPage> Pages => _pages;
 
@@ -37,6 +43,9 @@ public sealed class PdfDocument
         return $"Im{index + 1}";
     }
 
+    // The fallback glyphs this document draws, created on the first character Helvetica cannot show.
+    internal EmbeddedGlyphs Embedded => _embedded ??= new EmbeddedGlyphs(PdfFont.Fallback);
+
     /// <summary>Serialises the document. <paramref name="title"/> goes into the document information.</summary>
     public byte[] Save(string title, DateTime createdUtc)
     {
@@ -45,10 +54,11 @@ public sealed class PdfDocument
             AddPage();
         }
 
-        // Object numbers: 1 catalog, 2 page tree, 3–4 fonts, 5 info, then the images, then per page its
-        // content stream and the page itself.
+        // Object numbers: 1 catalog, 2 page tree, 3–4 fonts, 5 info, then the images, then (only if used) the
+        // objects of the embedded font, then per page its content stream and the page itself.
         const int firstImage = 6;
-        var firstPage = firstImage + _images.Count;
+        var embeddedFont = firstImage + _images.Count;
+        var firstPage = embeddedFont + (_embedded is null ? 0 : EmbeddedGlyphs.ObjectCount);
         int ContentObject(int page) => firstPage + page * 2;
         int PageObject(int page) => firstPage + page * 2 + 1;
 
@@ -90,7 +100,7 @@ public sealed class PdfDocument
         }
 
         BeginObject(5);
-        Write($"<< /Title {PdfPage.LiteralString(title)} /Producer (SarawakBizOps) " +
+        Write($"<< /Title {PdfPage.TextString(title)} /Producer (SarawakBizOps) " +
               $"/CreationDate (D:{createdUtc:yyyyMMddHHmmss}Z) >>\nendobj\n");
 
         for (var i = 0; i < _images.Count; i++)
@@ -100,6 +110,24 @@ public sealed class PdfDocument
                 $"/Type /XObject /Subtype /Image /Width {image.Width} /Height {image.Height} " +
                 $"/ColorSpace /{image.ColorSpace} /BitsPerComponent 8 /Filter /{image.Filter}",
                 image.Data);
+        }
+
+        var fonts = "/F1 3 0 R /F2 4 0 R";
+        if (_embedded is not null)
+        {
+            foreach (var (number, dictionary, data) in _embedded.Objects(embeddedFont))
+            {
+                if (data is null)
+                {
+                    BeginObject(number);
+                    Write($"{dictionary}\nendobj\n");
+                }
+                else
+                {
+                    WriteStream(number, dictionary, data);
+                }
+            }
+            fonts += $" /{EmbeddedFontResource} {embeddedFont} 0 R";
         }
 
         var xObjects = _images.Count == 0
@@ -112,7 +140,7 @@ public sealed class PdfDocument
 
             BeginObject(PageObject(p));
             Write($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PdfPage.Number(PdfPage.Width)} {PdfPage.Number(PdfPage.Height)}] " +
-                  $"/Resources << /Font << /F1 3 0 R /F2 4 0 R >>{xObjects} >> /Contents {ContentObject(p)} 0 R >>\nendobj\n");
+                  $"/Resources << /Font << {fonts} >>{xObjects} >> /Contents {ContentObject(p)} 0 R >>\nendobj\n");
         }
 
         var xref = output.Position;
@@ -156,9 +184,39 @@ public sealed class PdfPage
             return;
         }
 
-        _content.Append($"BT {Number(grey)} g /{font.ResourceName} {Number(size)} Tf 1 0 0 1 {Number(x)} {Number(y)} Tm ")
-            .Append(LiteralString(PdfFont.Encode(text)))
-            .Append(" Tj ET\n");
+        var runs = PdfFont.Runs(text);
+        if (runs is [{ Embedded: false }])
+        {
+            _content.Append($"BT {Number(grey)} g /{font.ResourceName} {Number(size)} Tf 1 0 0 1 {Number(x)} {Number(y)} Tm ")
+                .Append(LiteralString(PdfFont.Encode(text)))
+                .Append(" Tj ET\n");
+            return;
+        }
+
+        // Mixed scripts: each run in its own font, one after the other. Tj moves the pen by the glyph widths,
+        // which are the ones Width() measured, so wrapping and right-alignment still line up.
+        _content.Append($"BT {Number(grey)} g 1 0 0 1 {Number(x)} {Number(y)} Tm ");
+        foreach (var run in runs)
+        {
+            if (!run.Embedded)
+            {
+                _content.Append($"/{font.ResourceName} {Number(size)} Tf ")
+                    .Append(LiteralString(PdfFont.Encode(run.Text))).Append(" Tj ");
+            }
+            else if (font == PdfFont.Bold)
+            {
+                // The fallback has a single weight: bold is its outline filled and also stroked (render mode 2),
+                // which thickens every stroke by 3% of the type size.
+                _content.Append($"/{PdfDocument.EmbeddedFontResource} {Number(size)} Tf {Number(grey)} G {Number(size * 0.03)} w 2 Tr ")
+                    .Append(_document.Embedded.Hex(run.Text)).Append(" Tj 0 Tr ");
+            }
+            else
+            {
+                _content.Append($"/{PdfDocument.EmbeddedFontResource} {Number(size)} Tf ")
+                    .Append(_document.Embedded.Hex(run.Text)).Append(" Tj ");
+            }
+        }
+        _content.Append("ET\n");
     }
 
     public void Line(double x1, double y1, double x2, double y2, double width = 0.5, double grey = 0)
@@ -198,6 +256,15 @@ public sealed class PdfPage
         => Math.Round(value, 2).ToString("0.##", CultureInfo.InvariantCulture);
 
     internal static string LiteralString(string text) => LiteralString(PdfFont.Encode(text));
+
+    /// <summary>
+    /// A PDF text string for the document information: a literal when it is printable ASCII, otherwise UTF-16BE
+    /// with a byte order mark, so a title in any script survives.
+    /// </summary>
+    internal static string TextString(string text)
+        => text.All(c => c is >= ' ' and <= '~')
+            ? LiteralString(text)
+            : "<FEFF" + Convert.ToHexString(Encoding.BigEndianUnicode.GetBytes(text)) + ">";
 
     // A PDF literal string kept in 7-bit ASCII: ( ) \ escaped, anything outside printable ASCII as \ooo.
     private static string LiteralString(byte[] bytes)

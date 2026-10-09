@@ -11,7 +11,7 @@ namespace SarawakBizOps.Api.Tests.Infrastructure;
 /// </summary>
 public sealed class InMemoryFileStorage : IFileStorage
 {
-    private readonly ConcurrentDictionary<string, (byte[] Bytes, string ContentType)> _files = new();
+    private readonly ConcurrentDictionary<string, (byte[] Bytes, string ContentType, DateTimeOffset Written)> _files = new();
 
     /// <summary>When true, every save throws, as if the storage service were down.</summary>
     public bool FailSaves { get; set; }
@@ -27,7 +27,7 @@ public sealed class InMemoryFileStorage : IFileStorage
 
         using var buffer = new MemoryStream();
         await content.CopyToAsync(buffer, ct);
-        if (!_files.TryAdd(key, (buffer.ToArray(), contentType)))
+        if (!_files.TryAdd(key, (buffer.ToArray(), contentType, DateTimeOffset.UtcNow)))
         {
             throw new InvalidOperationException($"A file is already stored under '{key}'.");
         }
@@ -42,5 +42,19 @@ public sealed class InMemoryFileStorage : IFileStorage
     {
         _files.TryRemove(key, out _);
         return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<StoredFileInfo> ListAsync(
+        string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+    {
+        await Task.Yield();
+        foreach (var (key, file) in _files.OrderBy(f => f.Key, StringComparer.Ordinal))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                yield return new StoredFileInfo(key, file.Written);
+            }
+        }
     }
 }

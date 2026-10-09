@@ -25,6 +25,7 @@ public class WorkOrderDto
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime? ApprovedAt { get; set; }
+    public string? ApprovedByName { get; set; }
 
     // Required before completion (BR-03); null until the technician records them.
     public string? Diagnosis { get; set; }

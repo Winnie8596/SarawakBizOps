@@ -42,6 +42,11 @@ public class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrder>
             .HasForeignKey(wo => wo.TechnicianId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        builder.HasOne(wo => wo.ApprovedByUser)
+            .WithMany()
+            .HasForeignKey(wo => wo.ApprovedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(wo => wo.CancelledByUser)
             .WithMany()
             .HasForeignKey(wo => wo.CancelledByUserId)

@@ -15,12 +15,16 @@ public class WorkOrder
     public string? TechnicianId { get; set; }
     public ApplicationUser? Technician { get; set; }
 
-    public WorkOrderStatus Status { get; set; } = WorkOrderStatus.New;
+    public WorkOrderStatus Status { get; set; } = WorkOrderStatus.Assigned;
 
     public DateTime? AssignedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public DateTime? ApprovedAt { get; set; }
+
+    // The Manager who approved the job, set with ApprovedAt. Null on jobs approved before this was recorded.
+    public string? ApprovedByUserId { get; set; }
+    public ApplicationUser? ApprovedByUser { get; set; }
 
     // Required before completion (BR-03) — enforced in the service layer,
     // not a database NOT NULL, so the row can exist mid-job.

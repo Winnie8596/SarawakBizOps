@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SarawakBizOps.Api.DTOs.WorkOrders;
 
-public class CancelWorkOrderRequest
+public class CancelWorkOrderRequest : IRowVersionRequest
 {
     [Required, MaxLength(500)]
     public string Reason { get; set; } = string.Empty;

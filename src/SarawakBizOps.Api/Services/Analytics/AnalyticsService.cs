@@ -176,6 +176,8 @@ public class AnalyticsService : IAnalyticsService
         var window = Window(months);
 
         // The part lines are the net record of use (a return deletes its line) and carry the price at the time.
+        // Each line is rounded to sen before summing — ROUND(Quantity * UnitPrice, 2), half away from zero for
+        // decimals, as StockMovementRules.LineTotal — so a part's cost here agrees with the job totals it came from.
         var usage = await _db.WorkOrderParts.AsNoTracking()
             .Where(l => l.CreatedAt >= window.FromUtc && l.CreatedAt < window.ToUtc)
             .GroupBy(l => l.PartId)
@@ -183,7 +185,7 @@ public class AnalyticsService : IAnalyticsService
             {
                 PartId = g.Key,
                 Quantity = g.Sum(l => l.Quantity),
-                Cost = g.Sum(l => l.Quantity * l.UnitPrice),
+                Cost = g.Sum(l => Math.Round(l.Quantity * l.UnitPrice, 2)),
                 Jobs = g.Select(l => l.WorkOrderId).Distinct().Count()
             })
             .OrderByDescending(g => g.Cost).ThenByDescending(g => g.Quantity).ThenBy(g => g.PartId)
@@ -203,7 +205,7 @@ public class AnalyticsService : IAnalyticsService
             Name = parts[u.PartId].Name,
             Unit = parts[u.PartId].Unit,
             Quantity = u.Quantity,
-            Cost = Math.Round(u.Cost, 2, MidpointRounding.AwayFromZero),
+            Cost = u.Cost,
             JobCount = u.Jobs
         }).ToList();
     }
@@ -296,11 +298,10 @@ public class AnalyticsService : IAnalyticsService
         };
     }
 
-    public async Task<DashboardSummaryDto> GetSummaryAsync(CancellationToken ct)
+    public async Task<DashboardSummaryDto> GetSummaryAsync(int months, CancellationToken ct)
     {
         // One DbContext cannot run queries concurrently, so the operations run one after another.
         var generatedAt = _clock.GetUtcNow().UtcDateTime;
-        var months = AnalyticsRules.DefaultMonths;
         var byPriority = await OpenRequestsByPriorityAsync(ct);
         var byStatus = await WorkOrdersByStatusAsync(ct);
         var perMonth = await JobsCompletedPerMonthAsync(months, ct);
@@ -323,10 +324,9 @@ public class AnalyticsService : IAnalyticsService
         };
     }
 
-    public async Task<WarehouseDashboardDto> GetWarehouseDashboardAsync(CancellationToken ct)
+    public async Task<WarehouseDashboardDto> GetWarehouseDashboardAsync(int months, CancellationToken ct)
     {
         var generatedAt = _clock.GetUtcNow().UtcDateTime;
-        var months = AnalyticsRules.DefaultMonths;
         var activeParts = await _db.Parts.AsNoTracking().CountAsync(p => p.IsActive, ct);
         var lowStock = await LowStockSummaryAsync(AnalyticsRules.WarehouseListItems, ct);
         var waiting = await JobsWaitingForPartsAsync(AnalyticsRules.WarehouseListItems, ct);

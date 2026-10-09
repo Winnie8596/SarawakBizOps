@@ -2,7 +2,8 @@
 -- DemoApiFactory in the tests). Variables: DatabaseName, AppLogin, AppPassword, AiLogin, AiPassword.
 --
 --   AppLogin  the API itself. Its own database only, no server rights: read and write the data in dbo, use its
---             sequence, and change the schema (db_ddladmin) because the demo migrates on startup.
+--             sequence, and change the schema (db_ddladmin) because the demo migrates on startup. The stock ledger
+--             (schema "ledger", BR-09) is append-only for it: SELECT and INSERT, with UPDATE and DELETE denied.
 --   AiLogin   the AI features (ConnectionStrings:AiReadOnly). SELECT only, so SQL Server refuses a write even if the
 --             in-app ReadOnlyGuard were bypassed.
 --
@@ -50,6 +51,14 @@ IF USER_ID(N'$(AppLogin)') IS NULL
 -- objects the migrations create later. REFERENCES lets the migrations add foreign keys.
 GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON SCHEMA::dbo TO [$(AppLogin)];
 ALTER ROLE db_ddladmin ADD MEMBER [$(AppLogin)];
+
+-- The ledger schema is created here, before the migrations move InventoryTransactions into it, so the permissions
+-- below hold from the very first row. Schema-level, so they also cover the table once it arrives. A DENY wins over
+-- any GRANT, so no later grant to the app login can reopen the ledger to edits.
+IF SCHEMA_ID(N'ledger') IS NULL
+    EXEC(N'CREATE SCHEMA [ledger] AUTHORIZATION [dbo]');
+GRANT SELECT, INSERT, REFERENCES ON SCHEMA::ledger TO [$(AppLogin)];
+DENY UPDATE, DELETE ON SCHEMA::ledger TO [$(AppLogin)];
 
 IF USER_ID(N'$(AiLogin)') IS NULL
     CREATE USER [$(AiLogin)] FOR LOGIN [$(AiLogin)];

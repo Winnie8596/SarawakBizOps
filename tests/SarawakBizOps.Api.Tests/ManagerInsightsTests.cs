@@ -95,7 +95,7 @@ public class ManagerInsightsTests
             new[]
             {
                 ("Active jobs (assigned, in progress or waiting for parts)", 3m), ("Awaiting your approval (completed)", 2m),
-                ("Status: New", 0m), ("Status: Assigned", 1m), ("Status: In progress", 1m), ("Status: Pending parts", 1m),
+                ("Status: Assigned", 1m), ("Status: In progress", 1m), ("Status: Pending parts", 1m),
                 ("Status: Completed", 2m), ("Status: Approved", 0m), ("Status: Cancelled", 1m)
             },
             status.Figures.Select(f => (f.Label, f.Value!.Value)));
@@ -300,9 +300,9 @@ public class ManagerInsightsTests
         using var scope = _factory.Services.CreateScope();
         var data = scope.ServiceProvider.GetRequiredService<AiReadOnlyData>();
 
-        var summary = await data.Analytics.GetSummaryAsync(default); // every operation reads through the guard
+        var summary = await data.Analytics.GetSummaryAsync(AnalyticsRules.DefaultMonths, default); // every operation reads through the guard
 
-        Assert.Equal(7, summary.WorkOrdersByStatus.Count);
+        Assert.Equal(6, summary.WorkOrdersByStatus.Count);
     }
 
     [Fact]

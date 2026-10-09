@@ -40,10 +40,11 @@ public class ServiceRequestConfiguration : IEntityTypeConfiguration<ServiceReque
         // The Manager queue and every list filter start from the status.
         builder.HasIndex(sr => sr.Status);
 
-        // 1:1 with WorkOrder — BR-12 (at most one WorkOrder per ServiceRequest).
-        builder.HasOne(sr => sr.WorkOrder)
+        // One-to-many: cancelled jobs stay with their request. BR-12's "one live job" is the filtered unique index
+        // in WorkOrderConfiguration.
+        builder.HasMany(sr => sr.WorkOrders)
             .WithOne(wo => wo.ServiceRequest)
-            .HasForeignKey<WorkOrder>(wo => wo.ServiceRequestId)
+            .HasForeignKey(wo => wo.ServiceRequestId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

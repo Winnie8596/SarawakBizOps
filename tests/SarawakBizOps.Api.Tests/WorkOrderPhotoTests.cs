@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SarawakBizOps.Api.Data;
 using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Enums;
+using SarawakBizOps.Api.Services.Reports.Pdf;
 using SarawakBizOps.Api.Services.Storage;
 using SarawakBizOps.Api.Services.WorkOrders;
 using SarawakBizOps.Api.Tests.Infrastructure;
@@ -52,20 +54,20 @@ public class WorkOrderPhotoTests
         var staff = await _factory.ClientWithRoleAsync(AppRoles.ServiceStaff);
 
         await UploadPhotoAsync(technician, job.Id, PhotoJpeg);
-        await UploadPhotoAsync(technician, job.Id, PhotoPng);
-        var response = await PostPhotoAsync(technician, job.Id, PhotoWebp);
+        var response = await PostPhotoAsync(technician, job.Id, PhotoPng);
         var json = await response.Content.ReadAsStringAsync();
         var withPhotos = (await response.Content.ReadFromJsonAsync<WorkOrderDto>())!;
 
+        // Neither has metadata to strip (6.11), so both are stored exactly as sent.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new[] { "image/jpeg", "image/png", "image/webp" }, withPhotos.Photos.Select(p => p.ContentType));
-        Assert.Equal(new[] { PhotoJpeg.Length, PhotoPng.Length, PhotoWebp.Length }, withPhotos.Photos.Select(p => p.SizeBytes));
+        Assert.Equal(new[] { "image/jpeg", "image/png" }, withPhotos.Photos.Select(p => p.ContentType));
+        Assert.Equal(new[] { PhotoJpeg.Length, PhotoPng.Length }, withPhotos.Photos.Select(p => p.SizeBytes));
         Assert.All(withPhotos.Photos, p => Assert.False(string.IsNullOrEmpty(p.UploadedByName)));
         Assert.NotEqual(job.RowVersion, withPhotos.RowVersion); // like every mutating call, it bumps the token
 
         // The DTO says what photos exist — never where the files live.
         var keys = await StoredKeysAsync(job.Id);
-        Assert.Equal(3, keys.Count);
+        Assert.Equal(2, keys.Count);
         Assert.All(keys, key => Assert.DoesNotContain(key, json));
         Assert.DoesNotContain("blob", json, StringComparison.OrdinalIgnoreCase);
         var storage = _factory.Services.GetRequiredService<IFileStorage>();
@@ -74,7 +76,7 @@ public class WorkOrderPhotoTests
             Assert.NotNull(await storage.OpenReadAsync(key, CancellationToken.None));
         }
 
-        var expected = new[] { (PhotoJpeg, "image/jpeg"), (PhotoPng, "image/png"), (PhotoWebp, "image/webp") };
+        var expected = new[] { (PhotoJpeg, "image/jpeg"), (PhotoPng, "image/png") };
         foreach (var client in new[] { technician, manager, admin, staff })
         {
             for (var i = 0; i < expected.Length; i++)
@@ -115,7 +117,7 @@ public class WorkOrderPhotoTests
 
     [Theory]
     [MemberData(nameof(BadFiles))]
-    public async Task Anything_but_a_jpeg_png_or_webp_is_refused_whatever_it_claims_to_be(
+    public async Task Anything_but_a_jpeg_or_png_is_refused_whatever_it_claims_to_be(
         string _, byte[] bytes, string fileName, string contentType)
     {
         var (_, _, _, user, job) = await InProgressJobAsync();
@@ -126,8 +128,60 @@ public class WorkOrderPhotoTests
         var response = await PostPhotoAsync(technician, job.Id, bytes, fileName, contentType);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("A photo must be a JPEG, PNG or WebP image.", await DetailAsync(response));
+        Assert.Equal("A photo must be a JPEG or PNG image.", await DetailAsync(response));
         Assert.Empty(storage.Keys); // refused before anything reached storage
+        await AssertNoPhotosAsync(technician, job);
+    }
+
+    // ---- 6.11: no WebP, and no metadata ----
+
+    [Fact]
+    public async Task A_webp_is_refused_by_name_because_it_could_not_appear_in_the_report()
+    {
+        var (_, _, _, user, job) = await InProgressJobAsync();
+        var storage = new InMemoryFileStorage();
+        await using var host = _factory.WithFileStorage(storage);
+        var technician = await host.SignInAsync(user);
+
+        var response = await PostPhotoAsync(technician, job.Id, PhotoWebp, "photo.webp", "image/webp");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(PhotoRules.WebpRefused, await DetailAsync(response));
+        Assert.Empty(storage.Keys);
+        await AssertNoPhotosAsync(technician, job);
+    }
+
+    [Fact]
+    public async Task A_phone_photo_is_stored_without_its_location_or_camera_details_but_keeps_its_orientation()
+    {
+        var (_, manager, technician, _, job) = await InProgressJobAsync();
+        var original = PhotoMetadataTests.PhoneJpeg(orientation: 6);
+
+        var photo = Assert.Single((await UploadPhotoAsync(technician, job.Id, original)).Photos);
+        var served = await manager.GetByteArrayAsync($"/api/work-orders/{job.Id}/photos/{photo.Id}");
+
+        Assert.Equal(PhotoMetadata.Strip(original, PhotoRules.Jpeg), served);
+        Assert.Equal(served.Length, photo.SizeBytes); // the size of what is stored, not of what was sent
+        Assert.All(PhotoMetadataTests.Secrets, secret => Assert.DoesNotContain(secret, Encoding.Latin1.GetString(served)));
+        Assert.Equal(6, PdfImage.FromJpeg(served)!.Orientation);
+    }
+
+    [Fact]
+    public async Task A_photo_too_damaged_to_clean_is_refused_and_nothing_is_stored()
+    {
+        var (_, _, _, user, job) = await InProgressJobAsync();
+        var storage = new InMemoryFileStorage();
+        await using var host = _factory.WithFileStorage(storage);
+        var technician = await host.SignInAsync(user);
+        var damaged = PhotoMetadataTests.PhoneJpeg(orientation: 6);
+        damaged[4] = 0xFF; // the first segment claims to run past the end of the file
+        damaged[5] = 0xF0;
+
+        var response = await PostPhotoAsync(technician, job.Id, damaged, "photo.jpg", "image/jpeg");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(PhotoRules.Unreadable, await DetailAsync(response));
+        Assert.Empty(storage.Keys);
         await AssertNoPhotosAsync(technician, job);
     }
 
@@ -221,6 +275,7 @@ public class WorkOrderPhotoTests
         Assert.Equal(withPhoto.Photos.Single().Id, photoId);
 
         var afterComplete = await DeletePhotoAsync(technician, job.Id, photoId);
+        await GenerateReportAsync(manager, job.Id);
         await ApproveWorkOrderAsync(manager, job.Id);
         var afterApprove = await DeletePhotoAsync(technician, job.Id, photoId);
 
@@ -296,7 +351,7 @@ public class WorkOrderPhotoTests
         var inProgress = await CreateInProgressWorkOrderAsync(admin, manager, technician, user.Id);
         var pending = await MarkPendingPartsAsync(technician, inProgress.Id, (await CreatePartAsync(admin)).Id, 1);
         var completed = await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id);
-        var approved = await ApproveWorkOrderAsync(manager, (await CreateCompletedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
+        var approved = await ApproveWorkOrderAsync(manager, (await CreateReportedWorkOrderAsync(admin, manager, technician, user.Id)).Id);
         var cancelled = await CancelWorkOrderAsync(manager, (await CreateInProgressWorkOrderAsync(admin, manager, technician, user.Id)).Id);
 
         foreach (var (job, expected) in new[]

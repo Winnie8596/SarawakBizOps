@@ -2,15 +2,22 @@ namespace SarawakBizOps.Api.Services.WorkOrders;
 
 /// <summary>
 /// What counts as an acceptable job photo (Phase 9), as a pure class so every rule is unit-testable without a
-/// database or storage. The type is decided from the bytes — JPEG, PNG or WebP — and the client's
-/// Content-Type and file name are never trusted, so nothing else (SVG, HTML, an executable) can be stored and
-/// later served back as an "image".
+/// database or storage. The type is decided from the bytes — JPEG or PNG — and the client's Content-Type and
+/// file name are never trusted, so nothing else (SVG, HTML, an executable) can be stored and later served back as
+/// an "image". WebP is recognised but refused (6.11): a PDF has no filter for it, so it could never appear in the
+/// service report; the web app redraws a WebP as a JPEG before uploading it.
 /// </summary>
 public static class PhotoRules
 {
     public const string Jpeg = "image/jpeg";
     public const string Png = "image/png";
+    /// <summary>Recognised so it can be refused by name; only photos stored before 6.11 have this type.</summary>
     public const string Webp = "image/webp";
+
+    public const string WebpRefused =
+        "WebP photos are not accepted because they cannot appear in the service report. Upload a JPEG or PNG instead.";
+
+    public const string Unreadable = "This photo could not be read. Take it again or choose another photo.";
 
     /// <summary>A phone camera JPEG is typically 2–6 MB; the web app shrinks anything larger before sending.</summary>
     public const int MaxBytes = 8 * 1024 * 1024;
@@ -39,9 +46,13 @@ public static class PhotoRules
             return (null, $"The photo is too large (maximum {MaxBytes / (1024 * 1024)} MB).");
         }
 
-        return DetectContentType(bytes) is { } contentType
-            ? (contentType, null)
-            : (null, "A photo must be a JPEG, PNG or WebP image.");
+        var contentType = DetectContentType(bytes);
+        return contentType switch
+        {
+            Jpeg or Png => (contentType, null),
+            Webp => (null, WebpRefused),
+            _ => (null, "A photo must be a JPEG or PNG image.")
+        };
     }
 
     /// <summary>JPEG, PNG or WebP from the file's own signature bytes; null for anything else.</summary>
@@ -77,7 +88,6 @@ public static class PhotoRules
         {
             Jpeg => "jpg",
             Png => "png",
-            Webp => "webp",
             _ => throw new ArgumentOutOfRangeException(nameof(contentType), contentType, "Not a photo content type.")
         };
         return $"work-orders/{workOrderId}/photo-{Guid.NewGuid():N}.{extension}";

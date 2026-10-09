@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SarawakBizOps.Api.DTOs;
 using SarawakBizOps.Api.DTOs.Parts;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
@@ -25,6 +26,7 @@ public class PartsController : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType<PagedResult<PartDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAll([FromQuery] PartFilter filter, CancellationToken ct)
     {
         // A technician only ever picks from parts that can actually be used on a job.
@@ -33,17 +35,20 @@ public class PartsController : ControllerBase
             filter.IncludeInactive = false;
         }
 
-        return Ok(await _service.GetAllAsync(filter, ct));
+        var result = await _service.GetAllAsync(filter, ct);
+        return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);
     }
 
     // AC-09 (API half): active parts at or below their minimum stock level.
     [HttpGet("low-stock")]
     [Authorize(Roles = InventoryReaders)]
+    [ProducesResponseType<IReadOnlyList<PartDto>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetLowStock(CancellationToken ct)
         => Ok(await _service.GetLowStockAsync(ct));
 
     [HttpGet("{id:int}")]
     [Authorize(Roles = InventoryReaders)]
+    [ProducesResponseType<PartDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetById(int id, CancellationToken ct)
     {
         var part = await _service.GetByIdAsync(id, ct);
@@ -52,6 +57,7 @@ public class PartsController : ControllerBase
 
     [HttpPost]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.WarehouseStaff}")]
+    [ProducesResponseType<PartDto>(StatusCodes.Status201Created)]
     public async Task<IActionResult> Create([FromBody] CreatePartRequest request, CancellationToken ct)
     {
         var result = await _service.CreateAsync(request, ct);
@@ -62,12 +68,10 @@ public class PartsController : ControllerBase
 
     [HttpPut("{id:int}")]
     [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.WarehouseStaff}")]
+    [ProducesResponseType<PartDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Update(int id, [FromBody] UpdatePartRequest request, CancellationToken ct)
     {
-        if (!RowVersionCodec.TryParse(request.RowVersion, out var rowVersion))
-        {
-            return this.ToProblem(ServiceResult.Fail(ServiceErrorKind.Validation, "A valid rowVersion is required."));
-        }
+        var rowVersion = request.RowVersionBytes();
 
         var result = await _service.UpdateAsync(id, request, rowVersion, ct);
         return result.Succeeded ? Ok(result.Value) : this.ToProblem(result);

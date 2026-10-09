@@ -4,6 +4,7 @@ using SarawakBizOps.Api.DTOs.ServiceRequests;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
+using static SarawakBizOps.Api.Services.Common.EnumNames;
 
 namespace SarawakBizOps.Api.Services.ServiceRequests;
 
@@ -304,18 +305,7 @@ public class ServiceRequestService : IServiceRequestService
         .Include(r => r.ApprovedByUser)
         .Include(r => r.RejectedByUser)
         .Include(r => r.CancelledByUser)
-        .Include(r => r.WorkOrder);
-
-    // Enum.TryParse would also accept "1" or " Low"; only the exact names are valid API values.
-    private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
-    {
-        result = default;
-        return Enum.GetNames<TEnum>().Contains(value, StringComparer.Ordinal)
-            && Enum.TryParse(value, ignoreCase: false, out result);
-    }
-
-    private static string NameListMessage<TEnum>(string field) where TEnum : struct, Enum
-        => $"{field} must be one of: {string.Join(", ", Enum.GetNames<TEnum>())}.";
+        .Include(r => r.WorkOrders);
 
     private static ServiceRequestDto ToDto(ServiceRequest r) => new()
     {
@@ -339,7 +329,9 @@ public class ServiceRequestService : IServiceRequestService
         CancelledByName = r.CancelledByUser?.FullName,
         CancelledAt = r.CancelledAt,
         CancellationReason = r.CancellationReason,
-        WorkOrderId = r.WorkOrder?.Id,
+        WorkOrderId = r.WorkOrders.FirstOrDefault(w => w.Status != WorkOrderStatus.Cancelled)?.Id,
+        CancelledWorkOrderIds = r.WorkOrders.Where(w => w.Status == WorkOrderStatus.Cancelled)
+            .OrderBy(w => w.Id).Select(w => w.Id).ToList(),
         RowVersion = Convert.ToBase64String(r.RowVersion ?? Array.Empty<byte>())
     };
 }

@@ -170,12 +170,12 @@ api "$tech_token" PATCH "/work-orders/$work_order_id/diagnosis" \
 api "$tech_token" GET "/work-orders/$work_order_id" | jq -e '.hasSignature == true and .signedAt != null' >/dev/null \
   || fail "the job must show that the customer signed"
 
-# Phase 9: photos go up one per request with the job's rowVersion; only JPEG, PNG or WebP bytes are accepted,
+# Phase 9: photos go up one per request with the job's rowVersion; only JPEG or PNG bytes are accepted (6.11),
 # and a photo can be removed until the job is completed. (The 1x1 PNG stands in for a camera photo.)
 [ "$(photo_status "$warehouse_token" "$work_order_id" "$signature_png" image/png)" = 403 ] \
   || fail "WarehouseStaff must not be able to upload a photo"
 [ "$(photo_status "$tech_token" "$work_order_id" "${BASH_SOURCE[0]}" image/jpeg)" = 400 ] \
-  || fail "a file that is not a JPEG, PNG or WebP must be refused, whatever it claims to be"
+  || fail "a file that is not a JPEG or PNG must be refused, whatever it claims to be"
 [ "$(photo_status "$tech_token" "$work_order_id" "$signature_png" image/png)" = 200 ] \
   || fail "technician could not upload a photo"
 [ "$(photo_status "$tech_token" "$work_order_id" "$signature_png" image/png)" = 200 ] \
@@ -204,8 +204,8 @@ api "$token" POST "/work-orders/$work_order_id/generate-report" \
   | jq -e --arg n "$report_number" '.report.reportNumber == $n and .report.revision == 2' >/dev/null \
   || fail "regenerating must keep the report number and bump the revision"
 
-api "$token" POST "/work-orders/$work_order_id/approve" "$(wo_rv)" | jq -e '.status == "Approved"' >/dev/null \
-  || fail "manager could not approve the completed job"
+api "$token" POST "/work-orders/$work_order_id/approve" "$(wo_rv)" | jq -e '.status == "Approved" and .approvedByName != null' >/dev/null \
+  || fail "manager could not approve the completed job, or the approver was not recorded"
 [ "$(status_of "$tech_token" POST "/work-orders/$work_order_id/complete" "$(wo_rv)")" = 409 ] \
   || fail "an approved job must be locked against further technician action (AC-07/BR-06)"
 # The signature is stored in Azurite and only reachable through the API: the Manager downloads the exact bytes.

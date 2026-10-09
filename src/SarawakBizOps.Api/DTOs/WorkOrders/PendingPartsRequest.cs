@@ -4,7 +4,7 @@ namespace SarawakBizOps.Api.DTOs.WorkOrders;
 
 /// <summary>Pauses a job until a part is in stock: resume is refused until that part has
 /// <see cref="Quantity"/> on hand.</summary>
-public class PendingPartsRequest
+public class PendingPartsRequest : IRowVersionRequest
 {
     [Required, MaxLength(500)]
     public string Reason { get; set; } = string.Empty;

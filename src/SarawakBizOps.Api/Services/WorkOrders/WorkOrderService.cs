@@ -5,6 +5,7 @@ using SarawakBizOps.Api.DTOs.WorkOrders;
 using SarawakBizOps.Api.Models.Entities;
 using SarawakBizOps.Api.Models.Enums;
 using SarawakBizOps.Api.Services.Common;
+using static SarawakBizOps.Api.Services.Common.EnumNames;
 using SarawakBizOps.Api.Services.Inventory;
 
 namespace SarawakBizOps.Api.Services.WorkOrders;
@@ -372,13 +373,30 @@ public class WorkOrderService : IWorkOrderService
             ct);
     }
 
-    public Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, byte[] rowVersion, CancellationToken ct)
+    public async Task<ServiceResult<WorkOrderDto>> ApproveAsync(int id, string actingUserId, byte[] rowVersion, CancellationToken ct)
     {
+        // Decision (after Phase 15): an Approved job always has its service report, which approval locks. Checked
+        // ahead of the transition guard, like completion's evidence, so a Completed job without one gets a message
+        // about the report rather than about its status.
+        var current = await _db.WorkOrders.AsNoTracking()
+            .Where(w => w.Id == id)
+            .Select(w => new { w.Status, HasReport = w.ServiceReport != null })
+            .FirstOrDefaultAsync(ct);
+        if (current is { Status: WorkOrderStatus.Completed, HasReport: false })
+        {
+            return ServiceResult<WorkOrderDto>.Fail(ServiceErrorKind.Validation,
+                "Generate the service report before approving this job.");
+        }
+
         var now = DateTime.UtcNow;
-        return TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Approved), null, rowVersion,
-            (rows, token) => rows.ExecuteUpdateAsync(s => s
-                .SetProperty(w => w.Status, WorkOrderStatus.Approved)
-                .SetProperty(w => w.ApprovedAt, now), token),
+        return await TransitionAsync(id, from => WorkOrderStateMachine.Refusal(from, WorkOrderStatus.Approved), null, rowVersion,
+            // The report is repeated in the WHERE so approval can never land on a job without one.
+            (rows, token) => rows
+                .Where(w => w.ServiceReport != null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(w => w.Status, WorkOrderStatus.Approved)
+                    .SetProperty(w => w.ApprovedAt, now)
+                    .SetProperty(w => w.ApprovedByUserId, actingUserId), token),
             ct);
     }
 
@@ -443,11 +461,17 @@ public class WorkOrderService : IWorkOrderService
             .Where(r => r.Id == current.ServiceRequestId && r.Status == ServiceRequestStatus.Assigned)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Status, ServiceRequestStatus.Approved), ct);
 
+        // Decision (after Phase 15): parts still issued to the job go back to stock, exactly as if the technician
+        // had returned each line (one Return ledger row each, the line removed), because a cancelled job is locked
+        // and nobody could return them afterwards. A part that really was used is written off by the warehouse with
+        // an Adjustment. Holding the job row (the UPDATE above) keeps any issue or return from racing this.
+        var returned = await ReturnIssuedPartsAsync(id, actingUserId, now, ct);
+
         await tx.CommitAsync(ct);
 
         _logger.LogInformation(
-            "WorkOrder {WorkOrderId} cancelled ({From} -> Cancelled) by {UserId}: {Reason}",
-            id, from, actingUserId, trimmed);
+            "WorkOrder {WorkOrderId} cancelled ({From} -> Cancelled) by {UserId}: {Reason}; {Returned} part line(s) returned to stock",
+            id, from, actingUserId, trimmed, returned);
 
         return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(id, ct))!);
     }
@@ -531,6 +555,36 @@ public class WorkOrderService : IWorkOrderService
         return ServiceResult<WorkOrderDto>.Ok((await GetDtoAsync(id, ct))!);
     }
 
+    private async Task<int> ReturnIssuedPartsAsync(int workOrderId, string actingUserId, DateTime now, CancellationToken ct)
+    {
+        var lines = await _db.WorkOrderParts.AsNoTracking()
+            .Where(wp => wp.WorkOrderId == workOrderId)
+            .Select(wp => new { wp.PartId, wp.Quantity })
+            .ToListAsync(ct);
+
+        foreach (var line in lines)
+        {
+            await _db.Parts
+                .Where(p => p.Id == line.PartId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.QuantityOnHand, p => p.QuantityOnHand + line.Quantity), ct);
+
+            _db.InventoryTransactions.Add(new InventoryTransaction
+            {
+                PartId = line.PartId,
+                TransactionType = InventoryTransactionType.Return,
+                Quantity = line.Quantity,
+                WorkOrderId = workOrderId,
+                CreatedByUserId = actingUserId,
+                Notes = $"Returned when work order #{workOrderId} was cancelled",
+                CreatedAt = now
+            });
+        }
+
+        await _db.WorkOrderParts.Where(wp => wp.WorkOrderId == workOrderId).ExecuteDeleteAsync(ct);
+        await _db.SaveChangesAsync(ct);
+        return lines.Count;
+    }
+
     private async Task<WorkOrderStatus?> CurrentStatusAsync(int id, CancellationToken ct)
         => await _db.WorkOrders.AsNoTracking()
             .Where(w => w.Id == id)
@@ -556,22 +610,13 @@ public class WorkOrderService : IWorkOrderService
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Customer)
         .Include(w => w.ServiceRequest!).ThenInclude(r => r.Equipment)
         .Include(w => w.Technician)
+        .Include(w => w.ApprovedByUser)
         .Include(w => w.CancelledByUser)
         .Include(w => w.PendingPart)
         .Include(w => w.PartsUsed).ThenInclude(wp => wp.Part)
         .Include(w => w.Photos).ThenInclude(p => p.UploadedByUser)
         .Include(w => w.ServiceReport!).ThenInclude(r => r.GeneratedByUser)
         .AsSplitQuery();
-
-    private static bool TryParseName<TEnum>(string value, out TEnum result) where TEnum : struct, Enum
-    {
-        result = default;
-        return Enum.GetNames<TEnum>().Contains(value, StringComparer.Ordinal)
-            && Enum.TryParse(value, ignoreCase: false, out result);
-    }
-
-    private static string NameListMessage<TEnum>(string field) where TEnum : struct, Enum
-        => $"{field} must be one of: {string.Join(", ", Enum.GetNames<TEnum>())}.";
 
     private static WorkOrderDto ToDto(WorkOrder w)
     {
@@ -628,6 +673,7 @@ public class WorkOrderService : IWorkOrderService
         StartedAt = w.StartedAt,
         CompletedAt = w.CompletedAt,
         ApprovedAt = w.ApprovedAt,
+        ApprovedByName = w.ApprovedByUser?.FullName,
         Diagnosis = w.Diagnosis,
         WorkPerformed = w.WorkPerformed,
         Notes = w.Notes,

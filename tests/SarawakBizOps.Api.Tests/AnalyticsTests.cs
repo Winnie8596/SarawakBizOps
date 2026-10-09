@@ -34,10 +34,10 @@ public class AnalyticsTests
     {
         await using var scratch = await ScratchDatabase.CreateAsync(_factory);
 
-        var summary = await Analytics(scratch, MidSeptember).GetSummaryAsync(default);
+        var summary = await Analytics(scratch, MidSeptember).GetSummaryAsync(AnalyticsRules.DefaultMonths, default);
 
         Assert.Equal(new[] { "Urgent", "High", "Medium", "Low" }, summary.OpenRequestsByPriority.Select(c => c.Key));
-        Assert.Equal(7, summary.WorkOrdersByStatus.Count);
+        Assert.Equal(6, summary.WorkOrdersByStatus.Count);
         Assert.Equal(
             new[] { "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09" },
             summary.JobsCompletedPerMonth.Select(m => m.Month));
@@ -83,10 +83,10 @@ public class AnalyticsTests
             (WorkOrderStatus.Approved, done), (WorkOrderStatus.Approved, done), (WorkOrderStatus.Approved, done),
             (WorkOrderStatus.Cancelled, null));
 
-        var summary = await Analytics(scratch, MidSeptember).GetSummaryAsync(default);
+        var summary = await Analytics(scratch, MidSeptember).GetSummaryAsync(AnalyticsRules.DefaultMonths, default);
 
         Assert.Equal(
-            new[] { ("New", 0), ("Assigned", 2), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 3), ("Cancelled", 1) },
+            new[] { ("Assigned", 2), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 3), ("Cancelled", 1) },
             summary.WorkOrdersByStatus.Select(c => (c.Key, c.Count)));
         Assert.Equal(4, summary.Kpis.ActiveWorkOrders);
         Assert.Equal(1, summary.Kpis.AwaitingApproval);

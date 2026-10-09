@@ -24,4 +24,11 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The font the service report embeds (a subset of) for text Helvetica cannot show, e.g. Chinese.
+         Built into the assembly so the API, the tests and the Docker image all find it without a path. -->
+    <EmbeddedResource Include="Services/Reports/Pdf/Fonts/NotoSansSC-Regular.ttf" LogicalName="SarawakBizOps.Fonts.NotoSansSC-Regular.ttf" />
+    <None Remove="Services/Reports/Pdf/Fonts/**" />
+  </ItemGroup>
+
 </Project>

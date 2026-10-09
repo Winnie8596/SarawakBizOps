@@ -18,7 +18,6 @@ public static class WorkOrderStateMachine
             (WorkOrderStatus.PendingParts, WorkOrderStatus.InProgress),
             (WorkOrderStatus.InProgress, WorkOrderStatus.Completed),
             (WorkOrderStatus.Completed, WorkOrderStatus.Approved),
-            (WorkOrderStatus.New, WorkOrderStatus.Cancelled),
             (WorkOrderStatus.Assigned, WorkOrderStatus.Cancelled),
             (WorkOrderStatus.InProgress, WorkOrderStatus.Cancelled),
             (WorkOrderStatus.PendingParts, WorkOrderStatus.Cancelled)
@@ -56,7 +55,7 @@ public static class WorkOrderStateMachine
             WorkOrderStatus.PendingParts => ("paused for parts", "Only a job that is in progress can wait for parts."),
             WorkOrderStatus.Completed => ("completed", "Only a job that is in progress can be completed."),
             WorkOrderStatus.Approved => ("approved", "Only a completed job can be approved."),
-            WorkOrderStatus.Cancelled => ("cancelled", "Only a New, Assigned, InProgress or PendingParts job can be cancelled."),
+            WorkOrderStatus.Cancelled => ("cancelled", "Only an Assigned, InProgress or PendingParts job can be cancelled."),
             _ => ($"moved to {to}", string.Empty)
         };
 

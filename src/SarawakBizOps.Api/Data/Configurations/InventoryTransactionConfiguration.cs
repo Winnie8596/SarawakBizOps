@@ -8,6 +8,12 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
 {
     public const string ImmutabilityTrigger = "TR_InventoryTransactions_Immutable";
 
+    /// <summary>
+    /// The ledger lives in its own schema so that SQL permissions can be set on it alone:
+    /// scripts/sql/create-logins.sql grants the app login SELECT and INSERT here and DENYs UPDATE and DELETE.
+    /// </summary>
+    public const string Schema = "ledger";
+
     public void Configure(EntityTypeBuilder<InventoryTransaction> builder)
     {
         builder.Property(t => t.TransactionType).HasConversion<string>().HasMaxLength(20);
@@ -34,10 +40,11 @@ public class InventoryTransactionConfiguration : IEntityTypeConfiguration<Invent
             .HasForeignKey(t => t.CreatedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // BR-09: rows are immutable. The inventory service exposes no update or delete, and the database
-        // enforces it too: this trigger (created in the LedgerImmutability migration) refuses every UPDATE and
-        // DELETE, whoever sends it. Declaring it here makes EF Core save without an OUTPUT clause, which SQL
-        // Server does not allow on a table with triggers.
-        builder.ToTable(t => t.HasTrigger(ImmutabilityTrigger));
+        // BR-09: rows are immutable, enforced three times over. The inventory service exposes no update or delete;
+        // the app's own login has no UPDATE or DELETE permission on the ledger schema; and this trigger (created
+        // in the LedgerImmutability migration) refuses every UPDATE and DELETE, whoever sends it, sa included.
+        // Declaring the trigger makes EF Core save without an OUTPUT clause, which SQL Server does not allow on a
+        // table with triggers.
+        builder.ToTable("InventoryTransactions", Schema, t => t.HasTrigger(ImmutabilityTrigger));
     }
 }
