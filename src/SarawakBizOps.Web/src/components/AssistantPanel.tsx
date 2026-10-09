@@ -41,7 +41,7 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
     setError(null)
     setNotice(null)
     try {
-      setAnswer(await getTechnicianAssistance(auth.token, workOrderId, observations.trim()))
+      setAnswer(await getTechnicianAssistance(workOrderId, observations.trim()))
     } catch (err) {
       // 503 (provider down, timed out or answered nonsense) and 429 (asked too often) carry their own message.
       setError(err instanceof ApiError ? err.message : 'The AI assistant could not be reached. Try again later.')
@@ -68,7 +68,9 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
 
   return (
     <section className="panel assistant-panel" aria-labelledby={`assistant-${workOrderId}`}>
-      <h2 className="panel-title" id={`assistant-${workOrderId}`}>AI assistant</h2>
+      <h2 className="panel-title" id={`assistant-${workOrderId}`}>
+        AI assistant
+      </h2>
 
       <div className="field">
         <label className="field-label" htmlFor={`assistant-observations-${workOrderId}`}>
@@ -89,11 +91,17 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
         </button>
       </div>
 
-      {error && <p className="form-error" role="alert">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
 
       {answer && (
         <div className="assistant-answer">
-          <p className="assistant-disclaimer" role="note">{answer.disclaimer}</p>
+          <p className="assistant-disclaimer" role="note">
+            {answer.disclaimer}
+          </p>
 
           <h3 className="panel-subtitle">Possible causes</h3>
           <ul className="plain-list">
@@ -108,7 +116,9 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
 
           <h3 className="panel-subtitle">Suggested checks</h3>
           <ol className="assistant-checks">
-            {answer.suggestedChecks.map((check, i) => <li key={i}>{check}</li>)}
+            {answer.suggestedChecks.map((check, i) => (
+              <li key={i}>{check}</li>
+            ))}
           </ol>
 
           <h3 className="panel-subtitle">Earlier jobs on this equipment</h3>
@@ -122,8 +132,13 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
             <ul className="plain-list">
               {answer.relevantPastCases.map(c => (
                 <li key={c.workOrderId}>
-                  {linkPastCases ? <Link to={`/work-orders/${c.workOrderId}`}>#{c.workOrderId}</Link> : `#${c.workOrderId}`}
-                  {' · '}{formatDateTime(c.completedAt)}
+                  {linkPastCases ? (
+                    <Link to={`/work-orders/${c.workOrderId}`}>#{c.workOrderId}</Link>
+                  ) : (
+                    `#${c.workOrderId}`
+                  )}
+                  {' · '}
+                  {formatDateTime(c.completedAt)}
                   <div>{c.problemDescription}</div>
                   <div className="muted">Found: {c.diagnosis}</div>
                   {c.whyRelevant && <div className="muted">Why: {c.whyRelevant}</div>}
@@ -140,7 +155,10 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
               {answer.relevantParts.map(p => (
                 <li key={p.partId}>
                   <span className="mono">{p.partNumber}</span> {p.name}
-                  <span className="muted"> · {formatQuantity(p.quantityOnHand)} {p.unit} in stock</span>
+                  <span className="muted">
+                    {' '}
+                    · {formatQuantity(p.quantityOnHand)} {p.unit} in stock
+                  </span>
                   {p.whyRelevant && <div className="muted">{p.whyRelevant}</div>}
                 </li>
               ))}
@@ -158,7 +176,11 @@ export function AssistantPanel({ workOrderId, onCopyToNotes, linkPastCases = fal
               </button>
             </div>
           )}
-          {notice && <p className="form-hint" role="status">{notice}</p>}
+          {notice && (
+            <p className="form-hint" role="status">
+              {notice}
+            </p>
+          )}
         </div>
       )}
     </section>

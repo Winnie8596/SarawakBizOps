@@ -15,10 +15,14 @@ export function TechnicianLayout() {
   return (
     <div className="tech-shell">
       <header className="tech-topbar">
-        <Link to="/tech/jobs" className="tech-brand">My Jobs</Link>
+        <Link to="/tech/jobs" className="tech-brand">
+          My Jobs
+        </Link>
         <div className="tech-topbar-user">
           {auth && <span className="tech-name">{auth.fullName.split(' ')[0]}</span>}
-          <button className="btn btn-ghost" onClick={handleLogout}>Log out</button>
+          <button className="btn btn-ghost" onClick={handleLogout}>
+            Log out
+          </button>
         </div>
       </header>
 

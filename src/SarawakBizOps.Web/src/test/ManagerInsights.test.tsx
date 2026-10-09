@@ -5,7 +5,8 @@ import type { ManagerInsight, ManagerInsightTopic } from '../types'
 import { formatFigure } from '../pages/ManagerInsightsPage'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
-const DISCLAIMER = 'AI-written summary of the figures beside it. The figures come straight from the system’s analytics; the summary may only repeat them — check them before acting.'
+const DISCLAIMER =
+  'AI-written summary of the figures beside it. The figures come straight from the system’s analytics; the summary may only repeat them — check them before acting.'
 
 const TOPICS: ManagerInsightTopic[] = [
   {
@@ -92,7 +93,8 @@ describe('AI Manager Insights', () => {
           topic: { ...TOPICS[0], id: 'top-parts', title: 'Parts usage' },
           summary: null,
           generatedBy: null,
-          summaryUnavailableReason: 'The AI summary is unavailable right now. The figures below come straight from the analytics.',
+          summaryUnavailableReason:
+            'The AI summary is unavailable right now. The figures below come straight from the analytics.',
           figures: [
             { label: 'BRG-6204 Bearing: cost', value: 1234.5, unit: 'RM' },
             { label: 'Average time from start to completion', value: null, unit: 'hours' }
@@ -114,19 +116,20 @@ describe('AI Manager Insights', () => {
     signInAs('Manager')
     const fetchMock = stubApi({
       'GET /ai/manager-insights/topics': { body: TOPICS },
-      'POST /ai/manager-insights': ({ body }) => (body as { question: string }).question === 'What is our revenue?'
-        ? {
-            body: answered({
-              outcome: 'Refused',
-              question: 'What is our revenue?',
-              topic: null,
-              figures: [],
-              summary: null,
-              refusalReason: 'Revenue, profit and pay are not recorded in this system’s analytics.',
-              supportedTopics: TOPICS
-            })
-          }
-        : { body: answered({ topic: TOPICS[1], question: 'Which parts are low on stock?' }) }
+      'POST /ai/manager-insights': ({ body }) =>
+        (body as { question: string }).question === 'What is our revenue?'
+          ? {
+              body: answered({
+                outcome: 'Refused',
+                question: 'What is our revenue?',
+                topic: null,
+                figures: [],
+                summary: null,
+                refusalReason: 'Revenue, profit and pay are not recorded in this system’s analytics.',
+                supportedTopics: TOPICS
+              })
+            }
+          : { body: answered({ topic: TOPICS[1], question: 'Which parts are low on stock?' }) }
     })
     renderApp('/insights')
 
@@ -150,7 +153,10 @@ describe('AI Manager Insights', () => {
       'GET /ai/manager-insights/topics': { body: TOPICS },
       'POST /ai/manager-insights': {
         status: 429,
-        body: { title: 'Too many requests', detail: 'You have asked the AI assistant too often. Wait a minute and try again.' }
+        body: {
+          title: 'Too many requests',
+          detail: 'You have asked the AI assistant too often. Wait a minute and try again.'
+        }
       }
     })
     renderApp('/insights')

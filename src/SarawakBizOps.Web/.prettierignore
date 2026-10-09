@@ -1,0 +1,7 @@
+dist
+node_modules
+package-lock.json
+security-headers.inc
+vite.config.js
+vite.config.d.ts
+src/api/schema.d.ts

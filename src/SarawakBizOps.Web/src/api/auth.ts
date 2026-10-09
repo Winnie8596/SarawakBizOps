@@ -9,29 +9,29 @@ export function login(email: string, password: string): Promise<LoginResult> {
   return apiFetch<LoginResult>('/auth/login', {
     method: 'POST',
     credentials: 'include',
+    anonymous: true,
     body: JSON.stringify({ email, password })
   })
 }
 
 /** A new access token for the session in the cookie, or a 401 ApiError when there is none (or it has ended). */
 export function refreshSession(): Promise<LoginResult> {
-  return apiFetch<LoginResult>('/auth/refresh', { method: 'POST', credentials: 'include' })
+  return apiFetch<LoginResult>('/auth/refresh', { method: 'POST', credentials: 'include', anonymous: true })
 }
 
 export function logout(): Promise<void> {
-  return apiFetch<void>('/auth/logout', { method: 'POST', credentials: 'include' })
+  return apiFetch<void>('/auth/logout', { method: 'POST', credentials: 'include', anonymous: true })
 }
 
 // Not called by the app: restoring the session on load (refreshSession) already re-checks the user, and a
 // deactivated user's refresh fails. Kept for scripts and debugging.
-export function fetchCurrentUser(token: string): Promise<CurrentUser> {
-  return apiFetch<CurrentUser>('/auth/me', { token })
+export function fetchCurrentUser(): Promise<CurrentUser> {
+  return apiFetch<CurrentUser>('/auth/me')
 }
 
-export function changePassword(token: string, currentPassword: string, newPassword: string): Promise<void> {
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   return apiFetch<void>('/auth/change-password', {
     method: 'POST',
-    token,
     body: JSON.stringify({ currentPassword, newPassword })
   })
 }

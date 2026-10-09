@@ -1,25 +1,28 @@
 import { apiFetch } from './client'
-import type { InventoryTransaction, StockMovementInput, TransactionFilters } from '../types'
-import { mytDayStartUtc } from '../utils/format'
+import type { CursorPage, InventoryTransaction, StockMovementInput, TransactionFilters } from '../types'
 
-export function getTransactions(token: string, filters: TransactionFilters = {}): Promise<InventoryTransaction[]> {
+// Newest first, one page at a time: pass the previous page's nextCursor to read on.
+export function getTransactions(
+  filters: TransactionFilters = {},
+  cursor?: string | null
+): Promise<CursorPage<InventoryTransaction>> {
   const params = new URLSearchParams()
   if (filters.partId) params.set('partId', String(filters.partId))
   if (filters.type) params.set('type', filters.type)
   if (filters.workOrderId) params.set('workOrderId', String(filters.workOrderId))
-  // The API takes a UTC range with an exclusive end; the UI picks whole MYT days, inclusive.
-  if (filters.fromDate) params.set('from', mytDayStartUtc(filters.fromDate))
-  if (filters.toDate) params.set('to', mytDayStartUtc(filters.toDate, 1))
+  // Whole MYT days, inclusive: the server works out the UTC window, so the browser's own time zone never matters.
+  if (filters.fromDate) params.set('fromDate', filters.fromDate)
+  if (filters.toDate) params.set('toDate', filters.toDate)
+  if (cursor) params.set('cursor', cursor)
 
   const query = params.toString()
-  return apiFetch<InventoryTransaction[]>(`/inventory-transactions${query ? `?${query}` : ''}`, { token })
+  return apiFetch<CursorPage<InventoryTransaction>>(`/inventory-transactions${query ? `?${query}` : ''}`)
 }
 
 // Receive or Adjustment only. The ledger has no edit or delete: a mistake is fixed with an offsetting Adjustment.
-export function recordStockMovement(token: string, input: StockMovementInput): Promise<InventoryTransaction> {
+export function recordStockMovement(input: StockMovementInput): Promise<InventoryTransaction> {
   return apiFetch<InventoryTransaction>('/inventory-transactions', {
     method: 'POST',
-    token,
     body: JSON.stringify(input)
   })
 }

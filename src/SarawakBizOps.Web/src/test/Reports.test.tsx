@@ -64,7 +64,9 @@ describe('Service report on the work order (office)', () => {
     })
     renderApp('/work-orders/41')
 
-    expect(await screen.findByText('No report yet. Generate it once you have checked the completed job.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('No report yet. Generate it once you have checked the completed job.')
+    ).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Generate report' }))
 
     expect(await screen.findByText('SR-2026-000123')).toBeInTheDocument()
@@ -116,19 +118,30 @@ describe('Service report on the work order (office)', () => {
     signInAs('Manager')
     stubApi({
       'GET /work-orders/41': {
-        body: workOrder({ ...completed, status: 'Approved', approvedAt: '2026-09-22T03:00:00', report: reportSummary({ revision: 2, isLocked: true }) })
+        body: workOrder({
+          ...completed,
+          status: 'Approved',
+          approvedAt: '2026-09-22T03:00:00',
+          report: reportSummary({ revision: 2, isLocked: true })
+        })
       }
     })
     renderApp('/work-orders/41')
 
-    expect(await screen.findByText('Locked — the job is approved, so this report can no longer be regenerated.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Locked — the job is approved, so this report can no longer be regenerated.')
+    ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Generate report|Regenerate report/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument()
   })
 
   it('offers the one report an approved job without a report may still get', async () => {
     signInAs('Manager')
-    stubApi({ 'GET /work-orders/41': { body: workOrder({ ...completed, status: 'Approved', approvedAt: '2026-09-22T03:00:00' }) } })
+    stubApi({
+      'GET /work-orders/41': {
+        body: workOrder({ ...completed, status: 'Approved', approvedAt: '2026-09-22T03:00:00' })
+      }
+    })
     renderApp('/work-orders/41')
 
     expect(await screen.findByRole('button', { name: 'Generate report' })).toBeEnabled()
@@ -146,7 +159,10 @@ describe('Service report on the work order (office)', () => {
       },
       'POST /work-orders/41/generate-report': {
         status: 409,
-        body: { title: 'Conflict', detail: 'This job is Approved, so its service report SR-2026-000123 is locked and cannot be regenerated.' }
+        body: {
+          title: 'Conflict',
+          detail: 'This job is Approved, so its service report SR-2026-000123 is locked and cannot be regenerated.'
+        }
       }
     })
     renderApp('/work-orders/41')
@@ -154,7 +170,9 @@ describe('Service report on the work order (office)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Generate report' }))
 
     expect(await screen.findByText(/is locked and cannot be regenerated/)).toBeInTheDocument()
-    expect(await screen.findByText('Locked — the job is approved, so this report can no longer be regenerated.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Locked — the job is approved, so this report can no longer be regenerated.')
+    ).toBeInTheDocument()
   })
 
   it('lets ServiceStaff download a report but not generate one', async () => {
@@ -170,7 +188,9 @@ describe('Service report on the work order (office)', () => {
     signInAs('ServiceStaff')
     stubApi({ 'GET /work-orders/41': { body: workOrder(completed) } })
     const { unmount } = renderApp('/work-orders/41')
-    expect(await screen.findByText('No report yet. A Manager generates it once the job is completed.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('No report yet. A Manager generates it once the job is completed.')
+    ).toBeInTheDocument()
     unmount()
 
     stubApi({ 'GET /work-orders/41': { body: workOrder({ status: 'InProgress' }) } })
@@ -194,7 +214,9 @@ describe('Reports page', () => {
     })
     renderApp('/reports')
 
-    const rows = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
+    const rows = within(await screen.findByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
     expect(rows).toHaveLength(2)
     expect(within(rows[0]).getByText('SR-2026-000124')).toBeInTheDocument()
     expect(within(rows[0]).getByText('· rev 2')).toBeInTheDocument()
@@ -262,6 +284,8 @@ describe('Service report on the technician’s job', () => {
     })
     renderApp('/tech/jobs/41')
 
-    expect(await screen.findByText('The Manager generates the service report after checking the completed job.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('The Manager generates the service report after checking the completed job.')
+    ).toBeInTheDocument()
   })
 })

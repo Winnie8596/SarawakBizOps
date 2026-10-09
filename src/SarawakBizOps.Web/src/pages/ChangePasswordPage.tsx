@@ -26,7 +26,7 @@ export function ChangePasswordPage() {
     setSaving(true)
     setError(null)
     try {
-      await changePassword(auth.token, current, next)
+      await changePassword(current, next)
       // The server rotates the security stamp, which ends every session including
       // this one, so send the user to sign in again with the new password.
       logout()

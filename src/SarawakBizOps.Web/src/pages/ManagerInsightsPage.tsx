@@ -24,9 +24,13 @@ export function ManagerInsightsPage() {
   useEffect(() => {
     if (!auth) return
     let cancelled = false
-    getManagerInsightTopics(auth.token)
-      .then(list => { if (!cancelled) setTopics(list) })
-      .catch(() => { if (!cancelled) setTopicsError('The example questions could not be loaded; you can still ask.') })
+    getManagerInsightTopics()
+      .then(list => {
+        if (!cancelled) setTopics(list)
+      })
+      .catch(() => {
+        if (!cancelled) setTopicsError('The example questions could not be loaded; you can still ask.')
+      })
     return () => {
       cancelled = true
     }
@@ -38,7 +42,7 @@ export function ManagerInsightsPage() {
     setAsking(true)
     setError(null)
     try {
-      setAnswer(await askManagerInsights(auth.token, text.trim()))
+      setAnswer(await askManagerInsights(text.trim()))
     } catch (err) {
       // 429 (asked too often) and validation errors carry their own message.
       setError(err instanceof ApiError ? err.message : 'The AI insights could not be reached. Try again later.')
@@ -56,15 +60,19 @@ export function ManagerInsightsPage() {
     <div>
       <h1 className="page-title">AI Insights</h1>
       <p className="page-subtitle">
-        Ask about the business in plain words. Every answer comes from the same analytics as the dashboard; the AI
-        only puts the figures into words, and the figures are always shown beside it. Times are Malaysia time (MYT).
+        Ask about the business in plain words. Every answer comes from the same analytics as the dashboard; the AI only
+        puts the figures into words, and the figures are always shown beside it. Times are Malaysia time (MYT).
       </p>
 
       <section className="panel" aria-labelledby="insight-ask">
-        <h2 className="panel-title" id="insight-ask">Ask a question</h2>
+        <h2 className="panel-title" id="insight-ask">
+          Ask a question
+        </h2>
         <form className="insight-form" onSubmit={handleSubmit}>
           <div className="field">
-            <label className="field-label" htmlFor="insight-question">Your question</label>
+            <label className="field-label" htmlFor="insight-question">
+              Your question
+            </label>
             <input
               id="insight-question"
               value={question}
@@ -89,11 +97,17 @@ export function ManagerInsightsPage() {
         )}
       </section>
 
-      {error && <p className="form-error" role="alert">{error}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
 
       {answer?.outcome === 'Refused' && (
         <section className="panel insight-refusal" aria-labelledby="insight-refused">
-          <h2 className="panel-title" id="insight-refused">I can't answer that</h2>
+          <h2 className="panel-title" id="insight-refused">
+            I can't answer that
+          </h2>
           <p role="status">{answer.refusalReason}</p>
           <h3 className="panel-subtitle">What you can ask about</h3>
           <ul className="plain-list">
@@ -121,7 +135,11 @@ export function ManagerInsightsPage() {
   )
 }
 
-function ExampleQuestions({ topics, disabled, onAsk }: {
+function ExampleQuestions({
+  topics,
+  disabled,
+  onAsk
+}: {
   topics: ManagerInsightTopic[]
   disabled: boolean
   onAsk: (question: string) => void
@@ -145,13 +163,21 @@ function Answer({ answer }: { answer: ManagerInsight }) {
   return (
     <div className="insight-answer">
       <section className="panel" aria-labelledby="insight-summary">
-        <h2 className="panel-title" id="insight-summary">{answer.topic?.title}</h2>
+        <h2 className="panel-title" id="insight-summary">
+          {answer.topic?.title}
+        </h2>
         <p className="muted">You asked: “{answer.question}”</p>
-        {answer.disclaimer && <p className="assistant-disclaimer" role="note">{answer.disclaimer}</p>}
+        {answer.disclaimer && (
+          <p className="assistant-disclaimer" role="note">
+            {answer.disclaimer}
+          </p>
+        )}
         {answer.summary ? (
           <p className="insight-summary">{answer.summary}</p>
         ) : (
-          <p className="form-hint" role="status">{answer.summaryUnavailableReason}</p>
+          <p className="form-hint" role="status">
+            {answer.summaryUnavailableReason}
+          </p>
         )}
         {answer.note && <p className="form-hint">{answer.note}</p>}
         <p className="form-hint">
@@ -173,7 +199,9 @@ function Answer({ answer }: { answer: ManagerInsight }) {
             <thead>
               <tr>
                 <th scope="col">Figure</th>
-                <th scope="col" className="num">Value</th>
+                <th scope="col" className="num">
+                  Value
+                </th>
               </tr>
             </thead>
             <tbody>

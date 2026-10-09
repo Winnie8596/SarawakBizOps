@@ -27,19 +27,22 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
-    if (!auth) return
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await getDashboardSummary(auth.token)
-      if (!isCancelled()) setDashboard(data)
-    } catch (err) {
-      if (!isCancelled()) setError(err instanceof ApiError ? err.message : 'Could not load the dashboard.')
-    } finally {
-      if (!isCancelled()) setLoading(false)
-    }
-  }, [auth])
+  const load = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
+      if (!auth) return
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await getDashboardSummary()
+        if (!isCancelled()) setDashboard(data)
+      } catch (err) {
+        if (!isCancelled()) setError(err instanceof ApiError ? err.message : 'Could not load the dashboard.')
+      } finally {
+        if (!isCancelled()) setLoading(false)
+      }
+    },
+    [auth]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -100,13 +103,19 @@ function ManagerView({ summary }: { summary: ManagerDashboard }) {
         <Tile to="/work-orders" value={summary.kpis.activeWorkOrders} label="Active jobs" />
         <Tile to="/work-orders" value={summary.kpis.awaitingApproval} label="Awaiting your approval" />
         <Tile to="/work-orders" value={summary.kpis.completedThisMonth} label="Completed this month" />
-        <Tile to="/inventory" value={summary.kpis.lowStockParts} label="Parts low on stock"
-          warn={summary.kpis.lowStockParts > 0} />
+        <Tile
+          to="/inventory"
+          value={summary.kpis.lowStockParts}
+          label="Parts low on stock"
+          warn={summary.kpis.lowStockParts > 0}
+        />
       </div>
 
       <div className="dashboard-grid">
         <section className="panel" aria-labelledby="chart-requests">
-          <h2 className="panel-title" id="chart-requests">Open requests by priority</h2>
+          <h2 className="panel-title" id="chart-requests">
+            Open requests by priority
+          </h2>
           <BarTable
             caption="Open service requests (awaiting review or assignment) by priority"
             rows={summary.openRequestsByPriority}
@@ -115,7 +124,9 @@ function ManagerView({ summary }: { summary: ManagerDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-statuses">
-          <h2 className="panel-title" id="chart-statuses">Work orders by status</h2>
+          <h2 className="panel-title" id="chart-statuses">
+            Work orders by status
+          </h2>
           <BarTable
             caption="All work orders by status"
             rows={summary.workOrdersByStatus}
@@ -125,7 +136,9 @@ function ManagerView({ summary }: { summary: ManagerDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-completed">
-          <h2 className="panel-title" id="chart-completed">Jobs completed per month</h2>
+          <h2 className="panel-title" id="chart-completed">
+            Jobs completed per month
+          </h2>
           <MonthColumns
             label="Jobs completed per month, last six months"
             months={summary.jobsCompletedPerMonth}
@@ -135,34 +148,38 @@ function ManagerView({ summary }: { summary: ManagerDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-turnaround">
-          <h2 className="panel-title" id="chart-turnaround">Turnaround, {period}</h2>
+          <h2 className="panel-title" id="chart-turnaround">
+            Turnaround, {period}
+          </h2>
           <dl className="metric-list">
             <Metric
               label="Request raised → technician assigned"
               stat={summary.averageTimeToAssignment}
               noun="assignment"
             />
-            <Metric
-              label="Job started → completed"
-              stat={summary.averageCompletionDuration}
-              noun="completed job"
-            />
+            <Metric label="Job started → completed" stat={summary.averageCompletionDuration} noun="completed job" />
           </dl>
           <p className="muted">Averages. Time waiting for parts counts towards a job’s duration.</p>
         </section>
 
         <section className="panel" aria-labelledby="chart-failures">
-          <h2 className="panel-title" id="chart-failures">Repeated failures, {period}</h2>
+          <h2 className="panel-title" id="chart-failures">
+            Repeated failures, {period}
+          </h2>
           <RepeatedFailures summary={summary} />
         </section>
 
         <section className="panel" aria-labelledby="chart-parts">
-          <h2 className="panel-title" id="chart-parts">Top parts by usage, {period}</h2>
+          <h2 className="panel-title" id="chart-parts">
+            Top parts by usage, {period}
+          </h2>
           <PartsUsage parts={summary.topPartsByUsage} period={period} />
         </section>
 
         <section className="panel" aria-labelledby="chart-stock">
-          <h2 className="panel-title" id="chart-stock">Low stock</h2>
+          <h2 className="panel-title" id="chart-stock">
+            Low stock
+          </h2>
           <LowStock lowStock={summary.lowStock} />
         </section>
       </div>
@@ -193,8 +210,8 @@ function RepeatedFailures({ summary }: { summary: ManagerDashboard }) {
   return (
     <>
       <p className="page-subtitle">
-        {equipmentCount} {equipmentCount === 1 ? 'piece' : 'pieces'} of equipment with {minimumRequests} or more
-        fault reports (cancelled and rejected requests not counted).
+        {equipmentCount} {equipmentCount === 1 ? 'piece' : 'pieces'} of equipment with {minimumRequests} or more fault
+        reports (cancelled and rejected requests not counted).
       </p>
       <div className="table-scroll">
         <table className="data-table">
@@ -210,9 +227,13 @@ function RepeatedFailures({ summary }: { summary: ManagerDashboard }) {
             {items.map(item => (
               <tr key={item.equipmentId}>
                 <td>
-                  <Link to={`/equipment/${item.equipmentId}`} className="mono">{item.serialNumber}</Link>
+                  <Link to={`/equipment/${item.equipmentId}`} className="mono">
+                    {item.serialNumber}
+                  </Link>
                   <br />
-                  <span className="muted">{item.equipmentType} · {item.customerName}</span>
+                  <span className="muted">
+                    {item.equipmentType} · {item.customerName}
+                  </span>
                 </td>
                 <td className="num">{item.requestCount}</td>
                 <td>{formatDateTime(item.lastReportedAt)}</td>
@@ -236,13 +257,19 @@ function WarehouseView({ summary }: { summary: WarehouseDashboard }) {
         <Tile to="/inventory" value={kpis.activeParts} label="Active parts" />
         <Tile to="/inventory" value={kpis.lowStockParts} label="Low on stock" warn={kpis.lowStockParts > 0} />
         <Tile to="/inventory" value={kpis.outOfStockParts} label="Out of stock" warn={kpis.outOfStockParts > 0} />
-        <Tile to="/inventory" value={kpis.jobsWaitingForParts} label="Jobs waiting for parts"
-          warn={kpis.jobsWaitingForParts > 0} />
+        <Tile
+          to="/inventory"
+          value={kpis.jobsWaitingForParts}
+          label="Jobs waiting for parts"
+          warn={kpis.jobsWaitingForParts > 0}
+        />
       </div>
 
       <div className="dashboard-grid">
         <section className="panel" aria-labelledby="chart-waiting">
-          <h2 className="panel-title" id="chart-waiting">Jobs waiting for parts</h2>
+          <h2 className="panel-title" id="chart-waiting">
+            Jobs waiting for parts
+          </h2>
           {waiting.count === 0 ? (
             <p className="chart-empty">No job is waiting for parts.</p>
           ) : (
@@ -279,7 +306,9 @@ function WarehouseView({ summary }: { summary: WarehouseDashboard }) {
                           <br />
                           <span className="muted">{job.name}</span>
                         </td>
-                        <td className="num">{formatQuantity(job.quantityNeeded)} {job.unit}</td>
+                        <td className="num">
+                          {formatQuantity(job.quantityNeeded)} {job.unit}
+                        </td>
                         <td className="num">
                           {formatQuantity(job.quantityOnHand)} {job.unit}
                           <br />
@@ -295,12 +324,16 @@ function WarehouseView({ summary }: { summary: WarehouseDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-stock">
-          <h2 className="panel-title" id="chart-stock">Low stock</h2>
+          <h2 className="panel-title" id="chart-stock">
+            Low stock
+          </h2>
           <LowStock lowStock={summary.lowStock} />
         </section>
 
         <section className="panel" aria-labelledby="chart-parts">
-          <h2 className="panel-title" id="chart-parts">Top parts by usage, {periodLabel(summary.period)}</h2>
+          <h2 className="panel-title" id="chart-parts">
+            Top parts by usage, {periodLabel(summary.period)}
+          </h2>
           <PartsUsage parts={summary.topPartsByUsage} period={periodLabel(summary.period)} />
         </section>
       </div>
@@ -318,13 +351,19 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
       <div className="stat-grid stat-grid-wrap">
         <Tile to="/service-requests" value={kpis.awaitingReview} label="Awaiting review" />
         <Tile to="/service-requests" value={kpis.awaitingAssignment} label="Awaiting assignment" />
-        <Tile to="/service-requests" value={kpis.rejectedRecently} label={`Rejected in the last ${queue.recentDays} days`}
-          warn={kpis.rejectedRecently > 0} />
+        <Tile
+          to="/service-requests"
+          value={kpis.rejectedRecently}
+          label={`Rejected in the last ${queue.recentDays} days`}
+          warn={kpis.rejectedRecently > 0}
+        />
       </div>
 
       <div className="dashboard-grid">
         <section className="panel" aria-labelledby="chart-requests">
-          <h2 className="panel-title" id="chart-requests">Open requests by priority</h2>
+          <h2 className="panel-title" id="chart-requests">
+            Open requests by priority
+          </h2>
           <BarTable
             caption="Open service requests (awaiting review or assignment) by priority"
             rows={summary.openRequestsByPriority}
@@ -333,7 +372,9 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-oldest">
-          <h2 className="panel-title" id="chart-oldest">Waiting longest</h2>
+          <h2 className="panel-title" id="chart-oldest">
+            Waiting longest
+          </h2>
           {queue.oldestOpen.length === 0 ? (
             <p className="chart-empty">Nothing is waiting for review or assignment.</p>
           ) : (
@@ -352,12 +393,19 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
                   {queue.oldestOpen.map(r => (
                     <tr key={r.id}>
                       <td>
-                        <Link to={`/service-requests/${r.id}`}>#{r.id}</Link> <span className="mono">{r.equipmentSerialNumber}</span>
+                        <Link to={`/service-requests/${r.id}`}>#{r.id}</Link>{' '}
+                        <span className="mono">{r.equipmentSerialNumber}</span>
                         <br />
-                        <span className="muted">{r.equipmentType} · {r.customerName}</span>
+                        <span className="muted">
+                          {r.equipmentType} · {r.customerName}
+                        </span>
                       </td>
-                      <td><PriorityBadge priority={r.priority} /></td>
-                      <td><StatusBadge status={r.status} /></td>
+                      <td>
+                        <PriorityBadge priority={r.priority} />
+                      </td>
+                      <td>
+                        <StatusBadge status={r.status} />
+                      </td>
                       <td>{formatDateTime(r.createdAt)}</td>
                     </tr>
                   ))}
@@ -368,7 +416,9 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
         </section>
 
         <section className="panel" aria-labelledby="chart-rejected">
-          <h2 className="panel-title" id="chart-rejected">Recently rejected</h2>
+          <h2 className="panel-title" id="chart-rejected">
+            Recently rejected
+          </h2>
           {queue.recentlyRejected.length === 0 ? (
             <p className="chart-empty">No requests rejected in the last {queue.recentDays} days.</p>
           ) : (
@@ -377,10 +427,14 @@ function ServiceQueueView({ summary }: { summary: ServiceQueueDashboard }) {
               <ul className="plain-list">
                 {queue.recentlyRejected.map(r => (
                   <li key={r.id}>
-                    <Link to={`/service-requests/${r.id}`}>#{r.id}</Link> <span className="mono">{r.equipmentSerialNumber}</span>
-                    {' · '}{r.customerName}
+                    <Link to={`/service-requests/${r.id}`}>#{r.id}</Link>{' '}
+                    <span className="mono">{r.equipmentSerialNumber}</span>
+                    {' · '}
+                    {r.customerName}
                     <br />
-                    <span className="muted">Rejected {formatDateTime(r.rejectedAt)}: {r.rejectionReason}</span>
+                    <span className="muted">
+                      Rejected {formatDateTime(r.rejectedAt)}: {r.rejectionReason}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -430,7 +484,9 @@ function PartsUsage({ parts, period }: { parts: PartUsage[]; period: string }) {
                 <br />
                 <span className="muted">{part.name}</span>
               </td>
-              <td className="num">{formatQuantity(part.quantity)} {part.unit}</td>
+              <td className="num">
+                {formatQuantity(part.quantity)} {part.unit}
+              </td>
               <td className="num">{part.jobCount}</td>
               <td className="num">{formatMoney(part.cost)}</td>
             </tr>
@@ -468,8 +524,12 @@ function LowStock({ lowStock }: { lowStock: LowStockSummary }) {
                   <br />
                   <span className="muted">{item.name}</span>
                 </td>
-                <td className="num">{formatQuantity(item.quantityOnHand)} {item.unit}</td>
-                <td className="num">{formatQuantity(item.minimumStockLevel)} {item.unit}</td>
+                <td className="num">
+                  {formatQuantity(item.quantityOnHand)} {item.unit}
+                </td>
+                <td className="num">
+                  {formatQuantity(item.minimumStockLevel)} {item.unit}
+                </td>
               </tr>
             ))}
           </tbody>

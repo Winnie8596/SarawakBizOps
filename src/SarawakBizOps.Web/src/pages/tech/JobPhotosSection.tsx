@@ -39,7 +39,13 @@ interface JobPhotosSectionProps {
  * be removed until the job is completed.
  */
 export function JobPhotosSection({
-  job, editable, busy, onUploaded, onRemove, onConflict, onUploadingChange
+  job,
+  editable,
+  busy,
+  onUploaded,
+  onRemove,
+  onConflict,
+  onUploadingChange
 }: JobPhotosSectionProps) {
   const { auth } = useAuth()
   const [queue, setQueueState] = useState<QueuedPhoto[]>([])
@@ -80,8 +86,8 @@ export function JobPhotosSection({
         patch(next.key, { status: 'uploading', progress: 0, error: undefined })
         try {
           const photo = await shrinkImageIfNeeded(next.file)
-          const updated = await uploadWorkOrderPhoto(
-            auth.token, job.id, photo, rowVersion.current, fraction => patch(next.key, { progress: fraction })
+          const updated = await uploadWorkOrderPhoto(job.id, photo, rowVersion.current, fraction =>
+            patch(next.key, { progress: fraction })
           )
           rowVersion.current = updated.rowVersion
           onUploaded(updated)
@@ -136,7 +142,9 @@ export function JobPhotosSection({
 
       {job.photos.length === 0 && queue.length === 0 && (
         <p className="form-hint">
-          {editable ? 'No photos yet. Photograph the fault and the finished repair.' : 'No photos were taken on this job.'}
+          {editable
+            ? 'No photos yet. Photograph the fault and the finished repair.'
+            : 'No photos were taken on this job.'}
         </p>
       )}
 
@@ -156,9 +164,16 @@ export function JobPhotosSection({
               <img className="photo-thumb photo-thumb-pending" src={item.preview} alt={`New photo ${item.file.name}`} />
               {item.status === 'failed' ? (
                 <>
-                  <p className="form-error photo-meta" role="alert">{item.error}</p>
+                  <p className="form-error photo-meta" role="alert">
+                    {item.error}
+                  </p>
                   <div className="photo-actions">
-                    <button type="button" className="btn btn-primary" onClick={() => retry(item.key)} disabled={busy || !editable}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => retry(item.key)}
+                      disabled={busy || !editable}
+                    >
                       Retry
                     </button>
                     <button type="button" className="btn btn-ghost" onClick={() => discard(item.key)}>
@@ -214,7 +229,7 @@ export function JobPhotosSection({
           <p className="form-hint">
             {atLimit
               ? `A job holds at most ${MAX_PHOTOS_PER_JOB} photos. Remove one to add another.`
-              : 'JPEG, PNG or WebP. Photos can be removed until the job is completed.'}
+              : 'JPEG or PNG (a WebP is converted to JPEG). Photos can be removed until the job is completed.'}
           </p>
         </>
       )}

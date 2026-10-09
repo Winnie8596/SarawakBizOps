@@ -51,7 +51,7 @@ export function CustomersPage() {
     setLoading(true)
     setError(null)
     try {
-      const data = await getCustomers(auth.token)
+      const data = await getCustomers()
       setCustomers(data)
     } catch {
       setError('Could not load customers.')
@@ -92,9 +92,9 @@ export function CustomersPage() {
     try {
       const payload = toPayload(form)
       if (editingId === 'new') {
-        await createCustomer(auth.token, payload)
+        await createCustomer(payload)
       } else {
-        await updateCustomer(auth.token, editingId, payload)
+        await updateCustomer(editingId, payload)
       }
       closeForm()
       await loadCustomers()
@@ -137,35 +137,22 @@ export function CustomersPage() {
 
             <label className="field">
               <span className="field-label">Contact person</span>
-              <input
-                value={form.contactPerson}
-                onChange={e => setForm({ ...form, contactPerson: e.target.value })}
-              />
+              <input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} />
             </label>
 
             <label className="field">
               <span className="field-label">Phone</span>
-              <input
-                value={form.phone}
-                onChange={e => setForm({ ...form, phone: e.target.value })}
-              />
+              <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
             </label>
 
             <label className="field">
               <span className="field-label">Email</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setForm({ ...form, email: e.target.value })}
-              />
+              <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
             </label>
 
             <label className="field field-wide">
               <span className="field-label">Address</span>
-              <input
-                value={form.address}
-                onChange={e => setForm({ ...form, address: e.target.value })}
-              />
+              <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} />
             </label>
           </div>
 
@@ -187,9 +174,11 @@ export function CustomersPage() {
       ) : customers.length === 0 ? (
         <EmptyState
           title="No customers yet"
-          description={canEdit
-            ? 'Add the first customer to start tracking their equipment.'
-            : 'Ask a Service Staff member or Admin to add one.'}
+          description={
+            canEdit
+              ? 'Add the first customer to start tracking their equipment.'
+              : 'Ask a Service Staff member or Admin to add one.'
+          }
         />
       ) : (
         <div className="table-scroll">
@@ -206,13 +195,17 @@ export function CustomersPage() {
             <tbody>
               {customers.map(customer => (
                 <tr key={customer.id}>
-                  <td><Link to={`/customers/${customer.id}`}>{customer.companyName}</Link></td>
+                  <td>
+                    <Link to={`/customers/${customer.id}`}>{customer.companyName}</Link>
+                  </td>
                   <td>{customer.contactPerson || '—'}</td>
                   <td className="mono">{customer.phone || '—'}</td>
                   <td>{customer.email || '—'}</td>
                   <td>
                     <div className="row-actions">
-                      <Link className="btn-link" to={`/customers/${customer.id}`}>View &amp; history</Link>
+                      <Link className="btn-link" to={`/customers/${customer.id}`}>
+                        View &amp; history
+                      </Link>
                       {canEdit && (
                         <button className="btn btn-link" onClick={() => startEdit(customer)}>
                           Edit

@@ -15,8 +15,8 @@ interface SignatureImageProps {
 export function SignatureImage({ workOrderId, signedAt }: SignatureImageProps) {
   const { auth } = useAuth()
   const { src, error } = useProtectedImage(
-    auth ? () => getSignature(auth.token, workOrderId) : null,
-    `${auth?.token}|${workOrderId}|${signedAt}`,
+    auth ? () => getSignature(workOrderId) : null,
+    `${auth?.userId}|${workOrderId}|${signedAt}`,
     'Could not load the signature.'
   )
 

@@ -1,6 +1,6 @@
 // The API stores UTC (PRD Q-02) and the UI shows Malaysia time (UTC+8).
-// EF Core hands back DateTime values with no "Z", which browsers would parse as
-// *local* time, so a missing offset is treated as UTC before formatting.
+// The API sends every time with its "Z" (UtcDateTimeConverter); a time without an offset is still read as UTC,
+// never as the browser's local time, should one ever arrive without it.
 const HAS_OFFSET = /(Z|[+-]\d{2}:?\d{2})$/i
 
 export function formatDateTime(utcIso: string): string {
@@ -24,15 +24,6 @@ export function formatMoney(amount: number): string {
 // Stock quantities carry up to three decimals (litres, metres); whole numbers are shown without any.
 export function formatQuantity(quantity: number): string {
   return quantity.toLocaleString('en-MY', { maximumFractionDigits: 3 })
-}
-
-/**
- * The UTC instant at which a Malaysia-time (UTC+8, no DST) calendar day starts, optionally shifted by
- * whole days: mytDayStartUtc('2026-09-28') === '2026-09-27T16:00:00.000Z'.
- */
-export function mytDayStartUtc(isoDate: string, addDays = 0): string {
-  const [year, month, day] = isoDate.split('-').map(Number)
-  return new Date(Date.UTC(year, month - 1, day + addDays) - 8 * 60 * 60 * 1000).toISOString()
 }
 
 // File sizes as people read them: "812 B", "24 KB", "1.2 MB".

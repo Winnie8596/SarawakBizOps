@@ -40,7 +40,9 @@ export function EquipmentPage() {
 
   useEffect(() => {
     if (!auth) return
-    getCustomers(auth.token).then(setCustomers).catch(() => undefined)
+    getCustomers()
+      .then(setCustomers)
+      .catch(() => undefined)
   }, [auth])
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export function EquipmentPage() {
     setLoading(true)
     setError(null)
     try {
-      const data = await getEquipment(auth.token, filterCustomerId || undefined)
+      const data = await getEquipment(filterCustomerId || undefined)
       setEquipment(data)
     } catch {
       setError('Could not load equipment.')
@@ -94,11 +96,11 @@ export function EquipmentPage() {
     try {
       if (editingId === 'new') {
         const { status: _status, ...input } = form
-        await createEquipment(auth.token, input)
+        await createEquipment(input)
       } else {
         // Customer is deliberately not editable: the API keeps equipment with its owner.
         const { customerId: _customerId, ...input } = form
-        await updateEquipment(auth.token, editingId, input)
+        await updateEquipment(editingId, input)
       }
       setEditingId(null)
       await loadEquipment()
@@ -136,7 +138,9 @@ export function EquipmentPage() {
           >
             <option value="">All customers</option>
             {customers.map(c => (
-              <option key={c.id} value={c.id}>{c.companyName}</option>
+              <option key={c.id} value={c.id}>
+                {c.companyName}
+              </option>
             ))}
           </select>
         </label>
@@ -158,7 +162,9 @@ export function EquipmentPage() {
                 required
               >
                 {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.companyName}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.companyName}
+                  </option>
                 ))}
               </select>
             </label>
@@ -185,18 +191,12 @@ export function EquipmentPage() {
 
             <label className="field">
               <span className="field-label">Brand</span>
-              <input
-                value={form.brand}
-                onChange={e => setForm({ ...form, brand: e.target.value })}
-              />
+              <input value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
             </label>
 
             <label className="field">
               <span className="field-label">Model</span>
-              <input
-                value={form.model}
-                onChange={e => setForm({ ...form, model: e.target.value })}
-              />
+              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
             </label>
 
             <label className="field">
@@ -216,7 +216,9 @@ export function EquipmentPage() {
                   onChange={e => setForm({ ...form, status: e.target.value as EquipmentStatus })}
                 >
                   {STATUSES.map(s => (
-                    <option key={s} value={s}>{s.replace(/([a-z])([A-Z])/g, '$1 $2')}</option>
+                    <option key={s} value={s}>
+                      {s.replace(/([a-z])([A-Z])/g, '$1 $2')}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -241,9 +243,11 @@ export function EquipmentPage() {
       ) : equipment.length === 0 ? (
         <EmptyState
           title="No equipment records"
-          description={canEdit
-            ? 'Register the first piece of equipment for a customer.'
-            : 'Ask a Service Staff member or Admin to register one.'}
+          description={
+            canEdit
+              ? 'Register the first piece of equipment for a customer.'
+              : 'Ask a Service Staff member or Admin to register one.'
+          }
         />
       ) : (
         <div className="table-scroll">
@@ -261,16 +265,27 @@ export function EquipmentPage() {
             <tbody>
               {equipment.map(item => (
                 <tr key={item.id}>
-                  <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
-                  <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
+                  <td className="mono">
+                    <Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link>
+                  </td>
+                  <td>
+                    {item.equipmentType}
+                    {item.brand ? ` · ${item.brand}` : ''}
+                  </td>
                   <td>{customerName(item.customerId)}</td>
-                  <td><StatusBadge status={item.status} /></td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
                   <td>{item.location || '—'}</td>
                   <td>
                     <div className="row-actions">
-                      <Link className="btn-link" to={`/equipment/${item.id}`}>View &amp; history</Link>
+                      <Link className="btn-link" to={`/equipment/${item.id}`}>
+                        View &amp; history
+                      </Link>
                       {canEdit && (
-                        <button className="btn btn-link" onClick={() => startEdit(item)}>Edit</button>
+                        <button className="btn btn-link" onClick={() => startEdit(item)}>
+                          Edit
+                        </button>
                       )}
                     </div>
                   </td>

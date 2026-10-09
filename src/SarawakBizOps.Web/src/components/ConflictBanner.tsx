@@ -2,5 +2,9 @@
 // 409 conflict always looks the same regardless of which page or action triggered it.
 export function ConflictBanner({ message }: { message: string | null }) {
   if (!message) return null
-  return <p className="form-error" role="alert">{message}</p>
+  return (
+    <p className="form-error" role="alert">
+      {message}
+    </p>
+  )
 }

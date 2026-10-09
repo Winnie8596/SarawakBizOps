@@ -5,6 +5,6 @@ import type { DashboardView } from '../types'
 
 // The server decides the view from the caller's role and tags the payload with it (`view`). Every number is
 // computed by the API's analytics operations; the page only draws them.
-export function getDashboardSummary(token: string): Promise<DashboardView> {
-  return apiFetch<DashboardView>('/dashboard/summary', { token })
+export function getDashboardSummary(): Promise<DashboardView> {
+  return apiFetch<DashboardView>('/dashboard/summary')
 }

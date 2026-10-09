@@ -26,7 +26,12 @@ function signOnThePad() {
   fireEvent.pointerUp(pad, { pointerId: 1 })
 }
 
-const inProgress = { status: 'InProgress' as const, startedAt: '2026-09-21T01:00:00', diagnosis: 'Loose belt', workPerformed: 'Retensioned it' }
+const inProgress = {
+  status: 'InProgress' as const,
+  startedAt: '2026-09-21T01:00:00',
+  diagnosis: 'Loose belt',
+  workPerformed: 'Retensioned it'
+}
 
 describe('Signature step (technician)', () => {
   it('refuses to complete until the customer has signed, then uploads the drawing as a PNG with the rowVersion', async () => {
@@ -34,7 +39,12 @@ describe('Signature step (technician)', () => {
     const fetchMock = stubApi({
       'GET /work-orders/41': { body: workOrder(inProgress) },
       'POST /work-orders/41/signature': {
-        body: workOrder({ ...inProgress, hasSignature: true, signedAt: '2026-09-21T02:00:00', rowVersion: 'AAAAAAAAC00=' })
+        body: workOrder({
+          ...inProgress,
+          hasSignature: true,
+          signedAt: '2026-09-21T02:00:00',
+          rowVersion: 'AAAAAAAAC00='
+        })
       },
       'GET /work-orders/41/signature': { body: storedPng }
     })
@@ -104,7 +114,9 @@ describe('Signature step (technician)', () => {
   it('lets the customer sign again, or keep the stored signature', async () => {
     signInAs('Technician')
     stubApi({
-      'GET /work-orders/41': { body: workOrder({ ...inProgress, hasSignature: true, signedAt: '2026-09-21T02:00:00' }) },
+      'GET /work-orders/41': {
+        body: workOrder({ ...inProgress, hasSignature: true, signedAt: '2026-09-21T02:00:00' })
+      },
       'GET /work-orders/41/signature': { body: storedPng }
     })
     renderApp('/tech/jobs/41')
@@ -164,7 +176,10 @@ describe('Signature on the office work-order page', () => {
       'GET /work-orders/41': {
         body: workOrder({ ...inProgress, status: 'Completed', hasSignature: true, signedAt: '2026-09-21T02:00:00' })
       },
-      'GET /work-orders/41/signature': { status: 404, body: { title: 'Not found', detail: 'This job has no customer signature yet.' } }
+      'GET /work-orders/41/signature': {
+        status: 404,
+        body: { title: 'Not found', detail: 'This job has no customer signature yet.' }
+      }
     })
     renderApp('/work-orders/41')
 

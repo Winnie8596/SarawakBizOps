@@ -37,6 +37,12 @@ jobs:
           cache: npm
           cache-dependency-path: src/SarawakBizOps.Web/package-lock.json
       - run: npm ci
+      # The API types are generated from src/SarawakBizOps.Api/openapi.json (which the backend tests keep current);
+      # regenerating must change nothing, or the checked-in types are stale.
+      - name: API types match the OpenAPI document
+        run: npm run gen:api && git diff --exit-code -- src/api/schema.d.ts
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run build
       - run: npm test
 

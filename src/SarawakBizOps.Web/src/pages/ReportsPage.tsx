@@ -22,7 +22,7 @@ export function ReportsPage() {
 
     setLoading(true)
     setError(null)
-    getReports(auth.token)
+    getReports()
       .then(data => {
         if (!cancelled) setReports(data)
       })
@@ -70,11 +70,15 @@ export function ReportsPage() {
                 <th>Technician</th>
                 <th>Generated (MYT)</th>
                 <th>State</th>
-                <th><span className="visually-hidden">Actions</span></th>
+                <th>
+                  <span className="visually-hidden">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {reports.map(report => <ReportRow key={report.id} report={report} />)}
+              {reports.map(report => (
+                <ReportRow key={report.id} report={report} />
+              ))}
             </tbody>
           </table>
         </div>
@@ -92,15 +96,25 @@ function ReportRow({ report }: { report: ServiceReport }) {
         <span className="mono">{report.reportNumber}</span>
         {report.revision > 1 && <span className="form-hint"> · rev {report.revision}</span>}
       </td>
-      <td><Link to={`/work-orders/${report.workOrderId}`}>#{report.workOrderId}</Link></td>
-      <td>{report.customerName}</td>
-      <td><span className="mono">{report.equipmentSerialNumber}</span> · {report.equipmentType}</td>
-      <td>{report.technicianName}</td>
-      <td className="mono">{formatDateTime(report.generatedAt)}<br /><span className="form-hint">{report.generatedByName}</span></td>
       <td>
-        {report.isLocked
-          ? <span className="status-badge tone-green">Locked</span>
-          : <StatusBadge status={report.workOrderStatus} />}
+        <Link to={`/work-orders/${report.workOrderId}`}>#{report.workOrderId}</Link>
+      </td>
+      <td>{report.customerName}</td>
+      <td>
+        <span className="mono">{report.equipmentSerialNumber}</span> · {report.equipmentType}
+      </td>
+      <td>{report.technicianName}</td>
+      <td className="mono">
+        {formatDateTime(report.generatedAt)}
+        <br />
+        <span className="form-hint">{report.generatedByName}</span>
+      </td>
+      <td>
+        {report.isLocked ? (
+          <span className="status-badge tone-green">Locked</span>
+        ) : (
+          <StatusBadge status={report.workOrderStatus} />
+        )}
       </td>
       <td>
         <button

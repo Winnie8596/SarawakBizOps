@@ -1,14 +1,15 @@
 /** The API's per-photo limit (PhotoRules.MaxBytes). */
 export const MAX_PHOTO_BYTES = 8 * 1024 * 1024
 
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+/** What the API stores as it is. WebP is refused there (a PDF cannot show it), so it is redrawn as a JPEG. */
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png']
 
 /** Longest side of a shrunk photo: plenty to read a nameplate or see a worn seal. */
 const MAX_SIDE = 2048
 
 /**
  * Most phone photos go up as they are. One that is over the API's limit, or in a format the API does not
- * take (e.g. HEIC from some iPhones, when the browser can decode it), is redrawn as a JPEG no larger than
+ * take (WebP, or HEIC from some iPhones when the browser can decode it), is redrawn as a JPEG no larger than
  * 2048 px a side. When the browser cannot do that, the original is returned and the API explains the refusal.
  */
 export async function shrinkImageIfNeeded(file: File): Promise<Blob> {

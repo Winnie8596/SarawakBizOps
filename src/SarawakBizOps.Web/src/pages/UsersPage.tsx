@@ -6,11 +6,7 @@ import { ROLES, type CreateUserInput, type UserSummary } from '../types'
 import { EmptyState } from '../components/EmptyState'
 import { StatusBadge } from '../components/StatusBadge'
 
-type Panel =
-  | { kind: 'create' }
-  | { kind: 'edit'; user: UserSummary }
-  | { kind: 'reset'; user: UserSummary }
-  | null
+type Panel = { kind: 'create' } | { kind: 'edit'; user: UserSummary } | { kind: 'reset'; user: UserSummary } | null
 
 const emptyCreate: CreateUserInput = { fullName: '', email: '', password: '', role: 'ServiceStaff' }
 
@@ -41,7 +37,7 @@ export function UsersPage() {
     setLoading(true)
     setError(null)
     try {
-      setUsers(await getUsers(auth.token))
+      setUsers(await getUsers())
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not load users.')
     } finally {
@@ -64,12 +60,7 @@ export function UsersPage() {
   // Runs a save action, then refreshes the list. Keeps the three forms and the
   // activate/deactivate button on one error/loading path. Row buttons (inForm =
   // false) report at page level and leave any open panel alone.
-  async function run(
-    action: () => Promise<unknown>,
-    successMessage: string,
-    fallbackError: string,
-    inForm = true
-  ) {
+  async function run(action: () => Promise<unknown>, successMessage: string, fallbackError: string, inForm = true) {
     setSaving(true)
     setFormError(null)
     try {
@@ -89,7 +80,7 @@ export function UsersPage() {
   function handleCreate(event: FormEvent) {
     event.preventDefault()
     if (!auth) return
-    run(() => createUser(auth.token, createForm), `Created ${createForm.email}.`, 'Could not create this user.')
+    run(() => createUser(createForm), `Created ${createForm.email}.`, 'Could not create this user.')
   }
 
   function handleEdit(event: FormEvent) {
@@ -97,7 +88,7 @@ export function UsersPage() {
     if (!auth || panel?.kind !== 'edit') return
     const target = panel.user
     run(
-      () => updateUser(auth.token, target.id, { fullName: editName, role: editRole }),
+      () => updateUser(target.id, { fullName: editName, role: editRole }),
       `Updated ${target.email}.`,
       'Could not update this user.'
     )
@@ -108,7 +99,7 @@ export function UsersPage() {
     if (!auth || panel?.kind !== 'reset') return
     const target = panel.user
     run(
-      () => resetUserPassword(auth.token, target.id, newPassword),
+      () => resetUserPassword(target.id, newPassword),
       `Password reset for ${target.email}. Share the new password with them securely.`,
       'Could not reset this password.'
     )
@@ -119,7 +110,7 @@ export function UsersPage() {
     setError(null)
     setMessage(null)
     run(
-      () => updateUser(auth.token, user.id, { isActive: !user.isActive }),
+      () => updateUser(user.id, { isActive: !user.isActive }),
       `${user.email} ${user.isActive ? 'deactivated' : 'reactivated'}.`,
       'Could not change this user.',
       false
@@ -177,17 +168,20 @@ export function UsersPage() {
             </label>
             <label className="field">
               <span className="field-label">Role</span>
-              <select
-                value={createForm.role}
-                onChange={e => setCreateForm({ ...createForm, role: e.target.value })}
-              >
-                {ROLES.map(role => <option key={role} value={role}>{role}</option>)}
+              <select value={createForm.role} onChange={e => setCreateForm({ ...createForm, role: e.target.value })}>
+                {ROLES.map(role => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
           {formError && <p className="form-error">{formError}</p>}
           <div className="panel-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>
+              Cancel
+            </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? 'Saving…' : 'Create user'}
             </button>
@@ -206,16 +200,24 @@ export function UsersPage() {
             <label className="field">
               <span className="field-label">Role</span>
               <select value={editRole} onChange={e => setEditRole(e.target.value)}>
-                {ROLES.map(role => <option key={role} value={role}>{role}</option>)}
+                {ROLES.map(role => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
           {editRole !== panel.user.role && (
-            <p className="form-hint">Changing the role signs this user out; they sign in again to get the new access.</p>
+            <p className="form-hint">
+              Changing the role signs this user out; they sign in again to get the new access.
+            </p>
           )}
           {formError && <p className="form-error">{formError}</p>}
           <div className="panel-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>
+              Cancel
+            </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? 'Saving…' : 'Save changes'}
             </button>
@@ -240,7 +242,9 @@ export function UsersPage() {
           <p className="form-hint">This also unlocks the account and signs the user out everywhere.</p>
           {formError && <p className="form-error">{formError}</p>}
           <div className="panel-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setPanel(null)}>
+              Cancel
+            </button>
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving ? 'Saving…' : 'Reset password'}
             </button>
@@ -269,24 +273,33 @@ export function UsersPage() {
                 const isSelf = user.id === auth?.userId
                 return (
                   <tr key={user.id}>
-                    <td>{user.fullName}{isSelf && <span className="you-tag"> (you)</span>}</td>
+                    <td>
+                      {user.fullName}
+                      {isSelf && <span className="you-tag"> (you)</span>}
+                    </td>
                     <td>{user.email}</td>
                     <td>{user.role}</td>
-                    <td><StatusBadge status={user.isActive ? 'Active' : 'Inactive'} /></td>
+                    <td>
+                      <StatusBadge status={user.isActive ? 'Active' : 'Inactive'} />
+                    </td>
                     <td>
                       <div className="row-actions">
-                      {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
-                      {isSelf ? (
-                        <span className="you-tag">Your account: can't edit or deactivate yourself</span>
-                      ) : (
-                        <>
-                          <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>Edit</button>
-                          <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
-                            {user.isActive ? 'Deactivate' : 'Reactivate'}
-                          </button>
-                        </>
-                      )}
-                      <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>Reset password</button>
+                        {/* The API refuses self-demotion/deactivation, so explain it instead of showing buttons that would fail. */}
+                        {isSelf ? (
+                          <span className="you-tag">Your account: can't edit or deactivate yourself</span>
+                        ) : (
+                          <>
+                            <button className="btn btn-link" onClick={() => open({ kind: 'edit', user })}>
+                              Edit
+                            </button>
+                            <button className="btn btn-link" onClick={() => toggleActive(user)} disabled={saving}>
+                              {user.isActive ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          </>
+                        )}
+                        <button className="btn btn-link" onClick={() => open({ kind: 'reset', user })}>
+                          Reset password
+                        </button>
                       </div>
                     </td>
                   </tr>

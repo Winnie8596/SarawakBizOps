@@ -46,9 +46,13 @@ export function stubApi(routes: Record<string, Route>) {
     const method = (init?.method ?? 'GET').toUpperCase()
     const key = `${method} ${url.pathname.replace(/^\/api/, '')}`
     // Unless a test says otherwise, the refresh call answers like the server: the signed-in session, or a 401.
-    const route = routes[key] ?? (key === 'POST /auth/refresh'
-      ? (session ? { body: session } : { status: 401, body: { title: 'Unauthorized', detail: 'Your session has ended. Please sign in again.' } })
-      : undefined)
+    const route =
+      routes[key] ??
+      (key === 'POST /auth/refresh'
+        ? session
+          ? { body: session }
+          : { status: 401, body: { title: 'Unauthorized', detail: 'Your session has ended. Please sign in again.' } }
+        : undefined)
 
     if (!route) {
       return respond({ status: 404, body: { title: 'Not found', detail: `No stub for ${key}` } })

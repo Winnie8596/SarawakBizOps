@@ -83,11 +83,7 @@ describe('Raising a request', () => {
 
     // BR-10 in the UI: this customer's equipment, minus the retired unit the API would refuse.
     const offered = Array.from((equipmentSelect() as HTMLSelectElement).options).map(o => o.textContent)
-    expect(offered).toEqual([
-      'Select equipment…',
-      'RTM-BSW-001 — Band Saw',
-      'RTM-CNV-003 — Log Conveyor'
-    ])
+    expect(offered).toEqual(['Select equipment…', 'RTM-BSW-001 — Band Saw', 'RTM-CNV-003 — Log Conveyor'])
 
     const submit = within(form).getByRole('button', { name: 'Submit request' })
     expect(submit).toBeDisabled()
@@ -100,7 +96,10 @@ describe('Raising a request', () => {
     expect(await screen.findByText(/Request #31 submitted/)).toBeInTheDocument()
     const [, init] = callsTo(fetchMock, 'POST', '/service-requests')[0]
     expect(JSON.parse(String(init?.body))).toEqual({
-      customerId: 2, equipmentId: 20, problemDescription: 'Blade drifts after warm-up', priority: 'High'
+      customerId: 2,
+      equipmentId: 20,
+      problemDescription: 'Blade drifts after warm-up',
+      priority: 'High'
     })
   })
 
@@ -154,7 +153,9 @@ describe('Reviewing a request', () => {
       'GET /service-requests/7': { body: serviceRequest() },
       'POST /service-requests/7/reject': ({ body }) => ({
         body: serviceRequest({
-          status: 'Rejected', rejectedByName: 'Jenny Lau', rejectedAt: '2026-09-21T03:00:00',
+          status: 'Rejected',
+          rejectedByName: 'Jenny Lau',
+          rejectedAt: '2026-09-21T03:00:00',
           rejectionReason: (body as { reason: string }).reason
         })
       })
@@ -180,11 +181,22 @@ describe('Reviewing a request', () => {
     let loads = 0
     stubApi({
       'GET /service-requests/7': () => ({
-        body: ++loads === 1 ? serviceRequest() : serviceRequest({ status: 'Rejected', rejectedAt: '2026-09-21T02:00:00', rejectedByName: 'Other Manager', rejectionReason: 'Duplicate' })
+        body:
+          ++loads === 1
+            ? serviceRequest()
+            : serviceRequest({
+                status: 'Rejected',
+                rejectedAt: '2026-09-21T02:00:00',
+                rejectedByName: 'Other Manager',
+                rejectionReason: 'Duplicate'
+              })
       }),
       'POST /service-requests/7/approve': {
         status: 409,
-        body: { title: 'Conflict', detail: 'This request is Rejected and cannot be approved. Only a New request can be approved or rejected.' }
+        body: {
+          title: 'Conflict',
+          detail: 'This request is Rejected and cannot be approved. Only a New request can be approved or rejected.'
+        }
       }
     })
     renderApp('/service-requests/7')
@@ -210,7 +222,9 @@ describe('Reviewing a request', () => {
   it('offers a Manager no buttons on a request that is already decided', async () => {
     signInAs('Manager')
     stubApi({
-      'GET /service-requests/7': { body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' }) }
+      'GET /service-requests/7': {
+        body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' })
+      }
     })
     renderApp('/service-requests/7')
 
@@ -244,7 +258,9 @@ describe('Cancelling a request', () => {
       'GET /service-requests/7': { body: serviceRequest() },
       'POST /service-requests/7/cancel': ({ body }) => ({
         body: serviceRequest({
-          status: 'Cancelled', cancelledByName: 'Test User', cancelledAt: '2026-09-22T03:00:00',
+          status: 'Cancelled',
+          cancelledByName: 'Test User',
+          cancelledAt: '2026-09-22T03:00:00',
           cancellationReason: (body as { reason: string }).reason
         })
       })
@@ -267,7 +283,9 @@ describe('Cancelling a request', () => {
   it('does not offer ServiceStaff a cancel button once the request is Approved', async () => {
     signInAs('ServiceStaff')
     stubApi({
-      'GET /service-requests/7': { body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' }) }
+      'GET /service-requests/7': {
+        body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' })
+      }
     })
     renderApp('/service-requests/7')
 
@@ -278,10 +296,14 @@ describe('Cancelling a request', () => {
   it('lets a Manager cancel an Approved request', async () => {
     signInAs('Manager')
     const fetchMock = stubApi({
-      'GET /service-requests/7': { body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' }) },
+      'GET /service-requests/7': {
+        body: serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' })
+      },
       'POST /service-requests/7/cancel': ({ body }) => ({
         body: serviceRequest({
-          status: 'Cancelled', cancelledByName: 'Test User', cancelledAt: '2026-09-22T03:00:00',
+          status: 'Cancelled',
+          cancelledByName: 'Test User',
+          cancelledAt: '2026-09-22T03:00:00',
           cancellationReason: (body as { reason: string }).reason
         })
       })

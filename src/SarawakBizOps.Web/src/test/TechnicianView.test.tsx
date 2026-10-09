@@ -1,7 +1,7 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { part, workOrder, workOrderPart } from './fixtures'
+import { paged, part, workOrder, workOrderPart } from './fixtures'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
 describe('My Jobs (technician)', () => {
@@ -48,14 +48,24 @@ describe('Job detail (technician)', () => {
     const fetchMock = stubApi({
       // Already signed (Phase 8), so only the two fields gate the button here; see Signature.test.tsx.
       'GET /work-orders/41': {
-        body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00', hasSignature: true, signedAt: '2026-09-21T01:30:00' })
+        body: workOrder({
+          status: 'InProgress',
+          startedAt: '2026-09-21T01:00:00',
+          hasSignature: true,
+          signedAt: '2026-09-21T01:30:00'
+        })
       },
       'GET /work-orders/41/signature': { body: new Blob(['png'], { type: 'image/png' }) },
       'PATCH /work-orders/41/diagnosis': ({ body }) => ({
         body: workOrder({ status: 'InProgress', ...(body as object) })
       }),
       'POST /work-orders/41/complete': {
-        body: workOrder({ status: 'Completed', diagnosis: 'Loose belt', workPerformed: 'Retensioned it', completedAt: '2026-09-21T02:00:00' })
+        body: workOrder({
+          status: 'Completed',
+          diagnosis: 'Loose belt',
+          workPerformed: 'Retensioned it',
+          completedAt: '2026-09-21T02:00:00'
+        })
       }
     })
     renderApp('/tech/jobs/41')
@@ -85,7 +95,10 @@ describe('Job detail (technician)', () => {
     stubApi({
       'GET /work-orders/41': {
         body: workOrder({
-          status: 'Approved', diagnosis: 'Loose belt', workPerformed: 'Retensioned it', approvedAt: '2026-09-22T01:00:00'
+          status: 'Approved',
+          diagnosis: 'Loose belt',
+          workPerformed: 'Retensioned it',
+          approvedAt: '2026-09-22T01:00:00'
         })
       }
     })
@@ -102,16 +115,29 @@ describe('Job detail (technician)', () => {
     signInAs('Technician')
     const fetchMock = stubApi({
       'GET /work-orders/41': { body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00' }) },
-      'GET /parts': { body: [part(), part({ id: 302, partNumber: 'FLT-AIR-HC75', name: 'Air filter element' })] },
+      // The server does the searching: answer like it would.
+      'GET /parts': ({ url }) => {
+        const catalogue = [part(), part({ id: 302, partNumber: 'FLT-AIR-HC75', name: 'Air filter element' })]
+        const term = (url.searchParams.get('search') ?? '').toLowerCase()
+        return { body: paged(catalogue.filter(p => p.name.toLowerCase().includes(term))) }
+      },
       'POST /work-orders/41/parts': {
-        body: workOrder({ status: 'InProgress', parts: [workOrderPart()], partsTotal: 2901, rowVersion: 'AAAAAAAAC00=' })
+        body: workOrder({
+          status: 'InProgress',
+          parts: [workOrderPart()],
+          partsTotal: 2901,
+          rowVersion: 'AAAAAAAAC00='
+        })
       }
     })
     renderApp('/tech/jobs/41')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Add a part' }))
     await userEvent.type(await screen.findByLabelText('Find a part'), 'relay')
-    expect(screen.queryByText(/FLT-AIR-HC75/)).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(/FLT-AIR-HC75/)).not.toBeInTheDocument())
+    const searches = callsTo(fetchMock, 'GET', '/parts').map(([input]) => new URL(String(input)).searchParams)
+    expect(searches[searches.length - 1].get('search')).toBe('relay')
+    expect(searches[searches.length - 1].get('pageSize')).toBe('20')
     await userEvent.click(screen.getByRole('button', { name: /REL-OVL-25A/ }))
     await userEvent.click(screen.getByRole('button', { name: 'More' }))
     expect(screen.getByLabelText('Quantity (pcs)')).toHaveValue(2)
@@ -130,10 +156,13 @@ describe('Job detail (technician)', () => {
     signInAs('Technician')
     stubApi({
       'GET /work-orders/41': { body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00' }) },
-      'GET /parts': { body: [part()] },
+      'GET /parts': { body: paged([part()]) },
       'POST /work-orders/41/parts': {
         status: 409,
-        body: { title: 'Conflict', detail: 'Not enough stock: only 1 pcs of Thermal overload relay 18–25 A on hand, so 2 cannot be used.' }
+        body: {
+          title: 'Conflict',
+          detail: 'Not enough stock: only 1 pcs of Thermal overload relay 18–25 A on hand, so 2 cannot be used.'
+        }
       }
     })
     renderApp('/tech/jobs/41')
@@ -151,7 +180,7 @@ describe('Job detail (technician)', () => {
     signInAs('Technician')
     const fetchMock = stubApi({
       'GET /work-orders/41': { body: workOrder({ status: 'InProgress', startedAt: '2026-09-21T01:00:00' }) },
-      'GET /parts': { body: [part({ quantityOnHand: 0 })] },
+      'GET /parts': { body: paged([part({ quantityOnHand: 0 })]) },
       'POST /work-orders/41/pending-parts': {
         body: workOrder({
           status: 'PendingParts',
@@ -181,20 +210,29 @@ describe('Job detail (technician)', () => {
     expect(screen.queryByRole('button', { name: 'Complete job' })).not.toBeInTheDocument()
     const [, init] = callsTo(fetchMock, 'POST', '/work-orders/41/pending-parts')[0]
     expect(JSON.parse(String(init?.body))).toEqual({
-      reason: 'Relay on order', partId: 301, quantity: 1, rowVersion: 'AAAAAAAAB9E='
+      reason: 'Relay on order',
+      partId: 301,
+      quantity: 1,
+      rowVersion: 'AAAAAAAAB9E='
     })
   })
 
   it('explains why a paused job cannot resume yet', async () => {
     signInAs('Technician')
     const paused = workOrder({
-      status: 'PendingParts', pendingPartNumber: 'REL-OVL-25A', pendingPartQuantity: 1, pendingPartUnit: 'pcs'
+      status: 'PendingParts',
+      pendingPartNumber: 'REL-OVL-25A',
+      pendingPartQuantity: 1,
+      pendingPartUnit: 'pcs'
     })
     stubApi({
       'GET /work-orders/41': { body: paused },
       'POST /work-orders/41/resume': {
         status: 409,
-        body: { title: 'Conflict', detail: 'Still waiting for parts: 1 pcs of Thermal overload relay 18–25 A needed, 0 on hand.' }
+        body: {
+          title: 'Conflict',
+          detail: 'Still waiting for parts: 1 pcs of Thermal overload relay 18–25 A needed, 0 on hand.'
+        }
       }
     })
     renderApp('/tech/jobs/41')
@@ -227,7 +265,11 @@ describe('Job detail (technician)', () => {
     stubApi({
       'GET /work-orders/41': {
         body: workOrder({
-          status: 'Completed', diagnosis: 'Relay', workPerformed: 'Replaced', parts: [workOrderPart()], partsTotal: 2901
+          status: 'Completed',
+          diagnosis: 'Relay',
+          workPerformed: 'Replaced',
+          parts: [workOrderPart()],
+          partsTotal: 2901
         })
       }
     })

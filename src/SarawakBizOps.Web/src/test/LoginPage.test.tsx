@@ -21,8 +21,12 @@ describe('Login', () => {
     const fetchMock = stubApi({
       'POST /auth/login': {
         body: {
-          token: 'jwt', expiresAtUtc: new Date(Date.now() + 3_600_000).toISOString(),
-          userId: 'm1', fullName: 'Jenny Lau', email: 'manager@sarawakbizops.local', roles: ['Manager']
+          token: 'jwt',
+          expiresAtUtc: new Date(Date.now() + 3_600_000).toISOString(),
+          userId: 'm1',
+          fullName: 'Jenny Lau',
+          email: 'manager@sarawakbizops.local',
+          roles: ['Manager']
         }
       },
       'GET /customers': { body: [] },
@@ -78,10 +82,37 @@ describe('Login', () => {
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument()
   })
 
+  it('attaches the access token itself, and never to the sign-in and session calls', async () => {
+    signInAs('Manager', 'Jenny Lau')
+    let refreshes = 0
+    const fetchMock = stubApi({
+      'POST /auth/refresh': () => ({
+        body: {
+          token: `token-${++refreshes}`,
+          expiresAtUtc: new Date(Date.now() + 3_600_000).toISOString(),
+          userId: 'm1',
+          fullName: 'Jenny Lau',
+          email: 'manager@sarawakbizops.local',
+          roles: ['Manager']
+        }
+      }),
+      'GET /customers': () => (refreshes === 1 ? { status: 401 } : { body: customers })
+    })
+    renderApp('/customers')
+
+    expect(await screen.findByText(customers[0].companyName)).toBeInTheDocument()
+    const bearer = (call: unknown[]) => new Headers((call[1] as RequestInit | undefined)?.headers).get('Authorization')
+    // The page passes no token: the first call carries the one from load, the retry the renewed one.
+    expect(callsTo(fetchMock, 'GET', '/customers').map(bearer)).toEqual(['Bearer token-1', 'Bearer token-2'])
+    expect(callsTo(fetchMock, 'POST', '/auth/refresh').map(bearer)).toEqual([null, null])
+  })
+
   it('signing out ends the session on the server too', async () => {
     signInAs('Manager', 'Jenny Lau')
     const fetchMock = stubApi({
-      'GET /customers': { body: [] }, 'GET /equipment': { body: [] }, 'POST /auth/logout': { status: 204 }
+      'GET /customers': { body: [] },
+      'GET /equipment': { body: [] },
+      'POST /auth/logout': { status: 204 }
     })
     renderApp('/')
 

@@ -5,7 +5,8 @@ import type { TechnicianAssistance } from '../types'
 import { workOrder } from './fixtures'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
 
-const DISCLAIMER = 'AI-generated assistance — not a certified diagnosis. Check everything on site before acting; nothing here is applied to the job.'
+const DISCLAIMER =
+  'AI-generated assistance — not a certified diagnosis. Check everything on site before acting; nothing here is applied to the job.'
 
 function assistance(overrides: Partial<TechnicianAssistance> = {}): TechnicianAssistance {
   return {
@@ -19,17 +20,25 @@ function assistance(overrides: Partial<TechnicianAssistance> = {}): TechnicianAs
       { cause: 'Electrical supply or regulation fault', likelihood: 'Medium', reasoning: 'The job mentions “start”.' }
     ],
     suggestedChecks: ['Measure the running current on each phase.', 'Check the overload relay setting.'],
-    relevantPastCases: [{
-      workOrderId: 12,
-      completedAt: '2026-05-25T06:00:00',
-      problemDescription: 'Air compressor trips on overload during the hot afternoon shift.',
-      diagnosis: 'Clogged intake filter.',
-      whyRelevant: 'Also involved “trip” on this equipment.'
-    }],
-    relevantParts: [{
-      partId: 301, partNumber: 'REL-OVL-25A', name: 'Thermal overload relay 18–25 A', unit: 'pcs',
-      quantityOnHand: 3, whyRelevant: 'A likely repair uses a relay.'
-    }],
+    relevantPastCases: [
+      {
+        workOrderId: 12,
+        completedAt: '2026-05-25T06:00:00',
+        problemDescription: 'Air compressor trips on overload during the hot afternoon shift.',
+        diagnosis: 'Clogged intake filter.',
+        whyRelevant: 'Also involved “trip” on this equipment.'
+      }
+    ],
+    relevantParts: [
+      {
+        partId: 301,
+        partNumber: 'REL-OVL-25A',
+        name: 'Thermal overload relay 18–25 A',
+        unit: 'pcs',
+        quantityOnHand: 3,
+        whyRelevant: 'A likely repair uses a relay.'
+      }
+    ],
     ...overrides
   }
 }
@@ -68,9 +77,11 @@ describe('AI assistant on the technician Diagnosis step', () => {
     expect(screen.getByLabelText('What is wrong?')).toHaveValue('')
     expect(screen.getByRole('status')).toHaveTextContent('saved only with the job')
     // Nothing was written: apart from restoring the session, the only calls are loading the job and asking the assistant.
-    expect(fetchMock.mock.calls
-      .filter(([input]) => !String(input).includes('/auth/'))
-      .map(([, i]) => (i?.method ?? 'GET').toUpperCase())).toEqual(['GET', 'POST'])
+    expect(
+      fetchMock.mock.calls
+        .filter(([input]) => !String(input).includes('/auth/'))
+        .map(([, i]) => (i?.method ?? 'GET').toUpperCase())
+    ).toEqual(['GET', 'POST'])
   })
 
   it('says so when the assistant is unavailable, and the job carries on', async () => {
@@ -79,7 +90,10 @@ describe('AI assistant on the technician Diagnosis step', () => {
       'GET /work-orders/41': { body: inProgress },
       'POST /ai/technician-assistant': {
         status: 503,
-        body: { title: 'Service unavailable', detail: 'The AI assistant is unavailable right now. Carry on with the job; you can try again later.' }
+        body: {
+          title: 'Service unavailable',
+          detail: 'The AI assistant is unavailable right now. Carry on with the job; you can try again later.'
+        }
       }
     })
     renderApp('/tech/jobs/41')
@@ -98,7 +112,10 @@ describe('AI assistant on the technician Diagnosis step', () => {
       'GET /work-orders/41': { body: inProgress },
       'POST /ai/technician-assistant': {
         status: 429,
-        body: { title: 'Too many requests', detail: 'You have asked the AI assistant too often. Wait a minute and try again.' }
+        body: {
+          title: 'Too many requests',
+          detail: 'You have asked the AI assistant too often. Wait a minute and try again.'
+        }
       }
     })
     renderApp('/tech/jobs/41')
@@ -112,7 +129,9 @@ describe('AI assistant on the technician Diagnosis step', () => {
     signInAs('Technician')
     stubApi({
       'GET /work-orders/41': { body: inProgress },
-      'POST /ai/technician-assistant': { body: assistance({ pastCasesConsidered: 0, relevantPastCases: [], relevantParts: [] }) }
+      'POST /ai/technician-assistant': {
+        body: assistance({ pastCasesConsidered: 0, relevantPastCases: [], relevantParts: [] })
+      }
     })
     renderApp('/tech/jobs/41')
 

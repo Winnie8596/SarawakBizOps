@@ -1,30 +1,28 @@
 import { apiFetch } from './client'
 import type { Customer, CustomerInput, ServiceHistory } from '../types'
 
-export function getCustomers(token: string): Promise<Customer[]> {
-  return apiFetch<Customer[]>('/customers', { token })
+export function getCustomers(): Promise<Customer[]> {
+  return apiFetch<Customer[]>('/customers')
 }
 
-export function getCustomer(token: string, id: number): Promise<Customer> {
-  return apiFetch<Customer>(`/customers/${id}`, { token })
+export function getCustomer(id: number): Promise<Customer> {
+  return apiFetch<Customer>(`/customers/${id}`)
 }
 
-export function createCustomer(token: string, input: CustomerInput): Promise<Customer> {
+export function createCustomer(input: CustomerInput): Promise<Customer> {
   return apiFetch<Customer>('/customers', {
     method: 'POST',
-    token,
     body: JSON.stringify(input)
   })
 }
 
-export function updateCustomer(token: string, id: number, input: CustomerInput): Promise<void> {
+export function updateCustomer(id: number, input: CustomerInput): Promise<void> {
   return apiFetch<void>(`/customers/${id}`, {
     method: 'PUT',
-    token,
     body: JSON.stringify(input)
   })
 }
 
-export function getCustomerHistory(token: string, id: number): Promise<ServiceHistory> {
-  return apiFetch<ServiceHistory>(`/customers/${id}/history`, { token })
+export function getCustomerHistory(id: number): Promise<ServiceHistory> {
+  return apiFetch<ServiceHistory>(`/customers/${id}/history`)
 }

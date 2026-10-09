@@ -26,11 +26,37 @@ describe('Work orders list (office)', () => {
 })
 
 describe('Work order detail (office)', () => {
-  it('lets a Manager approve a completed job and then hides the button', async () => {
+  const report = {
+    reportNumber: 'SR-2026-0007',
+    revision: 1,
+    generatedAt: '2026-09-21T02:00:00',
+    generatedByName: 'Jenny Lau',
+    sizeBytes: 48_000,
+    isLocked: false
+  }
+
+  it('lets a Manager approve a completed job with its report and then hides the button', async () => {
     signInAs('Manager')
     const fetchMock = stubApi({
-      'GET /work-orders/41': { body: workOrder({ status: 'Completed', diagnosis: 'Loose belt', workPerformed: 'Retensioned it', completedAt: '2026-09-21T01:00:00' }) },
-      'POST /work-orders/41/approve': { body: workOrder({ status: 'Approved', diagnosis: 'Loose belt', workPerformed: 'Retensioned it', approvedAt: '2026-09-22T01:00:00' }) }
+      'GET /work-orders/41': {
+        body: workOrder({
+          status: 'Completed',
+          diagnosis: 'Loose belt',
+          workPerformed: 'Retensioned it',
+          completedAt: '2026-09-21T01:00:00',
+          report
+        })
+      },
+      'POST /work-orders/41/approve': {
+        body: workOrder({
+          status: 'Approved',
+          diagnosis: 'Loose belt',
+          workPerformed: 'Retensioned it',
+          approvedAt: '2026-09-22T01:00:00',
+          approvedByName: 'Jenny Lau',
+          report: { ...report, isLocked: true }
+        })
+      }
     })
     renderApp('/work-orders/41')
 
@@ -41,6 +67,25 @@ describe('Work order detail (office)', () => {
     expect(within(heading).getByText('Approved')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument()
     expect(callsTo(fetchMock, 'POST', '/work-orders/41/approve')).toHaveLength(1)
+  })
+
+  it('keeps Approve disabled until the service report has been generated', async () => {
+    signInAs('Manager')
+    const fetchMock = stubApi({
+      'GET /work-orders/41': {
+        body: workOrder({
+          status: 'Completed',
+          diagnosis: 'Loose belt',
+          workPerformed: 'Retensioned it',
+          completedAt: '2026-09-21T01:00:00'
+        })
+      }
+    })
+    renderApp('/work-orders/41')
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(screen.getByText('Generate the service report before approving.')).toBeInTheDocument()
+    expect(callsTo(fetchMock, 'POST', '/work-orders/41/approve')).toHaveLength(0)
   })
 
   it('offers ServiceStaff no approve button on a completed job', async () => {
@@ -57,7 +102,11 @@ describe('Work order detail (office)', () => {
 describe('Assigning a technician from a service request', () => {
   it('lets a Manager assign an approved request and links to the new work order', async () => {
     signInAs('Manager')
-    const approved = serviceRequest({ status: 'Approved', approvedByName: 'Jenny Lau', approvedAt: '2026-09-21T03:00:00' })
+    const approved = serviceRequest({
+      status: 'Approved',
+      approvedByName: 'Jenny Lau',
+      approvedAt: '2026-09-21T03:00:00'
+    })
     // Mirrors the real API: once /assign succeeds, the request's own status (and workOrderId) has
     // moved on, so the page's refetch after assigning must see 'Assigned', not the stale 'Approved'.
     let assigned = false
@@ -138,7 +187,9 @@ describe('Cancelling a work order', () => {
       'GET /work-orders/41': { body: workOrder({ status: 'Assigned' }) },
       'POST /work-orders/41/cancel': ({ body }) => ({
         body: workOrder({
-          status: 'Cancelled', cancelledByName: 'Test User', cancelledAt: '2026-09-22T03:00:00',
+          status: 'Cancelled',
+          cancelledByName: 'Test User',
+          cancelledAt: '2026-09-22T03:00:00',
           cancellationReason: (body as { reason: string }).reason
         })
       })
@@ -161,7 +212,9 @@ describe('Cancelling a work order', () => {
   it('does not offer a cancel button once the job is Completed', async () => {
     signInAs('Manager')
     stubApi({
-      'GET /work-orders/41': { body: workOrder({ status: 'Completed', diagnosis: 'Loose belt', workPerformed: 'Retensioned it' }) }
+      'GET /work-orders/41': {
+        body: workOrder({ status: 'Completed', diagnosis: 'Loose belt', workPerformed: 'Retensioned it' })
+      }
     })
     renderApp('/work-orders/41')
 
@@ -188,7 +241,15 @@ describe('Parts on a work order (office)', () => {
           status: 'Completed',
           parts: [
             workOrderPart(),
-            workOrderPart({ id: 502, partNumber: 'OIL-HYD-46', partName: 'Hydraulic oil', unit: 'L', quantity: 12, unitPrice: 14.9, lineTotal: 178.8 })
+            workOrderPart({
+              id: 502,
+              partNumber: 'OIL-HYD-46',
+              partName: 'Hydraulic oil',
+              unit: 'L',
+              quantity: 12,
+              unitPrice: 14.9,
+              lineTotal: 178.8
+            })
           ],
           partsTotal: 3079.8
         })

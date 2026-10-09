@@ -16,7 +16,7 @@ import { AssistantPanel } from '../components/AssistantPanel'
 import { useGuardedAction } from '../hooks/useGuardedAction'
 import { formatDateTime, formatMoney, formatQuantity } from '../utils/format'
 
-const CANCELLABLE_STATUSES = ['New', 'Assigned', 'InProgress', 'PendingParts']
+const CANCELLABLE_STATUSES = ['Assigned', 'InProgress', 'PendingParts']
 // Phase 13: the AI assistant helps while the job is still being diagnosed.
 const ASSISTANT_STATUSES = ['Assigned', 'InProgress', 'PendingParts']
 
@@ -37,7 +37,7 @@ export function WorkOrderDetailPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [generating, setGenerating] = useState(false)
 
-  const reload = () => getWorkOrder(auth!.token, workOrderId)
+  const reload = () => getWorkOrder(workOrderId)
   const { busy, error: actionError, run } = useGuardedAction(reload)
 
   useEffect(() => {
@@ -46,7 +46,7 @@ export function WorkOrderDetailPage() {
 
     setLoading(true)
     setError(null)
-    getWorkOrder(auth.token, workOrderId)
+    getWorkOrder(workOrderId)
       .then(data => {
         if (!cancelled) setWorkOrder(data)
       })
@@ -65,7 +65,7 @@ export function WorkOrderDetailPage() {
   function handleApprove() {
     if (!auth || !workOrder) return
     void run(
-      () => approveWorkOrder(auth.token, workOrderId, workOrder.rowVersion),
+      () => approveWorkOrder(workOrderId, workOrder.rowVersion),
       updated => setWorkOrder(updated),
       'Could not approve this work order.'
     )
@@ -76,7 +76,7 @@ export function WorkOrderDetailPage() {
     if (!auth) return
     setGenerating(true)
     await run(
-      () => generateReport(auth.token, workOrderId),
+      () => generateReport(workOrderId),
       updated => setWorkOrder(updated),
       'Could not generate the service report.'
     )
@@ -87,7 +87,7 @@ export function WorkOrderDetailPage() {
     event.preventDefault()
     if (!auth || !workOrder) return
     void run(
-      () => cancelWorkOrder(auth.token, workOrderId, cancelReason.trim(), workOrder.rowVersion),
+      () => cancelWorkOrder(workOrderId, cancelReason.trim(), workOrder.rowVersion),
       updated => {
         setWorkOrder(updated)
         setCancelling(false)
@@ -112,7 +112,9 @@ export function WorkOrderDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumb"><Link to="/work-orders">← Work orders</Link></p>
+      <p className="breadcrumb">
+        <Link to="/work-orders">← Work orders</Link>
+      </p>
       <h1 className="page-title">
         Work order #{workOrder.id} <StatusBadge status={workOrder.status} />
       </h1>
@@ -120,7 +122,9 @@ export function WorkOrderDetailPage() {
       <dl className="detail-list panel">
         <div>
           <dt>Customer</dt>
-          <dd><Link to={`/customers/${workOrder.customerId}`}>{workOrder.customerName}</Link></dd>
+          <dd>
+            <Link to={`/customers/${workOrder.customerId}`}>{workOrder.customerName}</Link>
+          </dd>
         </div>
         <div>
           <dt>Equipment</dt>
@@ -131,12 +135,25 @@ export function WorkOrderDetailPage() {
             · {workOrder.equipmentType}
           </dd>
         </div>
-        <div><dt>Priority</dt><dd><PriorityBadge priority={workOrder.priority} /></dd></div>
-        <div><dt>Problem</dt><dd className="prose">{workOrder.problemDescription}</dd></div>
-        <div><dt>Technician</dt><dd>{workOrder.technicianName}</dd></div>
+        <div>
+          <dt>Priority</dt>
+          <dd>
+            <PriorityBadge priority={workOrder.priority} />
+          </dd>
+        </div>
+        <div>
+          <dt>Problem</dt>
+          <dd className="prose">{workOrder.problemDescription}</dd>
+        </div>
+        <div>
+          <dt>Technician</dt>
+          <dd>{workOrder.technicianName}</dd>
+        </div>
         <div>
           <dt>Service request</dt>
-          <dd><Link to={`/service-requests/${workOrder.serviceRequestId}`}>#{workOrder.serviceRequestId}</Link></dd>
+          <dd>
+            <Link to={`/service-requests/${workOrder.serviceRequestId}`}>#{workOrder.serviceRequestId}</Link>
+          </dd>
         </div>
       </dl>
 
@@ -146,9 +163,20 @@ export function WorkOrderDetailPage() {
 
       {(workOrder.diagnosis || workOrder.workPerformed) && (
         <dl className="detail-list panel">
-          <div><dt>Diagnosis</dt><dd className="prose">{workOrder.diagnosis}</dd></div>
-          <div><dt>Work performed</dt><dd className="prose">{workOrder.workPerformed}</dd></div>
-          {workOrder.notes && <div><dt>Notes</dt><dd className="prose">{workOrder.notes}</dd></div>}
+          <div>
+            <dt>Diagnosis</dt>
+            <dd className="prose">{workOrder.diagnosis}</dd>
+          </div>
+          <div>
+            <dt>Work performed</dt>
+            <dd className="prose">{workOrder.workPerformed}</dd>
+          </div>
+          {workOrder.notes && (
+            <div>
+              <dt>Notes</dt>
+              <dd className="prose">{workOrder.notes}</dd>
+            </div>
+          )}
         </dl>
       )}
 
@@ -168,7 +196,10 @@ export function WorkOrderDetailPage() {
               </dd>
             </div>
             {workOrder.pendingPartsReason && (
-              <div><dt>Reason</dt><dd className="prose">{workOrder.pendingPartsReason}</dd></div>
+              <div>
+                <dt>Reason</dt>
+                <dd className="prose">{workOrder.pendingPartsReason}</dd>
+              </div>
             )}
           </dl>
           <p className="form-hint">The technician can resume once the part has been received into stock.</p>
@@ -193,8 +224,12 @@ export function WorkOrderDetailPage() {
               <tbody>
                 {workOrder.parts.map(line => (
                   <tr key={line.id}>
-                    <td><span className="mono">{line.partNumber}</span> {line.partName}</td>
-                    <td className="num">{formatQuantity(line.quantity)} {line.unit}</td>
+                    <td>
+                      <span className="mono">{line.partNumber}</span> {line.partName}
+                    </td>
+                    <td className="num">
+                      {formatQuantity(line.quantity)} {line.unit}
+                    </td>
                     <td className="num">{formatMoney(line.unitPrice)}</td>
                     <td className="num">{formatMoney(line.lineTotal)}</td>
                   </tr>
@@ -203,7 +238,9 @@ export function WorkOrderDetailPage() {
               <tfoot>
                 <tr>
                   <th colSpan={3}>Parts total</th>
-                  <td className="num"><strong>{formatMoney(workOrder.partsTotal)}</strong></td>
+                  <td className="num">
+                    <strong>{formatMoney(workOrder.partsTotal)}</strong>
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -229,7 +266,9 @@ export function WorkOrderDetailPage() {
               {workOrder.signedAt && <p className="form-hint">Signed {formatDateTime(workOrder.signedAt)}</p>}
             </>
           ) : (
-            <p className="form-hint">Not signed yet. The customer signs on the technician’s phone before the job is completed.</p>
+            <p className="form-hint">
+              Not signed yet. The customer signs on the technician’s phone before the job is completed.
+            </p>
           )}
         </div>
       )}
@@ -252,7 +291,7 @@ export function WorkOrderDetailPage() {
           { label: 'Resumed', at: workOrder.resumedAt },
           { label: 'Customer signed', at: workOrder.signedAt },
           { label: 'Completed', at: workOrder.completedAt },
-          { label: 'Approved', at: workOrder.approvedAt },
+          { label: 'Approved', at: workOrder.approvedAt, by: workOrder.approvedByName },
           {
             label: 'Cancelled',
             at: workOrder.cancelledAt,
@@ -266,9 +305,11 @@ export function WorkOrderDetailPage() {
 
       {workOrder.status === 'Completed' && canApprove && (
         <div className="panel-actions">
-          <button className="btn btn-primary" onClick={handleApprove} disabled={busy}>
+          {/* The API refuses approval until the report exists, which approval then locks. */}
+          <button className="btn btn-primary" onClick={handleApprove} disabled={busy || !workOrder.report}>
             {busy && !generating ? 'Approving…' : 'Approve'}
           </button>
+          {!workOrder.report && <span className="form-hint">Generate the service report before approving.</span>}
         </div>
       )}
 
@@ -283,7 +324,9 @@ export function WorkOrderDetailPage() {
           {cancelling ? (
             <form onSubmit={handleCancel}>
               <div className="field">
-                <label className="field-label" htmlFor="wo-cancel-reason">Reason for cancelling</label>
+                <label className="field-label" htmlFor="wo-cancel-reason">
+                  Reason for cancelling
+                </label>
                 <textarea
                   id="wo-cancel-reason"
                   value={cancelReason}
@@ -294,7 +337,8 @@ export function WorkOrderDetailPage() {
                   autoFocus
                 />
                 <span className="form-hint">
-                  The service request returns to Approved so it can be reassigned.
+                  The service request returns to Approved so it can be reassigned
+                  {workOrder.parts.length > 0 && ', and the parts used on this job go back into stock'}.
                 </span>
               </div>
               <div className="panel-actions">

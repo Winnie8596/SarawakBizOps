@@ -27,24 +27,29 @@ function messageFromProblem(status: number, problem: ProblemDetails | undefined)
   if (firstFieldError) return firstFieldError
 
   switch (status) {
-    case 401: return 'Your session has expired. Please sign in again.'
-    case 403: return 'You do not have permission to do that.'
-    case 404: return 'That record could not be found.'
-    case 409: return 'This record was changed by someone else. Please refresh and try again.'
-    default: return problem?.title || `Request failed with status ${status}`
+    case 401:
+      return 'Your session has expired. Please sign in again.'
+    case 403:
+      return 'You do not have permission to do that.'
+    case 404:
+      return 'That record could not be found.'
+    case 409:
+      return 'This record was changed by someone else. Please refresh and try again.'
+    default:
+      return problem?.title || `Request failed with status ${status}`
   }
 }
 
-// AuthProvider registers these. A 401 on a call that carried a token first tries the refresh cookie for a new
-// access token and repeats the call once with it; only if that fails does the session end (ProtectedRoute then
-// redirects to /login). A 401 without a token (a bad login) is just an error to display.
+// AuthProvider registers these. A 401 on an authenticated call first tries the refresh cookie for a new access
+// token and repeats the call once with it; only if that fails does the session end (ProtectedRoute then redirects
+// to /login). A 401 on an anonymous call (a bad login) is just an error to display.
 let onUnauthorized: (() => void) | null = null
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler
 }
 
-// The newest access token. Pages pass the token they were rendered with, which marks the call as authenticated;
-// the client sends this one instead, so a quiet refresh never has to re-render (and reload) every page.
+// The access token, held here and only here (in memory, never in storage). Every call sends it unless it is marked
+// anonymous, so no page or API function handles the token, and a quiet refresh re-renders nothing.
 let currentAccessToken: string | null = null
 export function setAccessToken(token: string | null) {
   currentAccessToken = token
@@ -62,12 +67,13 @@ async function renewedToken(): Promise<string | null> {
 }
 
 interface RequestOptions extends RequestInit {
-  token?: string | null
+  /** True for the sign-in and session calls (login, refresh, logout): no access token, and a 401 is just an error. */
+  anonymous?: boolean
 }
 
 async function send(path: string, options: RequestOptions, retried = false): Promise<Response> {
-  const { headers, body, ...rest } = options
-  const token = options.token ? (retried ? options.token : currentAccessToken ?? options.token) : null
+  const { headers, body, anonymous, ...rest } = options
+  const token = anonymous ? null : currentAccessToken
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
@@ -80,10 +86,10 @@ async function send(path: string, options: RequestOptions, retried = false): Pro
     }
   })
 
-  if (response.status === 401 && token && !retried) {
-    const renewed = await renewedToken()
-    if (renewed) return send(path, { ...options, token: renewed }, true)
-  } else if (response.status === 401 && token) {
+  if (response.status === 401 && !anonymous && !retried) {
+    // renewedToken() stores the new token (AuthProvider calls setAccessToken), so the retry sends it.
+    if (await renewedToken()) return send(path, options, true)
+  } else if (response.status === 401 && !anonymous) {
     onUnauthorized?.()
   }
 
@@ -108,7 +114,6 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 }
 
 interface UploadOptions {
-  token?: string | null
   body: FormData
   /** Called with the fraction of the request body sent so far (0–1). */
   onProgress?: (fraction: number) => void
@@ -123,16 +128,15 @@ export async function apiUpload<T>(path: string, options: UploadOptions): Promis
     return await uploadOnce<T>(path, options)
   } catch (err) {
     // As for every other call: one retry with a renewed access token.
-    if (!(err instanceof ApiError && err.status === 401 && options.token)) throw err
-    const renewed = await renewedToken()
-    if (!renewed) throw err
-    return uploadOnce<T>(path, { ...options, token: renewed }, true)
+    if (!(err instanceof ApiError && err.status === 401)) throw err
+    if (!(await renewedToken())) throw err
+    return uploadOnce<T>(path, options, true)
   }
 }
 
-function uploadOnce<T>(path: string, { token, body, onProgress }: UploadOptions, retried = false): Promise<T> {
+function uploadOnce<T>(path: string, { body, onProgress }: UploadOptions, retried = false): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    if (token && !retried) token = currentAccessToken ?? token
+    const token = currentAccessToken
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE_URL}${path}`)
     // No Content-Type: the browser sets multipart/form-data with its boundary.
@@ -157,12 +161,13 @@ function uploadOnce<T>(path: string, { token, body, onProgress }: UploadOptions,
       }
 
       const problem = parsed as ProblemDetails | undefined
-      if (xhr.status === 401 && token && retried) onUnauthorized?.()
+      if (xhr.status === 401 && retried) onUnauthorized?.()
       reject(new ApiError(xhr.status, messageFromProblem(xhr.status, problem), problem?.errors))
     }
 
     // Network failure (no response at all): status 0, so it is never mistaken for a 409.
-    xhr.onerror = () => reject(new ApiError(0, 'The upload did not reach the server. Check the connection and try again.'))
+    xhr.onerror = () =>
+      reject(new ApiError(0, 'The upload did not reach the server. Check the connection and try again.'))
 
     xhr.send(body)
   })

@@ -8,7 +8,10 @@ import { ApiError } from '../api/client'
 import type { Part, PartInput, StockMovementType } from '../types'
 import { ConflictBanner } from '../components/ConflictBanner'
 import { EmptyState } from '../components/EmptyState'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { formatMoney, formatQuantity } from '../utils/format'
+
+const PAGE_SIZE = 50
 
 // Number inputs are edited as text so a half-typed value ("12.") is not reformatted under the cursor.
 interface PartForm {
@@ -56,9 +59,13 @@ export function InventoryPage() {
   const canEdit = hasRole(...INVENTORY_EDIT_ROLES)
 
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search)
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [includeInactive, setIncludeInactive] = useState(false)
+  const [page, setPage] = useState(1)
   const [parts, setParts] = useState<Part[]>([])
+  // The catalogue's size under the current filters; null for the low-stock list, which is not paged.
+  const [totalCount, setTotalCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
@@ -82,13 +89,24 @@ export function InventoryPage() {
     setLoading(true)
     setLoadError(null)
     const request = lowStockOnly
-      // The low-stock list is small and active-only; the search box narrows it on the client.
-      ? getLowStockParts(auth.token).then(rows => rows.filter(p => matches(p, search)))
-      : getParts(auth.token, { search, includeInactive })
+      ? // The low-stock list is small and active-only; the search box narrows it on the client.
+        getLowStockParts().then(rows => ({ items: rows.filter(p => matches(p, debouncedSearch)), total: null }))
+      : // The full catalogue can be large: the server searches it and sends one page.
+        getParts({ search: debouncedSearch, includeInactive, page, pageSize: PAGE_SIZE }).then(result => ({
+          items: result.items,
+          total: result.totalCount
+        }))
 
     request
-      .then(rows => {
-        if (!cancelled) setParts(rows)
+      .then(({ items, total }) => {
+        if (cancelled) return
+        // The last part on the last page went away (e.g. deactivated): step back to a page that has rows.
+        if (items.length === 0 && page > 1) {
+          setPage(p => p - 1)
+          return
+        }
+        setParts(items)
+        setTotalCount(total)
       })
       .catch(err => {
         if (!cancelled) setLoadError(err instanceof ApiError ? err.message : 'Could not load parts.')
@@ -100,10 +118,14 @@ export function InventoryPage() {
     return () => {
       cancelled = true
     }
-  }, [auth, search, lowStockOnly, includeInactive, reloadKey])
+  }, [auth, debouncedSearch, lowStockOnly, includeInactive, page, reloadKey])
+
+  // A new filter starts again from the first page.
+  useEffect(() => setPage(1), [debouncedSearch, lowStockOnly, includeInactive])
 
   const reload = () => setReloadKey(k => k + 1)
   const filtered = search.trim() !== '' || lowStockOnly || includeInactive
+  const pageCount = totalCount === null ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   function startCreate() {
     setMovement(null)
@@ -144,14 +166,20 @@ export function InventoryPage() {
     setFormError(null)
     try {
       const payload = toPayload(form)
-      const saved = editing === 'new'
-        ? await createPart(auth.token, payload)
-        : await updatePart(auth.token, editing.id, { ...payload, isActive: form.isActive, rowVersion: editing.rowVersion })
+      const saved =
+        editing === 'new'
+          ? await createPart(payload)
+          : await updatePart(editing.id, { ...payload, isActive: form.isActive, rowVersion: editing.rowVersion })
       setEditing(null)
       setNotice(`${saved.partNumber} saved.`)
       reload()
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409 && editing !== 'new' && err.message.includes('changed by someone else')) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        editing !== 'new' &&
+        err.message.includes('changed by someone else')
+      ) {
         // Stale screen: close the form and show the latest values rather than keep editing old ones.
         setEditing(null)
         setPageError(err.message)
@@ -174,7 +202,7 @@ export function InventoryPage() {
     setSaving(true)
     setMovementError(null)
     try {
-      const entry = await recordStockMovement(auth.token, {
+      const entry = await recordStockMovement({
         partId: movement.part.id,
         transactionType: movement.type,
         quantity,
@@ -182,7 +210,9 @@ export function InventoryPage() {
       })
       const verb = movement.type === 'Receive' ? 'Received' : 'Adjusted by'
       const after = entry.quantityOnHandAfter ?? movement.part.quantityOnHand + quantity
-      setNotice(`${verb} ${formatQuantity(quantity)} ${entry.unit} of ${entry.partNumber}. On hand now ${formatQuantity(after)} ${entry.unit}.`)
+      setNotice(
+        `${verb} ${formatQuantity(quantity)} ${entry.unit} of ${entry.partNumber}. On hand now ${formatQuantity(after)} ${entry.unit}.`
+      )
       setMovement(null)
       reload()
     } catch (err) {
@@ -215,7 +245,11 @@ export function InventoryPage() {
       </div>
 
       <ConflictBanner message={pageError} />
-      {notice && <p className="form-notice" role="status">{notice}</p>}
+      {notice && (
+        <p className="form-notice" role="status">
+          {notice}
+        </p>
+      )}
 
       {editing !== null && (
         <form className="panel form-panel" onSubmit={handleSavePart}>
@@ -375,7 +409,11 @@ export function InventoryPage() {
             </div>
           </div>
 
-          {movementError && <p className="form-error" role="alert">{movementError}</p>}
+          {movementError && (
+            <p className="form-error" role="alert">
+              {movementError}
+            </p>
+          )}
 
           <div className="panel-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setMovement(null)} disabled={saving}>
@@ -424,11 +462,15 @@ export function InventoryPage() {
       ) : parts.length === 0 ? (
         <EmptyState
           title={lowStockOnly ? 'Nothing is low on stock' : filtered ? 'No parts match these filters' : 'No parts yet'}
-          description={lowStockOnly
-            ? 'Every active part is above its minimum stock level.'
-            : filtered
-              ? 'Try a different search.'
-              : canEdit ? 'Add the first part to start tracking stock.' : 'Ask the warehouse to add parts.'}
+          description={
+            lowStockOnly
+              ? 'Every active part is above its minimum stock level.'
+              : filtered
+                ? 'Try a different search.'
+                : canEdit
+                  ? 'Add the first part to start tracking stock.'
+                  : 'Ask the warehouse to add parts.'
+          }
         />
       ) : (
         <div className="table-scroll">
@@ -449,15 +491,19 @@ export function InventoryPage() {
                 <tr key={part.id} className={part.isLowStock ? 'row-warn' : undefined}>
                   <td className="mono">{part.partNumber}</td>
                   <td>{part.name}</td>
-                  <td className="num mono">{formatQuantity(part.quantityOnHand)} {part.unit}</td>
+                  <td className="num mono">
+                    {formatQuantity(part.quantityOnHand)} {part.unit}
+                  </td>
                   <td className="num mono">{formatQuantity(part.minimumStockLevel)}</td>
                   <td className="num mono">{formatMoney(part.unitCost)}</td>
                   <td>
-                    {!part.isActive
-                      ? <span className="status-badge tone-grey">Inactive</span>
-                      : part.isLowStock
-                        ? <span className="status-badge tone-red">Low stock</span>
-                        : <span className="status-badge tone-green">OK</span>}
+                    {!part.isActive ? (
+                      <span className="status-badge tone-grey">Inactive</span>
+                    ) : part.isLowStock ? (
+                      <span className="status-badge tone-red">Low stock</span>
+                    ) : (
+                      <span className="status-badge tone-green">OK</span>
+                    )}
                   </td>
                   <td>
                     <div className="row-actions">
@@ -476,7 +522,9 @@ export function InventoryPage() {
                           Edit
                         </button>
                       )}
-                      <Link className="btn-link" to={`/inventory/history?partId=${part.id}`}>History</Link>
+                      <Link className="btn-link" to={`/inventory/history?partId=${part.id}`}>
+                        History
+                      </Link>
                     </div>
                   </td>
                 </tr>
@@ -484,6 +532,25 @@ export function InventoryPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {!loading && totalCount !== null && totalCount > 0 && (
+        <nav className="pager" aria-label="Parts pages">
+          <span className="pager-status">
+            {(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + parts.length} of {totalCount.toLocaleString('en-MY')}{' '}
+            parts
+          </span>
+          {pageCount > 1 && (
+            <span className="pager-buttons">
+              <button className="btn btn-ghost" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>
+                Previous
+              </button>
+              <button className="btn btn-ghost" onClick={() => setPage(p => p + 1)} disabled={page >= pageCount}>
+                Next
+              </button>
+            </span>
+          )}
+        </nav>
       )}
     </div>
   )

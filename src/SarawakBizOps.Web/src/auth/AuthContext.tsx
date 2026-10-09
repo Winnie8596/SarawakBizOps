@@ -3,9 +3,8 @@ import { login as loginRequest, logout as logoutRequest, refreshSession } from '
 import { setAccessToken, setAccessTokenRefresher, setUnauthorizedHandler } from '../api/client'
 import type { LoginResult } from '../types'
 
+// Who is signed in. The access token is not here: the API client holds it and attaches it (see setAccessToken).
 interface AuthState {
-  /** The access token at sign-in. The API client always sends the newest one (see setAccessToken). */
-  token: string
   fullName: string
   email: string
   userId: string
@@ -32,13 +31,17 @@ const REFRESH_AHEAD_MS = 60_000
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 function sameUser(a: AuthState | null, b: LoginResult): boolean {
-  return a !== null && a.userId === b.userId && a.fullName === b.fullName && a.email === b.email
-    && a.roles.join() === b.roles.join()
+  return (
+    a !== null &&
+    a.userId === b.userId &&
+    a.fullName === b.fullName &&
+    a.email === b.email &&
+    a.roles.join() === b.roles.join()
+  )
 }
 
 function toState(result: LoginResult): AuthState {
   return {
-    token: result.token,
     fullName: result.fullName,
     email: result.email,
     userId: result.userId,
@@ -114,20 +117,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh, endSession])
 
-  const value = useMemo<AuthContextValue>(() => ({
-    auth,
-    isAuthenticated: auth !== null,
-    restoring,
-    login: async (email: string, password: string) => {
-      startSession(await loginRequest(email, password))
-    },
-    logout: () => {
-      // Ends the session on the server and clears the cookie; the page signs out at once either way.
-      void logoutRequest().catch(() => {})
-      endSession()
-    },
-    hasRole: (...roles: string[]) => auth !== null && roles.some(r => auth.roles.includes(r))
-  }), [auth, restoring, startSession, endSession])
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      auth,
+      isAuthenticated: auth !== null,
+      restoring,
+      login: async (email: string, password: string) => {
+        startSession(await loginRequest(email, password))
+      },
+      logout: () => {
+        // Ends the session on the server and clears the cookie; the page signs out at once either way.
+        void logoutRequest().catch(() => {})
+        endSession()
+      },
+      hasRole: (...roles: string[]) => auth !== null && roles.some(r => auth.roles.includes(r))
+    }),
+    [auth, restoring, startSession, endSession]
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

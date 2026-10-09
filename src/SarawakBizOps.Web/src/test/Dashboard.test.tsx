@@ -1,104 +1,12 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { ManagerDashboard, ServiceQueueDashboard, WarehouseDashboard } from '../types'
+import {
+  managerDashboard as summary,
+  serviceQueueDashboard as serviceQueue,
+  warehouseDashboard as warehouse
+} from './fixtures'
 import { callsTo, renderApp, signInAs, stubApi } from './utils'
-
-const period = { fromMonth: '2026-04', toMonth: '2026-09', fromUtc: '2026-03-31T16:00:00', toUtc: '2026-09-30T16:00:00' }
-
-function summary(overrides: Partial<ManagerDashboard> = {}): ManagerDashboard {
-  return {
-    view: 'Manager',
-    generatedAt: '2026-09-29T02:00:00',
-    period,
-    kpis: { openRequests: 5, activeWorkOrders: 3, awaitingApproval: 1, completedThisMonth: 2, lowStockParts: 2 },
-    openRequestsByPriority: [
-      { key: 'Urgent', count: 1 }, { key: 'High', count: 2 }, { key: 'Medium', count: 2 }, { key: 'Low', count: 0 }
-    ],
-    workOrdersByStatus: [
-      { key: 'New', count: 0 }, { key: 'Assigned', count: 1 }, { key: 'InProgress', count: 1 },
-      { key: 'PendingParts', count: 1 }, { key: 'Completed', count: 1 }, { key: 'Approved', count: 9 },
-      { key: 'Cancelled', count: 1 }
-    ],
-    jobsCompletedPerMonth: [
-      { month: '2026-04', count: 0 }, { month: '2026-05', count: 1 }, { month: '2026-06', count: 2 },
-      { month: '2026-07', count: 1 }, { month: '2026-08', count: 2 }, { month: '2026-09', count: 3 }
-    ],
-    lowStock: {
-      count: 2,
-      outOfStock: 1,
-      items: [
-        { partId: 1, partNumber: 'BLT-CNV-600', name: 'Conveyor belt, 600 mm', unit: 'm', quantityOnHand: 0, minimumStockLevel: 10 },
-        { partId: 2, partNumber: 'AVR-SX460', name: 'Automatic voltage regulator', unit: 'pcs', quantityOnHand: 1, minimumStockLevel: 1 }
-      ]
-    },
-    averageTimeToAssignment: { averageHours: 47.74, count: 14 },
-    averageCompletionDuration: { averageHours: 22.8, count: 10 },
-    repeatedFailures: {
-      minimumRequests: 3,
-      equipmentCount: 2,
-      items: [
-        { equipmentId: 3, serialNumber: 'SBW-FIL-001', equipmentType: 'Bottle Filling Line', customerId: 2,
-          customerName: 'Santubong Bottling Works Sdn Bhd', requestCount: 3, lastReportedAt: '2026-09-27T02:00:00' },
-        { equipmentId: 9, serialNumber: 'SPO-PMP-002', equipmentType: 'Centrifugal Pump', customerId: 4,
-          customerName: 'Sibu Palm Oil Processing Sdn Bhd', requestCount: 3, lastReportedAt: '2026-09-15T02:00:00' }
-      ]
-    },
-    topPartsByUsage: [
-      { partId: 4, partNumber: 'SEAL-KIT-HYD', name: 'Hydraulic lift-cylinder seal kit', unit: 'kit', quantity: 1, cost: 185, jobCount: 1 },
-      { partId: 3, partNumber: 'OIL-HYD-46', name: 'Hydraulic oil ISO VG 46', unit: 'L', quantity: 12, cost: 178.8, jobCount: 1 }
-    ],
-    ...overrides
-  }
-}
-
-function warehouse(overrides: Partial<WarehouseDashboard> = {}): WarehouseDashboard {
-  return {
-    view: 'Warehouse',
-    generatedAt: '2026-09-29T02:00:00',
-    period,
-    kpis: { activeParts: 11, lowStockParts: 4, outOfStockParts: 1, jobsWaitingForParts: 2 },
-    lowStock: summary().lowStock,
-    jobsWaitingForParts: {
-      count: 2,
-      readyToResume: 1,
-      items: [
-        { workOrderId: 5, partId: 11, partNumber: 'BLT-CNV-600', name: 'Conveyor belt, 600 mm', unit: 'm',
-          quantityNeeded: 6, quantityOnHand: 0, waitingSince: '2026-09-26T02:00:00', inStock: false },
-        { workOrderId: 7, partId: 8, partNumber: 'BRG-6205-2RS', name: 'Deep-groove ball bearing', unit: 'pcs',
-          quantityNeeded: 2, quantityOnHand: 38, waitingSince: '2026-09-27T02:00:00', inStock: true }
-      ]
-    },
-    topPartsByUsage: summary().topPartsByUsage,
-    ...overrides
-  }
-}
-
-function serviceQueue(overrides: Partial<ServiceQueueDashboard> = {}): ServiceQueueDashboard {
-  return {
-    view: 'ServiceQueue',
-    generatedAt: '2026-09-29T02:00:00',
-    kpis: { awaitingReview: 3, awaitingAssignment: 2, rejectedRecently: 1 },
-    openRequestsByPriority: summary().openRequestsByPriority,
-    queue: {
-      awaitingReview: 3,
-      awaitingAssignment: 2,
-      recentDays: 30,
-      rejectedRecently: 1,
-      oldestOpen: [
-        { id: 5, customerName: 'Sibu Palm Oil Processing Sdn Bhd', equipmentSerialNumber: 'SPO-PMP-002',
-          equipmentType: 'Centrifugal Pump', priority: 'High', status: 'Approved', createdAt: '2026-09-15T02:00:00' },
-        { id: 3, customerName: 'Sibu Palm Oil Processing Sdn Bhd', equipmentSerialNumber: 'SPO-BLR-001',
-          equipmentType: 'Steam Boiler', priority: 'Urgent', status: 'New', createdAt: '2026-09-26T02:00:00' }
-      ],
-      recentlyRejected: [
-        { id: 6, customerName: 'Rajang Timber Mills Sdn Bhd', equipmentSerialNumber: 'RTM-CNV-003',
-          rejectedAt: '2026-09-10T02:00:00', rejectionReason: 'The conveyor is inactive pending replacement.' }
-      ]
-    },
-    ...overrides
-  }
-}
 
 function tile(label: string) {
   return screen.getByText(label).closest('a')!
@@ -171,7 +79,6 @@ describe('Manager dashboard (Phase 11)', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(callsTo(fetchMock, 'GET', '/dashboard/summary')).toHaveLength(2)
   })
-
 })
 
 describe('Analytics depth and role dashboards (Phase 12)', () => {
@@ -181,10 +88,12 @@ describe('Analytics depth and role dashboards (Phase 12)', () => {
     renderApp('/')
 
     const turnaround = await screen.findByRole('region', { name: 'Turnaround, Apr–Sep 2026' })
-    expect(within(turnaround).getByText('Request raised → technician assigned').closest('.metric'))
-      .toHaveTextContent('47.7 hover 14 assignments')
-    expect(within(turnaround).getByText('Job started → completed').closest('.metric'))
-      .toHaveTextContent('22.8 hover 10 completed jobs')
+    expect(within(turnaround).getByText('Request raised → technician assigned').closest('.metric')).toHaveTextContent(
+      '47.7 hover 14 assignments'
+    )
+    expect(within(turnaround).getByText('Job started → completed').closest('.metric')).toHaveTextContent(
+      '22.8 hover 10 completed jobs'
+    )
 
     const failures = screen.getByRole('region', { name: 'Repeated failures, Apr–Sep 2026' })
     expect(within(failures).getByText(/2 pieces of equipment with 3 or more/)).toBeInTheDocument()
@@ -275,7 +184,11 @@ describe('Analytics depth and role dashboards (Phase 12)', () => {
           openRequestsByPriority: summary().openRequestsByPriority.map(c => ({ ...c, count: 0 })),
           queue: {
             ...serviceQueue().queue,
-            awaitingReview: 0, awaitingAssignment: 0, rejectedRecently: 0, oldestOpen: [], recentlyRejected: []
+            awaitingReview: 0,
+            awaitingAssignment: 0,
+            rejectedRecently: 0,
+            oldestOpen: [],
+            recentlyRejected: []
           }
         })
       }

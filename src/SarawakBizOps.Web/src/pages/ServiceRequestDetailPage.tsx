@@ -38,7 +38,7 @@ export function ServiceRequestDetailPage() {
   const [technicians, setTechnicians] = useState<Technician[]>([])
   const [technicianId, setTechnicianId] = useState('')
 
-  const reload = () => getServiceRequest(auth!.token, requestId)
+  const reload = () => getServiceRequest(requestId)
   const { busy, error: actionError, run } = useGuardedAction(reload)
 
   useEffect(() => {
@@ -47,7 +47,7 @@ export function ServiceRequestDetailPage() {
 
     setLoading(true)
     setError(null)
-    getServiceRequest(auth.token, requestId)
+    getServiceRequest(requestId)
       .then(data => {
         if (!cancelled) setRequest(data)
       })
@@ -68,7 +68,7 @@ export function ServiceRequestDetailPage() {
     if (!auth || !canAssign || request?.status !== 'Approved') return
     let cancelled = false
 
-    getTechnicians(auth.token)
+    getTechnicians()
       .then(data => {
         if (!cancelled) setTechnicians(data)
       })
@@ -85,7 +85,7 @@ export function ServiceRequestDetailPage() {
   function handleApprove() {
     if (!auth || !request) return
     void run(
-      () => approveServiceRequest(auth.token, requestId, request.rowVersion),
+      () => approveServiceRequest(requestId, request.rowVersion),
       updated => setRequest(updated),
       'Could not save your decision.'
     )
@@ -95,7 +95,7 @@ export function ServiceRequestDetailPage() {
     event.preventDefault()
     if (!auth || !request) return
     void run(
-      () => rejectServiceRequest(auth.token, requestId, reason.trim(), request.rowVersion),
+      () => rejectServiceRequest(requestId, reason.trim(), request.rowVersion),
       updated => {
         setRequest(updated)
         setRejecting(false)
@@ -109,7 +109,7 @@ export function ServiceRequestDetailPage() {
     event.preventDefault()
     if (!auth || !request) return
     void run(
-      () => cancelServiceRequest(auth.token, requestId, cancelReason.trim(), request.rowVersion),
+      () => cancelServiceRequest(requestId, cancelReason.trim(), request.rowVersion),
       updated => {
         setRequest(updated)
         setCancelling(false)
@@ -124,7 +124,7 @@ export function ServiceRequestDetailPage() {
     if (!auth || !request || technicianId === '') return
     void run(
       async () => {
-        await assignServiceRequest(auth.token, requestId, technicianId, request.rowVersion)
+        await assignServiceRequest(requestId, technicianId, request.rowVersion)
         return reload()
       },
       updated => {
@@ -153,7 +153,9 @@ export function ServiceRequestDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumb"><Link to="/service-requests">← Service requests</Link></p>
+      <p className="breadcrumb">
+        <Link to="/service-requests">← Service requests</Link>
+      </p>
       <h1 className="page-title">
         Service request #{request.id} <StatusBadge status={request.status} />
       </h1>
@@ -161,7 +163,9 @@ export function ServiceRequestDetailPage() {
       <dl className="detail-list panel">
         <div>
           <dt>Customer</dt>
-          <dd><Link to={`/customers/${request.customerId}`}>{request.customerName}</Link></dd>
+          <dd>
+            <Link to={`/customers/${request.customerId}`}>{request.customerName}</Link>
+          </dd>
         </div>
         <div>
           <dt>Equipment</dt>
@@ -172,8 +176,16 @@ export function ServiceRequestDetailPage() {
             · {request.equipmentType}
           </dd>
         </div>
-        <div><dt>Priority</dt><dd><PriorityBadge priority={request.priority} /></dd></div>
-        <div><dt>Problem</dt><dd className="prose">{request.problemDescription}</dd></div>
+        <div>
+          <dt>Priority</dt>
+          <dd>
+            <PriorityBadge priority={request.priority} />
+          </dd>
+        </div>
+        <div>
+          <dt>Problem</dt>
+          <dd className="prose">{request.problemDescription}</dd>
+        </div>
       </dl>
 
       <StatusTimeline
@@ -181,7 +193,12 @@ export function ServiceRequestDetailPage() {
           { label: 'Raised', at: request.createdAt, by: request.createdByName },
           { label: 'Approved', at: request.approvedAt, by: request.approvedByName },
           { label: 'Rejected', at: request.rejectedAt, by: request.rejectedByName, detail: request.rejectionReason },
-          { label: 'Cancelled', at: request.cancelledAt, by: request.cancelledByName, detail: request.cancellationReason }
+          {
+            label: 'Cancelled',
+            at: request.cancelledAt,
+            by: request.cancelledByName,
+            detail: request.cancellationReason
+          }
         ]}
       />
 
@@ -194,7 +211,9 @@ export function ServiceRequestDetailPage() {
           {rejecting ? (
             <form onSubmit={handleReject}>
               <div className="field">
-                <label className="field-label" htmlFor="reject-reason">Reason for rejecting</label>
+                <label className="field-label" htmlFor="reject-reason">
+                  Reason for rejecting
+                </label>
                 <textarea
                   id="reject-reason"
                   aria-describedby="reject-reason-hint"
@@ -243,12 +262,7 @@ export function ServiceRequestDetailPage() {
             <form onSubmit={handleAssign}>
               <label className="field">
                 <span className="field-label">Technician</span>
-                <select
-                  value={technicianId}
-                  onChange={e => setTechnicianId(e.target.value)}
-                  required
-                  autoFocus
-                >
+                <select value={technicianId} onChange={e => setTechnicianId(e.target.value)} required autoFocus>
                   <option value="">Select a technician…</option>
                   {technicians.map(t => (
                     <option key={t.id} value={t.id}>
@@ -280,16 +294,28 @@ export function ServiceRequestDetailPage() {
         <p className="form-hint">Waiting for a Manager to assign this job to a technician.</p>
       )}
 
-      {request.status === 'Assigned' && (
-        request.workOrderId ? (
+      {request.status === 'Assigned' &&
+        (request.workOrderId ? (
           <p className="form-notice" role="status">
             Assigned. <Link to={`/work-orders/${request.workOrderId}`}>View the work order</Link>
           </p>
         ) : (
           <p className="form-hint">
-            This request has been assigned to a technician. See it on the <Link to="/work-orders">Work Orders</Link> page.
+            This request has been assigned to a technician. See it on the <Link to="/work-orders">Work Orders</Link>{' '}
+            page.
           </p>
-        )
+        ))}
+
+      {request.cancelledWorkOrderIds.length > 0 && (
+        <p className="form-hint">
+          Earlier {request.cancelledWorkOrderIds.length === 1 ? 'job' : 'jobs'} for this request, cancelled:{' '}
+          {request.cancelledWorkOrderIds.map((id, i) => (
+            <span key={id}>
+              {i > 0 && ', '}
+              <Link to={`/work-orders/${id}`}>#{id}</Link>
+            </span>
+          ))}
+        </p>
       )}
 
       {canCancel && !rejecting && !assigning && (
@@ -299,7 +325,9 @@ export function ServiceRequestDetailPage() {
           {cancelling ? (
             <form onSubmit={handleCancel}>
               <div className="field">
-                <label className="field-label" htmlFor="cancel-reason">Reason for cancelling</label>
+                <label className="field-label" htmlFor="cancel-reason">
+                  Reason for cancelling
+                </label>
                 <textarea
                   id="cancel-reason"
                   value={cancelReason}

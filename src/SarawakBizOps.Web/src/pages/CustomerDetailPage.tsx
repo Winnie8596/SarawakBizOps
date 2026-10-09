@@ -29,7 +29,7 @@ export function CustomerDetailPage() {
 
     setLoading(true)
     setError(null)
-    Promise.all([getCustomer(auth.token, customerId), getEquipment(auth.token, customerId)])
+    Promise.all([getCustomer(customerId), getEquipment(customerId)])
       .then(([c, e]) => {
         if (cancelled) return
         setCustomer(c)
@@ -44,7 +44,7 @@ export function CustomerDetailPage() {
 
     setHistoryLoading(true)
     setHistoryError(null)
-    getCustomerHistory(auth.token, customerId)
+    getCustomerHistory(customerId)
       .then(h => {
         if (!cancelled) setHistory(h)
       })
@@ -72,14 +72,28 @@ export function CustomerDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumb"><Link to="/customers">← Customers</Link></p>
+      <p className="breadcrumb">
+        <Link to="/customers">← Customers</Link>
+      </p>
       <h1 className="page-title">{customer.companyName}</h1>
 
       <dl className="detail-list panel">
-        <div><dt>Contact</dt><dd>{customer.contactPerson || '—'}</dd></div>
-        <div><dt>Phone</dt><dd className="mono">{customer.phone || '—'}</dd></div>
-        <div><dt>Email</dt><dd>{customer.email || '—'}</dd></div>
-        <div><dt>Address</dt><dd>{customer.address || '—'}</dd></div>
+        <div>
+          <dt>Contact</dt>
+          <dd>{customer.contactPerson || '—'}</dd>
+        </div>
+        <div>
+          <dt>Phone</dt>
+          <dd className="mono">{customer.phone || '—'}</dd>
+        </div>
+        <div>
+          <dt>Email</dt>
+          <dd>{customer.email || '—'}</dd>
+        </div>
+        <div>
+          <dt>Address</dt>
+          <dd>{customer.address || '—'}</dd>
+        </div>
       </dl>
 
       <h2 className="section-title">Equipment</h2>
@@ -99,9 +113,16 @@ export function CustomerDetailPage() {
             <tbody>
               {equipment.map(item => (
                 <tr key={item.id}>
-                  <td className="mono"><Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link></td>
-                  <td>{item.equipmentType}{item.brand ? ` · ${item.brand}` : ''}</td>
-                  <td><StatusBadge status={item.status} /></td>
+                  <td className="mono">
+                    <Link to={`/equipment/${item.id}`}>{item.serialNumber}</Link>
+                  </td>
+                  <td>
+                    {item.equipmentType}
+                    {item.brand ? ` · ${item.brand}` : ''}
+                  </td>
+                  <td>
+                    <StatusBadge status={item.status} />
+                  </td>
                   <td>{item.location || '—'}</td>
                 </tr>
               ))}

@@ -31,7 +31,8 @@ export function useProtectedImage(load: (() => Promise<Blob>) | null, key: unkno
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-    // `load` is a fresh closure every render; `key` names what it loads (and must change with the token).
+    // `load` is a fresh closure every render; `key` names what it loads (and must change with the user).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed on `key`, not on the closures
   }, [key])
 
   return { src, error }

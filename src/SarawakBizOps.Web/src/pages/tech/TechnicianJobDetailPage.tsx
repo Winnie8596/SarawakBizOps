@@ -46,7 +46,7 @@ export function TechnicianJobDetailPage() {
   // True while the customer signs again over an already stored signature.
   const [resigning, setResigning] = useState(false)
 
-  const reload = () => getWorkOrder(auth!.token, jobId)
+  const reload = () => getWorkOrder(jobId)
   const { busy: actionBusy, error: actionError, run } = useGuardedAction(reload)
   // Photo uploads carry the job's rowVersion forward one after another, so every other action waits for them.
   const [photosUploading, setPhotosUploading] = useState(false)
@@ -58,7 +58,7 @@ export function TechnicianJobDetailPage() {
 
     setLoading(true)
     setError(null)
-    getWorkOrder(auth.token, jobId)
+    getWorkOrder(jobId)
       .then(data => {
         if (cancelled) return
         setJob(data)
@@ -81,7 +81,7 @@ export function TechnicianJobDetailPage() {
   function handleStart() {
     if (!auth || !job) return
     void run(
-      () => startWorkOrder(auth.token, jobId, job.rowVersion),
+      () => startWorkOrder(jobId, job.rowVersion),
       updated => setJob(updated),
       'Could not start this job.'
     )
@@ -104,22 +104,16 @@ export function TechnicianJobDetailPage() {
   }
 
   function handleAddPart(partId: number, quantity: number) {
-    return runSucceeded(
-      () => addWorkOrderPart(auth!.token, jobId, partId, quantity, job!.rowVersion),
-      'Could not add this part.'
-    )
+    return runSucceeded(() => addWorkOrderPart(jobId, partId, quantity, job!.rowVersion), 'Could not add this part.')
   }
 
   function handleReturnPart(line: WorkOrderPart) {
-    void runSucceeded(
-      () => returnWorkOrderPart(auth!.token, jobId, line.id, job!.rowVersion),
-      'Could not return this part.'
-    )
+    void runSucceeded(() => returnWorkOrderPart(jobId, line.id, job!.rowVersion), 'Could not return this part.')
   }
 
   function handleWaitForPart(partId: number, quantity: number, reason: string) {
     return runSucceeded(
-      () => markPendingParts(auth!.token, jobId, { reason, partId, quantity, rowVersion: job!.rowVersion }),
+      () => markPendingParts(jobId, { reason, partId, quantity, rowVersion: job!.rowVersion }),
       'Could not pause this job.'
     )
   }
@@ -127,7 +121,7 @@ export function TechnicianJobDetailPage() {
   // Stored straight away (not on Complete), so the phone can go back to the technician with the signature safe.
   async function handleSaveSignature(png: Blob) {
     const saved = await runSucceeded(
-      () => uploadSignature(auth!.token, jobId, png, job!.rowVersion),
+      () => uploadSignature(jobId, png, job!.rowVersion),
       'Could not save the signature.'
     )
     if (saved) setResigning(false)
@@ -141,10 +135,7 @@ export function TechnicianJobDetailPage() {
   }
 
   function handleRemovePhoto(photo: WorkOrderPhoto) {
-    void runSucceeded(
-      () => removeWorkOrderPhoto(auth!.token, jobId, photo.id, job!.rowVersion),
-      'Could not remove this photo.'
-    )
+    void runSucceeded(() => removeWorkOrderPhoto(jobId, photo.id, job!.rowVersion), 'Could not remove this photo.')
   }
 
   async function reloadAfterPhotoConflict(): Promise<WorkOrder | null> {
@@ -160,7 +151,7 @@ export function TechnicianJobDetailPage() {
   function handleResume() {
     if (!auth || !job) return
     void run(
-      () => resumeWorkOrder(auth.token, jobId, job.rowVersion),
+      () => resumeWorkOrder(jobId, job.rowVersion),
       updated => setJob(updated),
       'Could not resume this job.'
     )
@@ -173,13 +164,13 @@ export function TechnicianJobDetailPage() {
     if (!auth || !job) return
     await run(
       async () => {
-        const saved = await saveDiagnosis(auth.token, jobId, {
+        const saved = await saveDiagnosis(jobId, {
           diagnosis: diagnosis.trim(),
           workPerformed: workPerformed.trim(),
           notes: notes.trim() || undefined,
           rowVersion: job.rowVersion
         })
-        return completeWorkOrder(auth.token, jobId, saved.rowVersion)
+        return completeWorkOrder(jobId, saved.rowVersion)
       },
       updated => setJob(updated),
       'Could not complete this job.'
@@ -198,19 +189,51 @@ export function TechnicianJobDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumb"><Link to="/tech/jobs">← My Jobs</Link></p>
+      <p className="breadcrumb">
+        <Link to="/tech/jobs">← My Jobs</Link>
+      </p>
       <h1 className="page-title">
         <span className="mono">{job.equipmentSerialNumber}</span> <StatusBadge status={job.status} />
       </h1>
-      <p className="page-subtitle">{job.customerName} · {job.equipmentType}</p>
+      <p className="page-subtitle">
+        {job.customerName} · {job.equipmentType}
+      </p>
 
       <dl className="detail-list panel">
-        <div><dt>Priority</dt><dd><PriorityBadge priority={job.priority} /></dd></div>
-        <div><dt>Problem</dt><dd className="prose">{job.problemDescription}</dd></div>
-        {job.assignedAt && <div><dt>Assigned</dt><dd>{formatDateTime(job.assignedAt)}</dd></div>}
-        {job.startedAt && <div><dt>Started</dt><dd>{formatDateTime(job.startedAt)}</dd></div>}
-        {job.completedAt && <div><dt>Completed</dt><dd>{formatDateTime(job.completedAt)}</dd></div>}
-        {job.approvedAt && <div><dt>Approved</dt><dd>{formatDateTime(job.approvedAt)}</dd></div>}
+        <div>
+          <dt>Priority</dt>
+          <dd>
+            <PriorityBadge priority={job.priority} />
+          </dd>
+        </div>
+        <div>
+          <dt>Problem</dt>
+          <dd className="prose">{job.problemDescription}</dd>
+        </div>
+        {job.assignedAt && (
+          <div>
+            <dt>Assigned</dt>
+            <dd>{formatDateTime(job.assignedAt)}</dd>
+          </div>
+        )}
+        {job.startedAt && (
+          <div>
+            <dt>Started</dt>
+            <dd>{formatDateTime(job.startedAt)}</dd>
+          </div>
+        )}
+        {job.completedAt && (
+          <div>
+            <dt>Completed</dt>
+            <dd>{formatDateTime(job.completedAt)}</dd>
+          </div>
+        )}
+        {job.approvedAt && (
+          <div>
+            <dt>Approved</dt>
+            <dd>{formatDateTime(job.approvedAt)}</dd>
+          </div>
+        )}
       </dl>
 
       <ConflictBanner message={actionError} />
@@ -237,8 +260,18 @@ export function TechnicianJobDetailPage() {
                   </dd>
                 </div>
               )}
-              {job.pendingPartsReason && <div><dt>Reason</dt><dd className="prose">{job.pendingPartsReason}</dd></div>}
-              {job.pendingPartsAt && <div><dt>Since</dt><dd>{formatDateTime(job.pendingPartsAt)}</dd></div>}
+              {job.pendingPartsReason && (
+                <div>
+                  <dt>Reason</dt>
+                  <dd className="prose">{job.pendingPartsReason}</dd>
+                </div>
+              )}
+              {job.pendingPartsAt && (
+                <div>
+                  <dt>Since</dt>
+                  <dd>{formatDateTime(job.pendingPartsAt)}</dd>
+                </div>
+              )}
             </dl>
             <p className="form-hint">Resume once the store has received the part.</p>
           </div>
@@ -281,7 +314,9 @@ export function TechnicianJobDetailPage() {
           <div className="panel">
             <h2 className="panel-title">Diagnosis and work performed</h2>
             <div className="field">
-              <label className="field-label" htmlFor="job-diagnosis">What is wrong?</label>
+              <label className="field-label" htmlFor="job-diagnosis">
+                What is wrong?
+              </label>
               <textarea
                 id="job-diagnosis"
                 value={diagnosis}
@@ -292,7 +327,9 @@ export function TechnicianJobDetailPage() {
               />
             </div>
             <div className="field">
-              <label className="field-label" htmlFor="job-work-performed">What did you do?</label>
+              <label className="field-label" htmlFor="job-work-performed">
+                What did you do?
+              </label>
               <textarea
                 id="job-work-performed"
                 value={workPerformed}
@@ -303,7 +340,9 @@ export function TechnicianJobDetailPage() {
               />
             </div>
             <div className="field">
-              <label className="field-label" htmlFor="job-notes">Notes (optional)</label>
+              <label className="field-label" htmlFor="job-notes">
+                Notes (optional)
+              </label>
               <textarea
                 id="job-notes"
                 value={notes}
@@ -320,7 +359,12 @@ export function TechnicianJobDetailPage() {
               <>
                 <SignatureImage workOrderId={job.id} signedAt={job.signedAt} />
                 {job.signedAt && <p className="form-hint">Signed {formatDateTime(job.signedAt)}</p>}
-                <button type="button" className="btn btn-ghost tech-secondary-btn" onClick={() => setResigning(true)} disabled={busy}>
+                <button
+                  type="button"
+                  className="btn btn-ghost tech-secondary-btn"
+                  onClick={() => setResigning(true)}
+                  disabled={busy}
+                >
                   Sign again
                 </button>
               </>
@@ -357,9 +401,20 @@ export function TechnicianJobDetailPage() {
             {job.status === 'Approved' ? 'Approved — read only' : 'Completed — waiting for Manager approval'}
           </h2>
           <dl className="detail-list">
-            <div><dt>Diagnosis</dt><dd className="prose">{job.diagnosis}</dd></div>
-            <div><dt>Work performed</dt><dd className="prose">{job.workPerformed}</dd></div>
-            {job.notes && <div><dt>Notes</dt><dd className="prose">{job.notes}</dd></div>}
+            <div>
+              <dt>Diagnosis</dt>
+              <dd className="prose">{job.diagnosis}</dd>
+            </div>
+            <div>
+              <dt>Work performed</dt>
+              <dd className="prose">{job.workPerformed}</dd>
+            </div>
+            {job.notes && (
+              <div>
+                <dt>Notes</dt>
+                <dd className="prose">{job.notes}</dd>
+              </div>
+            )}
           </dl>
           {job.hasSignature && (
             <>
@@ -375,9 +430,17 @@ export function TechnicianJobDetailPage() {
         <div className="panel">
           <h2 className="panel-title">Cancelled — read only</h2>
           <dl className="detail-list">
-            {job.cancelledAt && <div><dt>Cancelled</dt><dd>{formatDateTime(job.cancelledAt)}</dd></div>}
+            {job.cancelledAt && (
+              <div>
+                <dt>Cancelled</dt>
+                <dd>{formatDateTime(job.cancelledAt)}</dd>
+              </div>
+            )}
             {job.cancellationReason && (
-              <div><dt>Reason</dt><dd className="prose">{job.cancellationReason}</dd></div>
+              <div>
+                <dt>Reason</dt>
+                <dd className="prose">{job.cancellationReason}</dd>
+              </div>
             )}
           </dl>
         </div>

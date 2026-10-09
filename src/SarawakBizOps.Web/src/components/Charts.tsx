@@ -64,12 +64,18 @@ export function MonthColumns({ label, months, unit, empty }: MonthColumnsProps) 
     <ol className="column-chart" aria-label={label}>
       {months.map((m, i) => (
         <li key={m.month} className={i === months.length - 1 ? 'is-current' : undefined}>
-          <span className="visually-hidden">{formatMonth(m.month)}: {unit(m.count)}</span>
-          <span className="column-value" aria-hidden="true">{m.count}</span>
+          <span className="visually-hidden">
+            {formatMonth(m.month)}: {unit(m.count)}
+          </span>
+          <span className="column-value" aria-hidden="true">
+            {m.count}
+          </span>
           <span className="column-track" aria-hidden="true">
             <span className="column-fill" style={{ height: share(m.count, max) }} />
           </span>
-          <span className="column-label" aria-hidden="true">{formatMonth(m.month, 'short')}</span>
+          <span className="column-label" aria-hidden="true">
+            {formatMonth(m.month, 'short')}
+          </span>
         </li>
       ))}
     </ol>

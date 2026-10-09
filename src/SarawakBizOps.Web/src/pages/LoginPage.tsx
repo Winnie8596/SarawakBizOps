@@ -39,28 +39,17 @@ export function LoginPage() {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={handleSubmit}>
-        <div className="auth-brand">SarawakBizOps</div>
+        <h1 className="auth-brand">SarawakBizOps</h1>
         <p className="auth-subtitle">Field Service &amp; Operations Console</p>
 
         <label className="field">
           <span className="field-label">Email</span>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            autoFocus
-          />
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus />
         </label>
 
         <label className="field">
           <span className="field-label">Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-          />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
         </label>
 
         {notice && !error && <p className="form-notice">{notice}</p>}

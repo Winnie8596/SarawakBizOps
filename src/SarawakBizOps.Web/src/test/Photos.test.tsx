@@ -86,7 +86,9 @@ describe('Photos step (technician)', () => {
       'GET /work-orders/41/photos/802': { body: photoBlob }
     })
     let releaseFirst: () => void = () => {}
-    const firstHeld = new Promise<void>(resolve => { releaseFirst = resolve })
+    const firstHeld = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
     const afterFirst = workOrder({ ...inProgress, photos: [workOrderPhoto({ id: 801 })], rowVersion: 'AAAAAAAAC01=' })
     const afterSecond = workOrder({
       ...inProgress,
@@ -134,14 +136,15 @@ describe('Photos step (technician)', () => {
       'GET /work-orders/41': { body: workOrder(inProgress) },
       'GET /work-orders/41/photos/801': { body: photoBlob }
     })
-    FakeXhr.handler = () => FakeXhr.requests.length === 1
-      ? { status: 400, body: { title: 'Bad request', detail: 'A photo must be a JPEG, PNG or WebP image.' } }
-      : { body: workOrder({ ...inProgress, photos: [workOrderPhoto()], rowVersion: 'AAAAAAAAC01=' }) }
+    FakeXhr.handler = () =>
+      FakeXhr.requests.length === 1
+        ? { status: 400, body: { title: 'Bad request', detail: 'A photo must be a JPEG or PNG image.' } }
+        : { body: workOrder({ ...inProgress, photos: [workOrderPhoto()], rowVersion: 'AAAAAAAAC01=' }) }
     renderApp('/tech/jobs/41')
 
     await userEvent.upload(await screen.findByLabelText('Take photo'), jpeg('fault.jpg'))
 
-    expect(await screen.findByText('A photo must be a JPEG, PNG or WebP image.')).toBeInTheDocument()
+    expect(await screen.findByText('A photo must be a JPEG or PNG image.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Complete job' })).toBeInTheDocument() // the page is usable again
 
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
@@ -157,7 +160,10 @@ describe('Photos step (technician)', () => {
     const fetchMock = stubApi({ 'GET /work-orders/41': { body: workOrder(inProgress) } })
     FakeXhr.handler = () => {
       stubApi({ 'GET /work-orders/41': { body: cancelled } })
-      return { status: 409, body: { title: 'Conflict', detail: 'This job is Cancelled and is locked against further changes.' } }
+      return {
+        status: 409,
+        body: { title: 'Conflict', detail: 'This job is Cancelled and is locked against further changes.' }
+      }
     }
     renderApp('/tech/jobs/41')
 
@@ -195,7 +201,11 @@ describe('Photos step (technician)', () => {
     stubApi({
       'GET /work-orders/41': {
         body: workOrder({
-          ...inProgress, status: 'Completed', hasSignature: true, signedAt: '2026-09-21T02:00:00', photos: [workOrderPhoto()]
+          ...inProgress,
+          status: 'Completed',
+          hasSignature: true,
+          signedAt: '2026-09-21T02:00:00',
+          photos: [workOrderPhoto()]
         })
       },
       'GET /work-orders/41/photos/801': { body: photoBlob },
@@ -244,7 +254,10 @@ describe('Photos on the office work-order page', () => {
     signInAs('Manager')
     stubApi({
       'GET /work-orders/41': { body: workOrder({ ...inProgress, photos: [workOrderPhoto()] }) },
-      'GET /work-orders/41/photos/801': { status: 404, body: { title: 'Not found', detail: 'That photo could not be found.' } }
+      'GET /work-orders/41/photos/801': {
+        status: 404,
+        body: { title: 'Not found', detail: 'That photo could not be found.' }
+      }
     })
     renderApp('/work-orders/41')
 

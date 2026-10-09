@@ -20,7 +20,7 @@ export function useReportPdf(workOrderId: number, reportNumber: string | undefin
     setFetching(true)
     setError(null)
     try {
-      const blob = await getReportPdf(auth.token, workOrderId)
+      const blob = await getReportPdf(workOrderId)
       const fileName = `${reportNumber}.pdf`
       if (inNewTab) showBlobInTab(tab, blob, fileName)
       else downloadBlob(blob, fileName)

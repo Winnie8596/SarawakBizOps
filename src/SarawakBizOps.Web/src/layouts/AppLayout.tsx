@@ -77,8 +77,12 @@ export function AppLayout() {
                 <RoleBadge roles={auth.roles} />
               </>
             )}
-            <NavLink to="/account/password" className="btn btn-ghost">Change password</NavLink>
-            <button className="btn btn-ghost" onClick={handleLogout}>Log out</button>
+            <NavLink to="/account/password" className="btn btn-ghost">
+              Change password
+            </NavLink>
+            <button className="btn btn-ghost" onClick={handleLogout}>
+              Log out
+            </button>
           </div>
         </header>
 

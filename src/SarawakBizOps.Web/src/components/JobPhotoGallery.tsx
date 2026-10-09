@@ -40,8 +40,8 @@ export function JobPhotoGallery({ workOrderId, photos, onRemove, busy = false }:
 function PhotoThumbnail({ workOrderId, photo, label }: { workOrderId: number; photo: WorkOrderPhoto; label: string }) {
   const { auth } = useAuth()
   const { src, error } = useProtectedImage(
-    auth ? () => getWorkOrderPhoto(auth.token, workOrderId, photo.id) : null,
-    `${auth?.token}|${workOrderId}|${photo.id}`,
+    auth ? () => getWorkOrderPhoto(workOrderId, photo.id) : null,
+    `${auth?.userId}|${workOrderId}|${photo.id}`,
     'Could not load this photo.'
   )
 

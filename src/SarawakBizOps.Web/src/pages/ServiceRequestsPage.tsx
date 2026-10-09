@@ -63,7 +63,7 @@ export function ServiceRequestsPage() {
     if (!auth) return
     let cancelled = false
 
-    getCustomers(auth.token)
+    getCustomers()
       .then(data => {
         if (!cancelled) setCustomers(data)
       })
@@ -82,7 +82,7 @@ export function ServiceRequestsPage() {
 
     setLoading(true)
     setError(null)
-    getServiceRequests(auth.token, filters)
+    getServiceRequests(filters)
       .then(data => {
         if (!cancelled) setRequests(data)
       })
@@ -108,7 +108,7 @@ export function ServiceRequestsPage() {
     let cancelled = false
 
     setEquipmentLoading(true)
-    getEquipment(auth.token, form.customerId)
+    getEquipment(form.customerId)
       .then(items => {
         if (!cancelled) setEquipment(items.filter(e => e.status !== 'Retired'))
       })
@@ -138,7 +138,7 @@ export function ServiceRequestsPage() {
     setSaving(true)
     setFormError(null)
     try {
-      const created = await createServiceRequest(auth.token, {
+      const created = await createServiceRequest({
         customerId: form.customerId,
         equipmentId: form.equipmentId,
         problemDescription: form.problemDescription,
@@ -189,22 +189,28 @@ export function ServiceRequestsPage() {
               <span className="field-label">Customer</span>
               <select
                 value={form.customerId}
-                onChange={e => setForm({
-                  ...form,
-                  customerId: e.target.value ? Number(e.target.value) : '',
-                  equipmentId: ''
-                })}
+                onChange={e =>
+                  setForm({
+                    ...form,
+                    customerId: e.target.value ? Number(e.target.value) : '',
+                    equipmentId: ''
+                  })
+                }
                 required
               >
                 <option value="">Select a customer…</option>
                 {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.companyName}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.companyName}
+                  </option>
                 ))}
               </select>
             </label>
 
             <div className="field">
-              <label className="field-label" htmlFor="request-equipment">Equipment</label>
+              <label className="field-label" htmlFor="request-equipment">
+                Equipment
+              </label>
               <select
                 id="request-equipment"
                 aria-describedby="request-equipment-hint"
@@ -214,10 +220,16 @@ export function ServiceRequestsPage() {
                 required
               >
                 <option value="">
-                  {form.customerId === '' ? 'Choose a customer first' : equipmentLoading ? 'Loading…' : 'Select equipment…'}
+                  {form.customerId === ''
+                    ? 'Choose a customer first'
+                    : equipmentLoading
+                      ? 'Loading…'
+                      : 'Select equipment…'}
                 </option>
                 {equipment.map(e => (
-                  <option key={e.id} value={e.id}>{e.serialNumber} — {e.equipmentType}</option>
+                  <option key={e.id} value={e.id}>
+                    {e.serialNumber} — {e.equipmentType}
+                  </option>
                 ))}
               </select>
               {form.customerId !== '' && !equipmentLoading && equipment.length === 0 && (
@@ -234,7 +246,9 @@ export function ServiceRequestsPage() {
                 onChange={e => setForm({ ...form, priority: e.target.value as RequestPriority })}
               >
                 {REQUEST_PRIORITIES.map(p => (
-                  <option key={p} value={p}>{p}</option>
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
                 ))}
               </select>
             </label>
@@ -277,7 +291,9 @@ export function ServiceRequestsPage() {
           >
             <option value="">All statuses</option>
             {REQUEST_STATUSES.map(s => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </label>
@@ -290,7 +306,9 @@ export function ServiceRequestsPage() {
           >
             <option value="">All priorities</option>
             {REQUEST_PRIORITIES.map(p => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>
+                {p}
+              </option>
             ))}
           </select>
         </label>
@@ -303,7 +321,9 @@ export function ServiceRequestsPage() {
           >
             <option value="">All customers</option>
             {customers.map(c => (
-              <option key={c.id} value={c.id}>{c.companyName}</option>
+              <option key={c.id} value={c.id}>
+                {c.companyName}
+              </option>
             ))}
           </select>
         </label>
@@ -316,11 +336,13 @@ export function ServiceRequestsPage() {
       ) : requests.length === 0 ? (
         <EmptyState
           title={filtered ? 'No requests match these filters' : 'No service requests yet'}
-          description={filtered
-            ? 'Try a different status, priority or customer.'
-            : canCreate
-              ? 'Raise the first request when a customer reports a fault.'
-              : 'Service Staff raise requests when a customer reports a fault.'}
+          description={
+            filtered
+              ? 'Try a different status, priority or customer.'
+              : canCreate
+                ? 'Raise the first request when a customer reports a fault.'
+                : 'Service Staff raise requests when a customer reports a fault.'
+          }
         />
       ) : (
         <div className="table-scroll">
@@ -339,13 +361,21 @@ export function ServiceRequestsPage() {
             <tbody>
               {requests.map(r => (
                 <tr key={r.id}>
-                  <td><Link to={`/service-requests/${r.id}`}>#{r.id}</Link></td>
+                  <td>
+                    <Link to={`/service-requests/${r.id}`}>#{r.id}</Link>
+                  </td>
                   <td className="mono">{formatDateTime(r.createdAt)}</td>
                   <td>{r.customerName}</td>
-                  <td><span className="mono">{r.equipmentSerialNumber}</span> · {r.equipmentType}</td>
+                  <td>
+                    <span className="mono">{r.equipmentSerialNumber}</span> · {r.equipmentType}
+                  </td>
                   <td>{summarise(r.problemDescription)}</td>
-                  <td><PriorityBadge priority={r.priority} /></td>
-                  <td><StatusBadge status={r.status} /></td>
+                  <td>
+                    <PriorityBadge priority={r.priority} />
+                  </td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
                 </tr>
               ))}
             </tbody>

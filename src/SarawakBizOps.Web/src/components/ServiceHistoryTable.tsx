@@ -40,11 +40,17 @@ export function ServiceHistoryTable({ history, loading, error }: ServiceHistoryT
             <tr key={`${item.type}-${item.id}`}>
               <td className="mono">{formatDateTime(item.occurredAtUtc)}</td>
               <td>
-                {item.type === 'ServiceRequest'
-                  ? <Link to={`/service-requests/${item.id}`}>Service Request #{item.id}</Link>
-                  : <>{item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}</>}
+                {item.type === 'ServiceRequest' ? (
+                  <Link to={`/service-requests/${item.id}`}>Service Request #{item.id}</Link>
+                ) : (
+                  <>
+                    {item.type.replace(/([a-z])([A-Z])/g, '$1 $2')} #{item.id}
+                  </>
+                )}
               </td>
-              <td><StatusBadge status={item.status} /></td>
+              <td>
+                <StatusBadge status={item.status} />
+              </td>
               <td>{item.priority}</td>
               <td>{item.summary}</td>
             </tr>

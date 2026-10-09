@@ -1,24 +1,29 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { cursorPage, paged } from './fixtures'
 import { renderApp, signInAs, stubApi } from './utils'
 
 // The API is what really enforces access (see EndpointAccessTests); these prove the UI matches:
 // guarded routes bounce the wrong role, and the sidebar only offers what a role may open.
 
-const quiet = () => stubApi({
-  'GET /customers': { body: [] },
-  'GET /equipment': { body: [] },
-  'GET /users': { body: [] },
-  'GET /service-requests': { body: [] },
-  'GET /work-orders': { body: [] },
-  'GET /work-orders/mine': { body: [] },
-  'GET /parts': { body: [] },
-  'GET /inventory-transactions': { body: [] },
-  'GET /reports': { body: [] }
-})
+const quiet = () =>
+  stubApi({
+    'GET /customers': { body: [] },
+    'GET /equipment': { body: [] },
+    'GET /users': { body: [] },
+    'GET /service-requests': { body: [] },
+    'GET /work-orders': { body: [] },
+    'GET /work-orders/mine': { body: [] },
+    'GET /parts': { body: paged([]) },
+    'GET /inventory-transactions': { body: cursorPage([]) },
+    'GET /reports': { body: [] }
+  })
 
-const sidebarLinks = () => within(screen.getByRole('navigation')).getAllByRole('link').map(a => a.textContent)
+const sidebarLinks = () =>
+  within(screen.getByRole('navigation'))
+    .getAllByRole('link')
+    .map(a => a.textContent)
 
 describe('Protected routes', () => {
   it('sends a visitor without a session to the login page', async () => {
@@ -45,7 +50,8 @@ describe('Protected routes', () => {
 
       expect(await screen.findByRole('heading', { name: 'Welcome back, Sam' })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Users' })).not.toBeInTheDocument()
-    })
+    }
+  )
 
   it('bounces WarehouseStaff from the service requests page', async () => {
     signInAs('WarehouseStaff', 'Sam Tester')
@@ -73,13 +79,20 @@ describe('Protected routes', () => {
       renderApp(path)
 
       expect(await screen.findByRole('heading', { name: 'My Jobs' })).toBeInTheDocument()
-    })
+    }
+  )
 })
 
 describe('Sidebar', () => {
   it.each([
-    ['Admin', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory', 'Users']],
-    ['Manager', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'AI Insights', 'Inventory']],
+    [
+      'Admin',
+      ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'Inventory', 'Users']
+    ],
+    [
+      'Manager',
+      ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports', 'AI Insights', 'Inventory']
+    ],
     ['ServiceStaff', ['Dashboard', 'Customers', 'Equipment', 'Service Requests', 'Work Orders', 'Reports']],
     ['WarehouseStaff', ['Dashboard', 'Inventory']]
   ])('offers %s only the pages that role can open', async (role, expected) => {

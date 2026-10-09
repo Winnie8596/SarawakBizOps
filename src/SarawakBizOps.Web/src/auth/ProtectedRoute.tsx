@@ -11,7 +11,11 @@ export function ProtectedRoute({ roles }: ProtectedRouteProps) {
 
   // On first load the session (if any) is still being restored from the cookie: don't send anyone to /login yet.
   if (restoring) {
-    return <p className="page-subtitle" role="status">Loading…</p>
+    return (
+      <p className="page-subtitle" role="status">
+        Loading…
+      </p>
+    )
   }
 
   if (!isAuthenticated) {

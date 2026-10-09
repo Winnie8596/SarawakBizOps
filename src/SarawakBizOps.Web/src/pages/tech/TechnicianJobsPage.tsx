@@ -21,7 +21,7 @@ export function TechnicianJobsPage() {
 
     setLoading(true)
     setError(null)
-    getMyWorkOrders(auth.token)
+    getMyWorkOrders()
       .then(data => {
         if (!cancelled) setJobs(data)
       })

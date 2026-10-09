@@ -28,9 +28,9 @@ export function EquipmentDetailPage() {
 
     setLoading(true)
     setError(null)
-    getEquipmentById(auth.token, equipmentId)
+    getEquipmentById(equipmentId)
       .then(async e => {
-        const owner = await getCustomer(auth.token, e.customerId)
+        const owner = await getCustomer(e.customerId)
         if (cancelled) return
         setEquipment(e)
         setCustomer(owner)
@@ -44,7 +44,7 @@ export function EquipmentDetailPage() {
 
     setHistoryLoading(true)
     setHistoryError(null)
-    getEquipmentHistory(auth.token, equipmentId)
+    getEquipmentHistory(equipmentId)
       .then(h => {
         if (!cancelled) setHistory(h)
       })
@@ -72,18 +72,36 @@ export function EquipmentDetailPage() {
 
   return (
     <div>
-      <p className="breadcrumb"><Link to="/equipment">← Equipment</Link></p>
-      <h1 className="page-title"><span className="mono">{equipment.serialNumber}</span></h1>
+      <p className="breadcrumb">
+        <Link to="/equipment">← Equipment</Link>
+      </p>
+      <h1 className="page-title">
+        <span className="mono">{equipment.serialNumber}</span>
+      </h1>
 
       <dl className="detail-list panel">
-        <div><dt>Type</dt><dd>{equipment.equipmentType}</dd></div>
-        <div><dt>Status</dt><dd><StatusBadge status={equipment.status} /></dd></div>
+        <div>
+          <dt>Type</dt>
+          <dd>{equipment.equipmentType}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>
+            <StatusBadge status={equipment.status} />
+          </dd>
+        </div>
         <div>
           <dt>Customer</dt>
           <dd>{customer ? <Link to={`/customers/${customer.id}`}>{customer.companyName}</Link> : '—'}</dd>
         </div>
-        <div><dt>Brand / model</dt><dd>{[equipment.brand, equipment.model].filter(Boolean).join(' ') || '—'}</dd></div>
-        <div><dt>Location</dt><dd>{equipment.location || '—'}</dd></div>
+        <div>
+          <dt>Brand / model</dt>
+          <dd>{[equipment.brand, equipment.model].filter(Boolean).join(' ') || '—'}</dd>
+        </div>
+        <div>
+          <dt>Location</dt>
+          <dd>{equipment.location || '—'}</dd>
+        </div>
         <div>
           <dt>Installed</dt>
           <dd>{equipment.installationDate ? equipment.installationDate.slice(0, 10) : '—'}</dd>
