@@ -55,7 +55,9 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 | Work-order lifecycle guards | `WorkOrderStateMachineTests` (all 49 (from, to) pairs, including the Cancel targets and InProgress ⇄ PendingParts; start only from Assigned, resume only from PendingParts); `WorkOrderTests.Starting_a_job_twice_is_a_409`, `Approving_a_job_that_is_not_completed_is_a_409` |
 | BR-06/AC-08 central lock guard (Phase 5) | `WorkflowCancellationTests.A_technician_cannot_edit_the_diagnosis_of_an_approved_job` (a locked job refuses a non-transition edit, not just a status change, via `WorkOrderStateMachine.IsLocked`) |
 | Cancellation (Phase 5) | `WorkflowCancellationTests` — request cancel by creator-side roles (New only) and by a Manager (New or Approved); work-order cancel by a Manager (New/Assigned/InProgress) with the request-revert side effect; both require a reason |
-| BR-09 immutable ledger, stock == SUM(ledger) (Phase 6) | `InventoryTests.Receiving_stock_writes_exactly_one_ledger_row_and_raises_the_stock_in_step`, `Editing_a_part_changes_the_catalogue_fields_but_never_the_stock`, `No_route_can_edit_or_delete_a_ledger_row` (enumerates the app's routes: only `GET`/`POST` on the collection), `The_database_refuses_to_edit_or_delete_a_ledger_row_even_for_a_privileged_login` (the trigger, error 50009, as `sa`), plus `LedgerReconciliation` after every stock-moving test |
+| BR-09 immutable ledger, stock == SUM(ledger) (Phase 6) | `InventoryTests.Receiving_stock_writes_exactly_one_ledger_row_and_raises_the_stock_in_step`, `Editing_a_part_changes_the_catalogue_fields_but_never_the_stock`, `No_route_can_edit_or_delete_a_ledger_row` (enumerates the app's routes: only `GET`/`POST` on the collection), `The_database_refuses_to_edit_or_delete_a_ledger_row_even_for_a_privileged_login` (the trigger, error 50009, as `sa`), `DemoSeedingTests.The_app_login_can_append_to_the_ledger_but_SQL_Server_denies_it_any_edit_or_delete` (the DENY, error 229, as the app login), plus `LedgerReconciliation` after every stock-moving test |
+| Ledger history paging and MYT days | `InventoryTests.History_pages_with_a_cursor_that_never_skips_or_repeats_a_row`, `Rows_sharing_a_timestamp_are_split_across_pages_by_id`, `Date_filters_by_MYT_day_are_worked_out_on_the_server` (23:59:59 vs 00:00 MYT), `Invalid_history_filters_are_a_400` (a `from`/`to` without an offset, a bad cursor or limit) |
+| Parts catalogue paging | `InventoryTests.The_catalogue_is_paged_on_the_server_with_a_total_count`, `Invalid_catalogue_paging_is_a_400` |
 | Adjustment requires a reason; Issue/Return only from work orders (Phase 6) | `StockMovementRulesTests`; `InventoryTests.An_adjustment_without_a_reason_is_rejected_and_changes_nothing`, `Issue_and_return_cannot_be_created_through_the_inventory_endpoint`; UI: `will not submit an adjustment until a reason is given…` |
 | BR-04 groundwork: stock never below zero (Phase 6) | `InventoryTests.An_adjustment_that_would_take_stock_below_zero_is_a_409_and_changes_nothing`, `Concurrent_write_offs_of_the_last_units_never_take_stock_below_zero` (8 racing write-offs for 3 units: exactly 3 win), `Concurrent_receives_all_land_and_the_total_is_exact`; a `CHECK (QuantityOnHand >= 0)` constraint backs it in the database |
 | BR-04 stock never below zero when used on a job; concurrency (Phase 7) | `WorkOrderPartsTests.Technicians_racing_for_the_last_units_never_take_more_than_there_is` — per round, N technicians each with their own job race for the last units of one part (8 for 3, 6 for 1, 8 for 2.5 in 0.5s, repeated): exactly `stock / quantity` succeed, the rest are 409, stock ends at exactly 0, one Issue per winner, one line per winning job, and the whole database reconciles. Also `A_double_tap_on_the_same_job_view_adds_the_part_once` (the job's `rowVersion` claim) |
@@ -149,7 +151,7 @@ the `Api` collection shares one SQL Server container and one Azurite container p
 Job photos (PRD §6.6, SDD §15). There is no numbered AC for photos; the plan's Phase 9 test list is covered as below.
 
 **Backend (xUnit)**
-- `PhotoRulesTests` (unit, no database or storage): JPEG, PNG and WebP are accepted and typed from their bytes; empty and over 8 MB are refused (exactly 8 MB accepted); SVG-with-script, HTML, GIF, PDF, a non-WebP RIFF (WAV), a PNG signature without IHDR, and a bare JPEG marker are refused; every upload gets a fresh key under its work order with the extension of its detected type.
+- `PhotoRulesTests` (unit, no database or storage): JPEG and PNG (and, until 6.11, WebP) are accepted and typed from their bytes; empty and over 8 MB are refused (exactly 8 MB accepted); SVG-with-script, HTML, GIF, PDF, a non-WebP RIFF (WAV), a PNG signature without IHDR, and a bare JPEG marker are refused; every upload gets a fresh key under its work order with the extension of its detected type.
 - `WorkOrderStateMachineTests.Photos_are_added_or_removed_only_while_a_job_is_in_progress` (every status).
 - `WorkOrderPhotoTests` (integration, SQL Server + Azurite):
   - **type and size validation** — non-images are refused whatever they claim to be, before anything reaches storage (in-memory fake); a real JPEG labelled `application/octet-stream` / `.HEIC` is accepted and served as `image/jpeg`; over the limit (400/413) and far over it (cut off before buffering); no file (400);
@@ -321,6 +323,8 @@ Release sweep (PRD §7, §9, §11). What was added or re-checked, and how.
   Manager at 1280 px, Users as Admin, the warehouse and service-desk dashboards, the technician's job list and job at
   360 px, and the login page — no violations after darkening the amber text (4.4:1 → 5.9:1). Keyboard: tabbing through
   the dashboard shows a focus ring on every stop.
+  *Since automated:* `Accessibility.test.tsx` runs the same WCAG 2.1 A/AA rules with axe-core on 21 pages in every
+  `npm test` (and so in CI); colour contrast needs a real layout, so that rule stays with this browser sweep.
 - **Content-Security-Policy:** no violation on any of those pages; signatures and photos (blob URLs) display and a
   report PDF opens in Chrome's viewer.
 - **Phone widths:** no horizontal overflow at 360 and 375 px on any office page (since Phase 14's fixes) or the
@@ -341,6 +345,42 @@ Release sweep (PRD §7, §9, §11). What was added or re-checked, and how.
 - Web (`LoginPage.test.tsx`): nothing is written to `localStorage` or `sessionStorage` on sign-in; a session is restored
   from the cookie on load; a visitor without one lands on the login page; an old stored session is removed; a 401 is
   retried once after a refresh; logging out calls the server.
+
+## After Phase 15: requests, approval and cancellation
+
+- `WorkflowCancellationTests.A_request_reads_correctly_after_its_job_is_cancelled_and_it_is_reassigned`: three jobs
+  for one request, two cancelled; the request and the list point at the live job and name the cancelled ones.
+- `ServiceReportTests.A_completed_job_cannot_be_approved_until_its_report_is_generated` (400, unchanged job), and the
+  older-data rule `A_job_approved_before_reports_were_required_can_get_exactly_one`.
+- `WorkOrderTests`: the approver is recorded. `WorkOrderPartsTests.Cancelling_a_job_returns_every_part_still_issued_to_it`:
+  stock restored, one Return row per line by the Manager, ledger reconciles.
+- `WorkflowCancellationTests.A_malformed_RowVersion_is_refused_the_same_way_on_every_kind_of_write` (JSON on both
+  entities and the multipart signature upload) and `Every_request_body_that_carries_a_RowVersion_is_checked_by_the_filter`.
+- Web: Approve is disabled with a hint until the report exists (`WorkOrders.test.tsx`).
+
+## After Phase 15: photos, reports and storage (6.11)
+
+- `PhotoMetadataTests` (unit): a phone-style JPEG (EXIF with orientation, camera and a GPS stand-in, XMP, IPTC, a
+  comment, a second picture after EOI) keeps JFIF, its ICC profile, Adobe's marker, the image data byte for byte and its
+  orientation (6 big-endian, 8 little-endian), and loses everything else; an upright one needs no EXIF; a plain JPEG and
+  the demo PNG come back unchanged; a PNG loses `tEXt`/`iTXt`/`tIME` and junk after `IEND`, keeps an orientation-only
+  `eXIf` with valid CRCs and decodes to the same pixels; damaged or truncated files are refused.
+- `PhotoRulesTests`: WebP is recognised but refused with its own message; only JPEG and PNG get keys.
+- `WorkOrderPhotoTests`: a phone photo is served without its metadata, with the stripped size and its orientation; a
+  WebP and a photo too damaged to clean are 400s that store nothing.
+- `ServiceReportPdfTests`: text splits between Helvetica and the embedded font only where Helvetica cannot show it
+  (Arabic stays `?`); CJK is measured one em wide; a report with Chinese, Cyrillic, Greek and a supplementary-plane
+  character stays a valid, deterministic PDF with a Type0/CIDFontType2 subset, a ToUnicode map (a surrogate pair for
+  U+20087) and exactly the glyphs drawn; a Latin-only report embeds no font; wrapping text without spaces never splits
+  a surrogate pair; a non-ASCII title is UTF-16; the subsetter renumbers composite glyphs and writes a correct
+  `checkSumAdjustment` (on a hand-built four-glyph font).
+- `OrphanFileSweeperTests` (integration, SQL Server + Azurite): with a job's signature, photo and report stored, two
+  orphans in its folder survive a sweep while too young and are deleted once old enough, while the job's own files
+  stay and still download; a second sweep deletes nothing; only `work-orders/` can be swept; the service refuses a
+  `MinimumAge` under an hour or a zero interval, and runs by default. `FileStorageContractTests`: listing by prefix
+  with write times, for the fake and for Azurite.
+- Web (`shrinkImage.test.ts`): JPEG and PNG go up as they are; a WebP is redrawn as a JPEG of at most 2048 px; an
+  oversized JPEG is shrunk; a file the browser cannot decode is sent as is.
 
 ## Running
 

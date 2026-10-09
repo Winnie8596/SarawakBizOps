@@ -42,14 +42,15 @@ Cancel from Approved: Manager only.
 
 ```
 Approved ──assign──► Assigned ──start──► InProgress ──complete──► Completed ──approve──► Approved (locked)
+                                                                      (report generated first)
  (request)            (atomic:         │   ▲    │  (technician)    (needs a                (Manager;
                        BR-01/11/12/13) │   │    │                   diagnosis and            read-only after)
                                        │ resume pending-parts       work performed, AC-05)
                                        │ (stock │
                                        │  back) ▼
                                        │  PendingParts
-                        New ──────────►┤     │
-                                       └─────┴──cancel──► Cancelled (locked; Manager only)
+                                       │     │
+                                       └─────┴──cancel──► Cancelled (locked; Manager only; issued parts go back to stock)
                                                   │
                                                   └─► the linked request reverts to Approved,
                                                        so it can be reassigned (BR-12's index
@@ -58,12 +59,16 @@ Approved ──assign──► Assigned ──start──► InProgress ──co
 
 | Who | Can |
 |---|---|
-| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job (`POST /api/work-orders/{id}/approve`), cancel a New/Assigned/InProgress/PendingParts job (`POST /{id}/cancel`) |
+| Manager | assign an Approved request to an active Technician (`POST /api/service-requests/{id}/assign`), approve a Completed job once its service report is generated (`POST /api/work-orders/{id}/approve`), cancel an Assigned/InProgress/PendingParts job (`POST /{id}/cancel`) |
 | Admin, Manager, ServiceStaff | list and open any work order (`GET /api/work-orders`, `GET /{id}`), including its parts and RM total |
 | Technician | see only their own jobs (`GET /api/work-orders/mine`), start (`POST /{id}/start`), save diagnosis and work performed (`PATCH /{id}/diagnosis`), add and return parts, pause for parts and resume (see *Parts used on a job* below), complete (`POST /{id}/complete`) |
 | WarehouseStaff | nothing here |
 
 - **BR-01/11/12/13, AC-01:** assignment is one atomic step — the request must be `Approved`, the technician must be active with the Technician role, and a request can produce at most one **live** work order (a filtered unique index — excluding `Cancelled` rows — is the final guard). A second assign attempt, or two Managers racing on the same request, always leaves exactly one work order; cancelling a job frees its request to be assigned again.
+- **Approval needs the report (decided after Phase 15).** `approve` is a `400` — *"Generate the service report before approving this job."* — until the job has its report, and the condition is repeated in the approving `UPDATE`, so every Approved job has the report that approval locks. Who approved is recorded (`ApprovedByUserId`, shown on the timeline) next to when.
+- **Cancelling returns the parts (decided after Phase 15).** In the same transaction as the cancel, every line still on the job goes back to stock with one `Return` ledger row each, recorded as the Manager's and noted *"Returned when work order #… was cancelled"*, exactly as if the technician had returned it — because the cancelled job is locked and nobody could return them afterwards. A part that really was used is written off by the warehouse with an Adjustment.
+- **A request keeps every job it ever had.** `ServiceRequest → WorkOrders` is one-to-many: cancelled jobs stay with their request, and only one may be live (the filtered unique index). The request shows its live job (`workOrderId`) and its cancelled ones (`cancelledWorkOrderIds`), and links to both.
+- **There is no `New` job.** Assigning creates the job as `Assigned`, so the design's `New` state was never produced; it was removed from the enum, the state machine, the dashboards' series and the UI.
 - **BR-02, AC-02:** a technician acts only on their own job. Another technician's job is reported **404**, not 403, on every technician endpoint — its existence is not confirmed to someone who cannot open it. Office roles can read any job.
 - **AC-05:** completion is rejected without a stored diagnosis and work performed. The technician UI has one button ("Complete job") that saves both fields and completes in the same tap, even though the API models them as two calls.
 - **AC-07/AC-08, the central lock guard:** once a job is `Approved` or `Cancelled`, *every* mutating call refuses it with a `409` naming the lock — not just the status-changing ones. The diagnosis PATCH used to check this with its own inline `if`; it now goes through the same `WorkOrderStateMachine.IsLocked` check as everything else.
@@ -74,7 +79,7 @@ Approved ──assign──► Assigned ──start──► InProgress ──co
 
 1. As `manager@sarawakbizops.local`: open **Service Requests**, filter to **Approved** and open the Centrifugal Pump request (the one seeded request left unassigned on purpose). Choose **Assign to a technician**, pick `Ahmad Bujang` (shows his current open-job count) and confirm. You land on a link to the new work order.
 2. Sign in as `technician@sarawakbizops.local` on a narrow browser window (or your phone): you land on **My Jobs**, not the office dashboard. Open the pump job, tap **Start job**, type a diagnosis and what you did, then tap **Complete job** — one tap saves both fields and completes it.
-3. Back as the Manager, open **Work Orders**, find the job you just completed and tap **Approve**. It becomes read-only from then on.
+3. Back as the Manager, open **Work Orders**, find the job you just completed: **Approve** stays disabled until you tap **Generate report**. Approve it then; it becomes read-only from then on and the timeline shows who approved it.
 4. Try completing an in-progress job (there is a seeded one, the Air Compressor) with an empty diagnosis: the Complete button stays disabled until both fields are filled in, matching what the API would reject.
 5. As `staff@sarawakbizops.local`, open the assigned pump request: no Assign button is offered, and a hint points at the Work Orders page instead.
 
@@ -99,11 +104,11 @@ Invariant: QuantityOnHand == SUM(ledger quantities) for every part, and never be
 | Who | Can |
 |---|---|
 | WarehouseStaff, Admin | create and edit parts (`POST /api/parts`, `PUT /api/parts/{id}`), receive and adjust stock (`POST /api/inventory-transactions`) |
-| WarehouseStaff, Admin, Manager | list/search parts (`GET /api/parts?search=&includeInactive=`), open one (`GET /{id}`), see low stock (`GET /api/parts/low-stock`), read the ledger (`GET /api/inventory-transactions`, filters `partId`, `type`, `workOrderId`, `from`, `to`) |
-| Technician | search the **active** parts list only (`GET /api/parts`; `includeInactive` is ignored), to pick parts for their job — no low stock, single part or ledger |
+| WarehouseStaff, Admin, Manager | list/search parts, one page at a time (`GET /api/parts?search=&includeInactive=&page=&pageSize=` → `{ items, totalCount, page, pageSize }`; 50 per page by default, 200 at most), open one (`GET /{id}`), see low stock (`GET /api/parts/low-stock`), read the ledger newest first (`GET /api/inventory-transactions`, filters `partId`, `type`, `workOrderId`, `fromDate`/`toDate` as MYT days or `from`/`to` as instants with an offset; keyset-paged with `limit` and `cursor` → `{ items, nextCursor }`) |
+| Technician | search the **active** parts list only (`GET /api/parts`; `includeInactive` is ignored), to pick parts for their job — the picker asks the server for the top 20 matches as they type; no low stock, single part or ledger |
 | ServiceStaff | nothing here |
 
-- **BR-09, the ledger is the truth.** `QuantityOnHand` is a cached balance that only the inventory service moves, always in the same database transaction as exactly one new ledger row. There is **no PUT, PATCH or DELETE** for ledger rows (a test enumerates the app's routes to prove it), and a trigger, `TR_InventoryTransactions_Immutable`, makes SQL Server refuse any UPDATE or DELETE on the table whoever sends it; a mistake is fixed with an offsetting Adjustment. Editing a part never touches its stock, and a new part starts at zero — its first delivery is a Receive.
+- **BR-09, the ledger is the truth.** `QuantityOnHand` is a cached balance that only the inventory service moves, always in the same database transaction as exactly one new ledger row. There is **no PUT, PATCH or DELETE** for ledger rows (a test enumerates the app's routes to prove it), the API's own SQL login is denied UPDATE and DELETE on the ledger schema, and a trigger, `TR_InventoryTransactions_Immutable`, makes SQL Server refuse any UPDATE or DELETE on the table whoever sends it; a mistake is fixed with an offsetting Adjustment. Editing a part never touches its stock, and a new part starts at zero — its first delivery is a Receive.
 - **Adjustments need a reason** (`400` without one) and can go either way; a Receive must be positive. Issue and Return are refused here (`400`): they only ever come from adding or returning parts on a work order.
 - **Never below zero, even under concurrency.** The stock change is a single conditional `UPDATE … SET QuantityOnHand = QuantityOnHand + @q WHERE QuantityOnHand + @q >= 0`, so the database computes the balance from its current value and a movement that would go negative matches no row (`409` "Not enough stock: only N on hand"). Eight simultaneous write-offs racing for three units leave exactly three winners. A `CHECK (QuantityOnHand >= 0)` constraint is the database backstop.
 - **Low stock (AC-09, API half):** active parts at or below their `MinimumStockLevel`, most urgent first. Inactive parts never appear, and cannot receive stock (their leftovers can still be written off). The Manager dashboard (Phase 11) counts and lists the same parts.
@@ -145,7 +150,7 @@ DELETE /api/work-orders/{id}/parts/{lineId}  { rowVersion }  — the same claim,
 - **Concurrency-safe (Open Question 8).** Issuing uses the same single conditional `UPDATE` as the warehouse: the database serialises everyone on the part's row and re-checks `QuantityOnHand - @q >= 0`, so N technicians racing for the last units get exactly as many successes as there is stock, never a negative balance, with no retry loop. The flagship test runs that race in five rounds (e.g. 8 technicians for 3 units, 8 for 2.5 units in 0.5s) and reconciles the ledger after each.
 - **The job's `rowVersion` guards the job, not the stock.** Adding or returning a part carries the job's `rowVersion` (the Phase 5 rule) and bumps it. The claim holds the job row's lock until commit, so a Manager's cancel or the technician's own Complete cannot interleave, and a double-tap from the same screen adds the part once.
 - **Price snapshot.** `UnitPrice` is copied from the catalogue at the moment of use; the client cannot send one, and a later price change never rewrites an existing line. Line totals are rounded to sen, and the job total is the sum of its lines.
-- **Return** removes a whole line (to use fewer, return it and add the right amount). Parts can be added and returned only while the job is **InProgress**; an Approved or Cancelled job refuses with the central lock message. A job cancelled with parts on it keeps them: the ledger already shows them issued to that job, and the warehouse books any unused units back with an Adjustment.
+- **Return** removes a whole line (to use fewer, return it and add the right amount). Parts can be added and returned only while the job is **InProgress**; an Approved or Cancelled job refuses with the central lock message. Cancelling a job with parts on it returns every line to stock (one Return row each, by the Manager); a part that was really used is written off with an Adjustment.
 - **PendingParts.** The technician names the part and quantity they are waiting for and why. That is refused when the part is already in stock (add it instead). **Resume is guarded by stock:** the status change and the stock check are one conditional `UPDATE`, so it succeeds only when the awaited part has at least the awaited quantity on hand. Nothing is reserved (V2): the stock can still be used on another job before this one adds it. `start` and `resume` are separate actions — `start` cannot be used to skip the stock guard.
 
 **Try it (demo script).** Sign in at <http://localhost:8080>:
@@ -181,7 +186,7 @@ POST /api/work-orders/{id}/complete    → 400 until diagnosis, work performed A
 | WarehouseStaff | nothing (403) |
 
 - **Storage (Open Question 2 → Azurite).** Files live in a private blob container behind `IFileStorage` (`SaveAsync`, `OpenReadAsync`, `DeleteAsync`); the implementation is `AzureBlobFileStorage` on the Azure Blob SDK, and Azurite plays Azure Storage in Docker, in CI and in the integration tests. The database keeps only the internal key and metadata — never the bytes and never a URL — so a signature can only be read through the authorized endpoint.
-- **Storage and SQL cannot share a transaction**, so the order is chosen to fail safe: the file goes up first under a fresh key nothing points at, then one conditional `UPDATE` (the Phase 5 guard) switches the job over. A failed upload changes nothing; a lost `UPDATE` (stale `rowVersion`, double tap, the job moved on) deletes the file it just uploaded; a failed delete only leaves an orphaned file (logged), never a job pointing at a missing one.
+- **Storage and SQL cannot share a transaction**, so the order is chosen to fail safe: the file goes up first under a fresh key nothing points at, then one conditional `UPDATE` (the Phase 5 guard) switches the job over. A failed upload changes nothing; a lost `UPDATE` (stale `rowVersion`, double tap, the job moved on) deletes the file it just uploaded; a failed delete only leaves an orphaned file (logged, and deleted by the orphan sweep once it is a day old), never a job pointing at a missing one.
 - **Completion.** `Complete` checks the signature after the diagnosis (so AC-05's message comes first) and repeats it in the `UPDATE`'s `WHERE`, so a job can never become Completed without one.
 - **The pad is hand-rolled** (PRD D-06): a `<canvas>` with pointer events (touch, mouse and pen), Undo and Clear, `touch-action: none` so drawing does not scroll the page, sized to the device pixel ratio for crisp lines, and exported as a PNG on a white background.
 - **`IFileStorage` fake.** `tests/…/Infrastructure/InMemoryFileStorage` is a dictionary-backed `IFileStorage`. `FileStorageContractTests` runs the same expectations against it (unit) and against `AzureBlobFileStorage` on the Azurite container (integration), so tests can swap the fake in — through `WithWebHostBuilder` — to see exactly which files exist or to make storage fail on purpose.
@@ -200,11 +205,13 @@ upload-then-record, authorized download — for a richer artifact that a job can
 
 ```
 POST   /api/work-orders/{id}/photos            multipart/form-data: file = one photo, rowVersion
-  1. the bytes must be a JPEG (FF D8 FF), PNG (signature + IHDR) or WebP (RIFF…WEBP); Content-Type and file
-     name are ignored; at most 8 MB                                                          (else 400)
-  2. owner + InProgress + not locked, fewer than 20 photos                         (else 404 / 409)
-  3. upload to blob storage under a NEW key:  work-orders/{id}/photo-{guid}.{jpg|png|webp}
-  4. one transaction: claim the job (no-op UPDATE … WHERE owner AND InProgress AND RowVersion = @rv
+  1. the bytes must be a JPEG (FF D8 FF) or PNG (signature + IHDR); Content-Type and file name are ignored;
+     at most 8 MB; a WebP (RIFF…WEBP) is refused with its own message                       (else 400)
+  2. metadata stripped: EXIF (but its orientation), XMP, IPTC, comments, PNG text/time chunks and
+     anything after the image; a file whose structure cannot be followed is refused        (else 400)
+  3. owner + InProgress + not locked, fewer than 20 photos                         (else 404 / 409)
+  4. upload the stripped bytes to blob storage under a NEW key:  work-orders/{id}/photo-{guid}.{jpg|png}
+  5. one transaction: claim the job (no-op UPDATE … WHERE owner AND InProgress AND RowVersion = @rv
      AND fewer than 20 photos — holds the job row's lock, bumps rowVersion), INSERT WorkOrderPhotos
        claim lost → delete the file just uploaded, 409
 DELETE /api/work-orders/{id}/photos/{photoId}  body: rowVersion — same claim, DELETE the row, then the file
@@ -221,14 +228,15 @@ GET    /api/work-orders/{id}/photos/{photoId}  → the image with the type recor
 
 - **One photo per request, one after another.** Every upload carries and bumps the job's `rowVersion` (the Phase 5 rule), so the Photos step queues what the technician picked and sends it in order, each upload using the `rowVersion` the previous one returned; the page holds its other actions (Complete, parts, Remove) until the queue is done. A same-screen double tap has exactly one winner.
 - **Upload progress** needs `XMLHttpRequest` (`fetch` cannot report upload progress): `apiUpload` in `api/client.ts` is the one call that uses it, and it turns failures into the same `ApiError` as every other call. A failed photo stays in the queue with the reason and **Retry** / **Discard**; a `409` reloads the job.
-- **Camera or gallery.** **Take photo** is a file input with `capture="environment"` (opens the rear camera on a phone); **Choose photos** picks several from the gallery. A photo over 8 MB, or in a type the API does not take but the browser can decode, is redrawn in the browser as a JPEG of at most 2048 px a side before upload; otherwise photos go up untouched.
+- **Camera or gallery.** **Take photo** is a file input with `capture="environment"` (opens the rear camera on a phone); **Choose photos** picks several from the gallery. A photo over 8 MB, a WebP (which the API refuses because a PDF cannot show it), or another type the API does not take but the browser can decode (HEIC on some iPhones), is redrawn in the browser as a JPEG of at most 2048 px a side before upload; otherwise photos go up untouched.
 - **Removal is only before completion** (`WorkOrderStateMachine.AcceptsPhotoChanges`: InProgress only). A PendingParts job keeps its photos but must be resumed to change them, like parts. Photos are **not** required to complete a job (the signature is the rule-bearing evidence); cancelling keeps them.
+- **No location or camera details are kept.** The API strips a photo's metadata before storing it and keeps only the EXIF orientation, so a portrait photo still shows upright; the image data itself is copied unchanged. The size shown is that of the stored, stripped file.
 - **Served as what the bytes are.** The download uses the content type detected at upload, with `nosniff`, so nothing uploaded can come back as HTML or script.
 
 **Try it (demo script).** Sign in at <http://localhost:8080>:
 
 1. As `technician@sarawakbizops.local` in a phone-sized window: open the in-progress **Air Compressor** job. **Photos** already shows one (fictional) site photo.
-2. Tap **Choose photos** and pick two images (or **Take photo** on a phone): each shows a progress bar, then joins the thumbnails. Try a text file renamed to `.jpg`: it is refused with *A photo must be a JPEG, PNG or WebP image.* — **Retry** or **Discard** it.
+2. Tap **Choose photos** and pick two images (or **Take photo** on a phone): each shows a progress bar, then joins the thumbnails. Try a text file renamed to `.jpg`: it is refused with *A photo must be a JPEG or PNG image.* — **Retry** or **Discard** it.
 3. **Remove** one photo. Have the customer sign and tap **Complete job**: the photos stay, and the Remove buttons are gone.
 4. As `manager@…`, open that work order: **Photos** shows the gallery; tap a thumbnail to open it full size. The seeded Completed (generator) and Approved (forklift) jobs carry two photos each.
 
@@ -260,10 +268,11 @@ GET  /api/reports                   → every report, newest first, with its job
 | WarehouseStaff | nothing (403) |
 
 - **What the report shows** (PRD §6.7): report number and revision, who generated it and when, the customer (contact, phone, email, address), the equipment (serial, type, brand/model, location), technician, priority, the problem as reported, diagnosis, work performed, notes, the parts used with quantities, unit prices and RM totals, the job's timeline, photo thumbnails, and the customer's signature. Times are MYT (UTC+8), money is RM. The content is built by `ServiceReportBuilder` into a `ServiceReportModel` — a pure step, so the tests assert on the model rather than on PDF bytes — and then laid out by `ServiceReportRenderer` (A4, header and "Page x of n" footer on every page, text wrapped with the fonts' real metrics, short sections kept together).
-- **Locking (BR-14 per D-05).** While the job is Completed the Manager may regenerate freely: the number stays, the revision goes up and the previous file is deleted. Approval locks the report; there is no reopen flow. A job approved *without* a report (e.g. approved before Phase 10 existed) may get exactly one — its data is already locked, so that report cannot differ from one made before approval. Approval does not require a report.
+- **Locking (BR-14 per D-05).** While the job is Completed the Manager may regenerate freely: the number stays, the revision goes up and the previous file is deleted. Approval locks the report; there is no reopen flow. A job approved *without* a report (e.g. approved before Phase 10 existed) may get exactly one — its data is already locked, so that report cannot differ from one made before approval. Since approval now requires the report, only such older jobs can be in that state.
 - **Unique numbers under parallel generation.** `SR-{year}-{sequence}`: the sequence is a SQL Server `SEQUENCE`, so parallel generators never draw the same value and no table is locked for it; the year is the MYT year the number was first issued. A unique index on `ReportNumber` backs it up. A number drawn by a generation that then loses its race is simply skipped (numbers can have gaps).
 - **No rowVersion.** Generating does not change the job, so it takes no conflict token and does not bump the job's `rowVersion` — the Manager can generate and then approve from the same page load. Instead the write re-checks the job under an `UPDLOCK`: an Approve that races a generation waits for it, and a generation that finds the job approved (or someone else's report) meanwhile gives up with a 409 and deletes its file.
-- **Pictures.** PNG photos and the signature are decoded and scaled down to thumbnails while they stream (no full-size decode in memory); JPEG photos are embedded as they are, with their EXIF orientation applied, up to 16 MB of JPEGs per report; WebP photos, and any file missing from storage or unreadable, get a *"Not pictured in the PDF — open this photo in the app"* placeholder rather than failing the report.
+- **Pictures.** PNG photos and the signature are decoded and scaled down to thumbnails while they stream (no full-size decode in memory); JPEG photos are embedded as they are, with their EXIF orientation applied, up to 16 MB of JPEGs per report; WebP photos stored before uploads stopped taking them, and any file missing from storage or unreadable, get a *"Not pictured in the PDF — open this photo in the app"* placeholder rather than failing the report.
+- **Any script the font covers.** Latin text uses the standard Helvetica fonts, as before. Characters they cannot show (a customer or part name in Chinese, Greek or Cyrillic) are drawn with a subset of Noto Sans SC embedded in that report, holding just the glyphs it uses; the text can still be copied and searched in a PDF viewer. Scripts that need shaping (Arabic, Tamil, Thai) are not supported and print as `?`.
 
 **Try it (demo script).** Sign in at <http://localhost:8080>:
 
@@ -364,6 +373,21 @@ GET /api/dashboard/summary
 4. As `warehouse@…`: tiles **11** active parts, **4** low, **1** out of stock, **1** job waiting; job waiting for **6 m of BLT-CNV-600** with 0 on hand (*Short*). Receive 12 m in **Inventory**, **Refresh**: the job is *In stock* ("1 can resume now") and nothing is out of stock.
 5. As `staff@…`: **3** awaiting review, **2** awaiting assignment, **1** rejected in the last 30 days; *Waiting longest* starts with the pump seal (14 days) and each request links to its page; *Recently rejected* shows the log conveyor with its reason.
 6. Raise a new request as `staff@…` and **Refresh**: *Awaiting review* goes to 4. As the Manager, reject it with a reason: it moves to *Recently rejected*.
+
+### Dashboard endpoints, period and caching
+
+```
+GET /api/dashboard/manager?months=6          Admin, Manager                    DashboardSummaryDto
+GET /api/dashboard/warehouse?months=6        Admin, Manager, WarehouseStaff    WarehouseDashboardDto
+GET /api/dashboard/service-queue             Admin, Manager, ServiceStaff      ServiceQueueDashboardDto
+GET /api/dashboard/summary?months=6          the caller's own view, as above (the web app uses this one)
+```
+
+- **One shape per endpoint** in the OpenAPI document; `summary` stays for the web app, which shows whichever view the caller's role gets.
+- **`months`** is the period in Malaysia-time calendar months ending with the current one: **1–24**, default **6**. Anything else (0, 25, `six`) is a **400** validation problem. The service queue has no period.
+- **Cached briefly.** Each view and period is computed once per `Dashboard:CacheSeconds` (15 by default; `0` turns it off) and shared by everyone who gets that view. No payload is per-user. A payload can be up to that old, and *Updated …* on the page (`generatedAt`) says when it was computed. A failed computation is never cached.
+- **Part-usage cost** rounds each line to sen before summing (`ROUND(Quantity × UnitPrice, 2)`, the same rule as `StockMovementRules.LineTotal`), so a part's cost agrees with the job totals it came from.
+- **MYT day bounds** have one server helper, `AnalyticsRules.MytDayStartUtc`, used by the month windows and the inventory history's `fromDate`/`toDate` filters. The browser sends calendar days and never applies the offset itself.
 
 ## AI technician assistant (Phase 13)
 

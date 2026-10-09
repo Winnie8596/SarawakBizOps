@@ -115,7 +115,7 @@ erDiagram
   Customer ||--o{ Equipment : owns
   Customer ||--o{ ServiceRequest : raises
   Equipment ||--o{ ServiceRequest : "is reported in"
-  ServiceRequest ||--o| WorkOrder : "becomes (one live job, BR-12)"
+  ServiceRequest ||--o{ WorkOrder : "becomes (one live job, BR-12; cancelled ones kept)"
   AspNetUsers ||--o{ WorkOrder : "is assigned (Technician)"
   WorkOrder ||--o{ WorkOrderPart : uses
   Part ||--o{ WorkOrderPart : "is used as"
@@ -327,7 +327,7 @@ The sample data is fictional (names, companies, phone numbers and addresses) and
 - The API is healthy (`/health/ready`) only once migrations and seeding are done, because it does its startup work before it starts listening. `/health` is a plain liveness check. Both are unauthenticated and return no data.
 - The seeding is idempotent: every row is inserted only if its key (email, company name, serial number) is missing, so restarting is safe.
 - Files (the customer signature, job photos and service reports) are stored in the **Azurite** container (Azure Blob Storage emulator, blob service only, data in the `blobdata` volume). The API talks to it with Azurite's well-known development account, which Microsoft publishes for the emulator — it is not a secret. The browser never reaches Azurite: every file goes through the API's authorized endpoints. Azurite's port is published on `127.0.0.1:10000` only (`AZURITE_HOST_PORT` changes it), for the manual dev setup below.
-- **The API never connects as `sa`.** A one-shot `db-init` container runs [`scripts/sql/create-logins.sql`](./scripts/sql/create-logins.sql) as `sa` on every `up` and exits; it creates the database and two logins. `sarawakbizops_app` is the API's own: its database only, read/write on the data, and schema changes because the demo migrates on startup. `sarawakbizops_ai_reader` is used by the AI features (`ConnectionStrings__AiReadOnly`) and can only `SELECT`, so SQL Server itself refuses an AI write, behind the in-app guard. Without `AiReadOnly` (manual setup, tests) the AI uses the main connection and the in-app guard alone.
+- **The API never connects as `sa`.** A one-shot `db-init` container runs [`scripts/sql/create-logins.sql`](./scripts/sql/create-logins.sql) as `sa` on every `up` and exits; it creates the database and two logins. `sarawakbizops_app` is the API's own: its database only, read/write on the data (except the stock ledger, which it may only read and append to), and schema changes because the demo migrates on startup. `sarawakbizops_ai_reader` is used by the AI features (`ConnectionStrings__AiReadOnly`) and can only `SELECT`, so SQL Server itself refuses an AI write, behind the in-app guard. Without `AiReadOnly` (manual setup, tests) the AI uses the main connection and the in-app guard alone.
 - nginx passes the browser's address in `X-Forwarded-For`; the API trusts it only from proxies in `ForwardedHeaders:KnownNetworks` (the private ranges by default), so logs and anything keyed on the client IP see the real caller and a caller cannot forge its own.
 - SQL Server is also published on `127.0.0.1:14330` (this machine only) if you want to connect with SSMS or Azure Data Studio: user `sa`, password `Demo_Passw0rd!`.
 
@@ -429,7 +429,8 @@ The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which
   so neither the message nor the timing reveals which emails have accounts.
 - **No mass assignment.** Controllers bind request DTOs only; who created or approved something comes from the token,
   and a part's price from the catalogue, never from the body.
-- **Uploads** are typed from their bytes (PNG, JPEG, WebP), size-capped, stored under server-generated keys and
+- **Uploads** are typed from their bytes (PNG, JPEG; the web app converts WebP to JPEG), size-capped, stripped of
+  their metadata (GPS position, camera, owner) except the orientation, stored under server-generated keys and
   served only through authorized endpoints with `no-store` and `nosniff`.
 - **Browser hardening:** a same-origin Content-Security-Policy, `X-Frame-Options: DENY`, `nosniff`, a referrer and a
   permissions policy from nginx; CORS is closed outside Development unless origins are configured.
@@ -473,7 +474,8 @@ Minimal by design (PRD D-06): a library is added only when a requirement demands
 | API | ASP.NET Core Identity, EF Core SQL Server, JwtBearer, Swashbuckle | Auth, persistence, API docs |
 | Web | React 18, React Router 7 | UI and routing; plain CSS, a `fetch` wrapper and Context (no UI, state or data-fetching library) |
 | API | Azure.Storage.Blobs | File storage (PRD D-03, Open Question 2 → Azurite): the one SDK behind `AzureBlobFileStorage`; talks to Azurite locally and to real Azure Blob Storage unchanged |
-| API | *(none for PDFs)* | The service report is written by a small PDF writer in `Services/Reports/Pdf` (PDF 1.4, the standard Helvetica fonts, JPEG passed through, PNG decoded with `System.IO.Compression`). QuestPDF's licence is revenue-gated and PDFsharp needs font files in Linux containers. The trade-off: Latin-1 text only |
+| API | *(none for PDFs)* | The service report is written by a small PDF writer in `Services/Reports/Pdf` (PDF 1.4, the standard Helvetica fonts, JPEG passed through, PNG decoded with `System.IO.Compression`, a TrueType subset for other scripts). QuestPDF's licence is revenue-gated and PDFsharp needs font files in Linux containers too |
+| API | *(a font, not a package)* | Noto Sans SC (SIL Open Font License 1.1, `Services/Reports/Pdf/Fonts`, with its licence and the script that builds it) is compiled into the API so reports can show Chinese, Greek and Cyrillic text; each report embeds only the glyphs it uses |
 | API | *(none for AI)* | The OpenAI-compatible client is about 130 lines over `HttpClient`; no SDK |
 | Web | *(none for charts)* | The dashboard's charts are HTML tables and lists sized with CSS: readable to screen readers and tests |
 | Tests | xUnit, Microsoft.AspNetCore.Mvc.Testing, Testcontainers (SQL Server, Azurite) | Integration tests against the real API, real SQL Server and real blob storage, so transactions, `RowVersion` concurrency and file handling behave as in production |
@@ -512,9 +514,11 @@ The full log — the PRD's design decisions D-01…D-08 and how every open quest
 - **Lists are not paginated.** They are sized for the demo's tens to hundreds of rows, and the long ones have
   server-side filters ([why](./docs/decisions.md#phase-15-decisions-release-sweep)).
 - **Files.** Photos are optional evidence, not required to complete a job, have no captions and are served full size
-  (no thumbnails). A file whose cleanup delete fails is left in storage (logged; no sweeper). The signature records
+  (no thumbnails). A file whose cleanup delete fails stays in storage until the orphan sweep deletes it a day later. The signature records
   *that* the customer signed, not their printed name.
-- **Reports.** Latin-1 text only (e.g. Chinese names print as `?`); WebP photos are listed but not pictured, and JPEGs
+- **Reports.** Scripts that need shaping (Arabic, Tamil, Thai) and the few Latin letters the embedded font lacks
+  (e.g. ő, ł) print as `?`, and Chinese text has no true bold. WebP photos stored before uploads stopped taking them are
+  listed but not pictured, and JPEGs
   past 16 MB per report are not pictured either. Regenerating replaces the file (the revision number records it), and
   report numbers can have gaps.
 - **Stock** is not reserved for a job waiting for parts; a returned part goes back as a whole line.
@@ -526,11 +530,12 @@ The full log — the PRD's design decisions D-01…D-08 and how every open quest
 Deliberately out of scope for this version, in rough order of value:
 
 - **React Native technician app** (Phase 16A, P2): the same API, secure token storage; later offline capture and sync.
-- **Pagination and search** on every list; a date range on the dashboards.
+- **Pagination and search** on every list, starting with service requests and work orders, which would also get
+  lighter list DTOs (the list rows carry the full detail today); a date range on the dashboards.
 - **Stock reservation** for jobs waiting for parts; partial returns.
 - **Reopen-for-correction** with an audit log; report history.
 - **Notifications** (email/SMS when a job is assigned or completed) and real-time updates.
-- **Refresh tokens**, forced password change on first login, a forgot-password flow.
+- **Forced password change** on first login and a forgot-password flow.
 - **Customer portal** to raise requests and download reports.
 
 ## License
