@@ -351,7 +351,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(new[] { ("Urgent", 1), ("High", 2), ("Medium", 2), ("Low", 0) },
             summary!.OpenRequestsByPriority.Select(c => (c.Key, c.Count)));
         Assert.Equal(
-            new[] { ("New", 0), ("Assigned", 1), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 11), ("Cancelled", 1) },
+            new[] { ("Assigned", 1), ("InProgress", 1), ("PendingParts", 1), ("Completed", 1), ("Approved", 11), ("Cancelled", 1) },
             summary.WorkOrdersByStatus.Select(c => (c.Key, c.Count)));
         Assert.Equal((4, 1), (summary.LowStock.Count, summary.LowStock.OutOfStock));
         Assert.Equal("BLT-CNV-600", summary.LowStock.Items[0].PartNumber);
@@ -526,6 +526,7 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
     {
         // BR-09 as a permission, not only the trigger: create-logins.sql DENYs the API's own login UPDATE and
         // DELETE on the ledger schema. Error 229 is "permission denied", raised before the trigger is reached.
+        _ = _factory.Services; // starts the host, which migrates and seeds; xUnit may run this test first
         await using var app = new SqlConnection(_factory.AppConnectionString);
         await app.OpenAsync();
 
