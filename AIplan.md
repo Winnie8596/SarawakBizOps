@@ -165,14 +165,16 @@ Reference for the details below: Addendum v1.2 §6.1 and §6.3–6.5 (not commit
 - [ ] Output schema (G12): `suggestedChecks` becomes an array of objects, all fields required, arrays may be empty:
       `{ text, source: Manual | History | General, isSafetyStep, manualSectionIds, workOrderIds }`. `possibleCauses`,
       `relevantPastCases` and `relevantParts` are unchanged.
-- [ ] `SafetyTerms` (static class, G13): case-insensitive match on whole words and phrases; hyphen and space variants
-      (`de-energise`, `lock out`) both match. Initial list from v1.2 §6.4, plus G19's reviewed additions and G20's
+- [x] `SafetyTerms` (static class, G13; built early in `Services/Ai/SafetyTerms.cs` with `SafetyTermsTests`):
+      case-insensitive match on whole words and phrases; hyphen and space variants (`de-energise`, `lock out`) both
+      match. Initial list from v1.2 §6.4, plus G19's reviewed additions and G20's
       patterns:
       - English: isolate, isolation, lockout, lock out, tagout, de-energise, de-energize, live, voltage, high voltage,
         electrical panel, busbar, capacitor, discharge, pressure, pressurised, pressurized, refrigerant, gas line, fuel,
         hot surface, rotating, remove guard, bypass, earth, ground fault; *G19:* steam, hydraulic, blade, moving parts.
       - Malay: voltan, elektrik, bekalan elektrik, putuskan bekalan, tekanan, bahan penyejuk, gas, bahan api,
-        permukaan panas; *G19:* asingkan bekalan, asingkan kuasa, diasingkan, mengasingkan, pengasingan, kunci suis,
+        permukaan panas; *G19:* asingkan bekalan, asingkan kuasa, diasingkan, mengasingkan, pengasingan, suis pengasing,
+        kunci suis,
         kunci dan tag, arus elektrik, arus tinggi, arus bocor, litar, litar pintas, kapasitor, nyahcas, buang cas,
         lepas cas, berputar, wap, wap panas, hidraulik, bilah, renjatan, potong bekalan, suis utama, tiga fasa.
       - Loanwords (*G19*): LOTO, ampere, amp, freon, MCB, DB, breaker.
