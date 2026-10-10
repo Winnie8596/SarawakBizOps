@@ -1,14 +1,14 @@
 # Decision log
 
-The System Design Document (SDD v1.1) is the original design. [`prd.md`](../prd.md) amends it (design decisions
-D-01…D-08) and listed the questions left open; [`plan.md`](../plan.md) records, phase by phase, how each slice was
-built. This page is the one place that says what was decided, when, and why — in short, with a link to the detail.
+The System Design Document (SDD v1.1) is the original design. The PRD amends it (design decisions D-01…D-08) and
+listed the questions left open; the build plan records, phase by phase, how each slice was built. Neither is in this
+repository. This page is the one place that says what was decided, when, and why — in short, with a link to the detail.
 
 ## Open Question 7 — how the SDD is kept up to date
 
 **Decision (Phase 15): the PRD stays the amendment record; there is no SDD v1.2.** Where the PRD and the SDD disagree,
 the PRD wins (README, *Documents*). The PRD's §8 lists every deviation from the SDD, each phase's *Decisions taken*
-table in `plan.md` records the finer choices, and this log indexes them.
+table in the build plan records the finer choices, and this log indexes them.
 
 *Why:* a v1.2 would copy the SDD to change a handful of paragraphs, and two long documents that must agree is the
 problem the PRD already solves. The code, its tests and these three documents are what a reader checks; a fourth

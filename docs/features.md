@@ -1,8 +1,8 @@
 # Feature guide
 
 How each feature works, its rules, its API and a short demo script, in the order the features were built (one
-phase each; see [`plan.md`](../plan.md)). The [README](../README.md) has the overview, setup and diagrams;
-[`decisions.md`](./decisions.md) the decisions; [`test-plan.md`](./test-plan.md) which test proves what.
+phase each). The [README](../README.md) has the overview, setup and diagrams; [`decisions.md`](./decisions.md) the
+decisions.
 
 ## Service requests (Phase 3, cancellation added in Phase 5)
 

@@ -66,10 +66,7 @@ tests. Phase 16 (a React Native technician app) is a stretch goal and not starte
 |---|---|
 | [`docs/features.md`](./docs/features.md) | Every feature in depth: its rules, endpoints and a demo script, phase by phase |
 | [`docs/decisions.md`](./docs/decisions.md) | The decision log: the PRD's design decisions, every open question and how it was settled |
-| [`docs/test-plan.md`](./docs/test-plan.md) | Acceptance criteria AC-01…AC-11 → the named tests that prove them, and every test suite |
-| [`prd.md`](./prd.md) | Product requirements, priorities and the Definition of Done |
-| [`plan.md`](./plan.md) | The tracer-bullet plan: each phase a vertical slice with its decisions and exit evidence |
-| System Design Document v1.1 | The original design (data model, lifecycles, BR-01…14, AC-01…11), not in this repository. The PRD amends it and wins where they differ ([why there is no v1.2](./docs/decisions.md#open-question-7--how-the-sdd-is-kept-up-to-date)). |
+| System Design Document v1.1, PRD and build plan | The original design (data model, lifecycles, BR-01…14, AC-01…11), the product requirements that amend it, and the phase-by-phase plan; not in this repository. The PRD wins where they differ ([why there is no v1.2](./docs/decisions.md#open-question-7--how-the-sdd-is-kept-up-to-date)). |
 
 ## Architecture
 
@@ -279,7 +276,6 @@ tests/
 docs/
 ├── features.md                 Every feature in depth: rules, endpoints, demo scripts
 ├── decisions.md                Decision log: design decisions and open questions
-├── test-plan.md                Acceptance-criteria map: which test proves which AC
 └── screenshots/                The images in this README
 scripts/
 └── compose-smoke.sh            Signs in through the web container, reads data, walks request intake, the first job end to end (with photos, the signature and the service report), parts and stock, parts on a job, the Manager dashboard, each role's dashboard, the AI assistant and the AI manager insights on the mock (used by CI)
@@ -405,8 +401,7 @@ npm test                       # Vitest + React Testing Library; no server or da
 | **Docker smoke** (`scripts/compose-smoke.sh`) | The shipped containers working together, end to end, on every push |
 | **Secret scan** (gitleaks in CI) | No secret in any commit of the history |
 
-The first `dotnet test` run downloads the SQL Server image (about 1.5 GB). Which test proves which acceptance criterion
-(AC-01…AC-11) is listed in [`docs/test-plan.md`](./docs/test-plan.md).
+The first `dotnet test` run downloads the SQL Server image (about 1.5 GB).
 
 ---
 
