@@ -271,7 +271,7 @@ api "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part
 [ "$(status_of "$warehouse_token" POST /inventory-transactions "$(jq -nc --argjson p "$part_id" '{partId:$p, transactionType:"Issue", quantity:-1, notes:"x"}')")" = 400 ]   || fail "Issue transactions must only come from work orders"
 
 history="$(api "$warehouse_token" GET "/inventory-transactions?partId=$part_id")"
-jq -e 'length == 2 and (map(.quantity) | add) == 7' <<<"$history" >/dev/null   || fail "the ledger must hold exactly the two movements and sum to the stock on hand, got: $history"
+jq -e '(.items | length) == 2 and (.items | map(.quantity) | add) == 7' <<<"$history" >/dev/null   || fail "the ledger must hold exactly the two movements and sum to the stock on hand, got: $history"
 api "$token" GET "/parts/$part_id" | jq -e '.quantityOnHand == 7' >/dev/null || fail "Manager must be able to read the part"
 echo "  ok: created, received, adjusted with a reason; the ledger reconciles and the wrong roles were refused"
 
