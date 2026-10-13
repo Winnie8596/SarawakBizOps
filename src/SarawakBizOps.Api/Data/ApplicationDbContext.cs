@@ -29,6 +29,9 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<WorkOrderPhoto> WorkOrderPhotos => Set<WorkOrderPhoto>();
     public DbSet<ServiceReport> ServiceReports => Set<ServiceReport>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AiSourceDocument> AiSourceDocuments => Set<AiSourceDocument>();
+    public DbSet<AiSourceDocumentModel> AiSourceDocumentModels => Set<AiSourceDocumentModel>();
+    public DbSet<AiDocumentChunk> AiDocumentChunks => Set<AiDocumentChunk>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

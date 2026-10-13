@@ -34,6 +34,33 @@ public class AiOptions
 
     /// <summary>Requests per user per minute across the AI endpoints (a simple per-user rate limit).</summary>
     public int PermitsPerMinute { get; set; } = 10;
+
+    // ---- Knowledge base (AI-1, AIplan §6) ----
+
+    /// <summary>OpenAI-compatible only: the embedding model, e.g. <c>gemini-embedding-001</c>. The mock provider
+    /// embeds offline and ignores it.</summary>
+    public string? EmbeddingModel { get; set; }
+
+    /// <summary>Values per vector, requested from the provider and checked on every reply.</summary>
+    public int EmbeddingDimension { get; set; } = 768;
+
+    /// <summary>Texts sent in one <c>/embeddings</c> call during ingestion.</summary>
+    public int EmbeddingBatchSize { get; set; } = 32;
+
+    public int ChunkTokens { get; set; } = 400;
+    public int ChunkOverlapTokens { get; set; } = 50;
+    public int MinChunkTokens { get; set; } = 50;
+
+    /// <summary>The <c>knowledge-base</c> folder. A relative path is looked for under the app's folder first, then
+    /// in each folder above it, so it is found both in the Docker image (<c>/app/knowledge-base</c>) and when running
+    /// from the repository.</summary>
+    public string KnowledgeBasePath { get; set; } = "knowledge-base";
+
+    /// <summary>Ingest the knowledge base at startup (Development and the Docker demo). Deployments run the
+    /// <c>ingest-kb</c> command instead.</summary>
+    public bool IngestOnStartup { get; set; }
+
+    public ChunkingSettings GetChunking() => new(ChunkTokens, ChunkOverlapTokens, MinChunkTokens);
 }
 
 public static class AiProviders

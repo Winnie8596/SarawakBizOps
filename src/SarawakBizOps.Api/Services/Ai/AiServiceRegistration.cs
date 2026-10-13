@@ -30,10 +30,22 @@ public static class AiServiceRegistration
             // The timeout that matters is AiService's (Ai:TimeoutSeconds); this one is only a backstop.
             services.AddHttpClient<ILlmClient, OpenAiCompatibleLlmClient>(http =>
                 http.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds) + 10));
+
+            // AI-1: same provider for embeddings. Without a model, chat still works and ingestion reports why not.
+            if (string.IsNullOrWhiteSpace(options.EmbeddingModel))
+            {
+                services.AddSingleton<IEmbeddingClient, UnconfiguredEmbeddingClient>();
+            }
+            else
+            {
+                services.AddHttpClient<IEmbeddingClient, OpenAiCompatibleEmbeddingClient>(http =>
+                    http.Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds) + 10));
+            }
         }
         else if (string.Equals(options.Provider, AiProviders.Mock, StringComparison.OrdinalIgnoreCase))
         {
             services.AddSingleton<ILlmClient, MockLlmClient>();
+            services.AddSingleton<IEmbeddingClient, MockEmbeddingClient>();
         }
         else
         {
@@ -55,6 +67,7 @@ public static class AiServiceRegistration
         services.AddScoped<AiReadOnlyData>(); // Phase 14: also the Manager AI's analytics, over the guarded context
         services.AddScoped<TechnicianAssistantContextBuilder>();
         services.AddScoped<IAiService, AiService>();
+        services.AddScoped<IDocumentIngestionService, DocumentIngestionService>(); // AI-1
 
         return services;
     }

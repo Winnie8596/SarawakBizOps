@@ -548,6 +548,19 @@ public class DemoSeedingTests : IClassFixture<DemoApiFactory>
         Assert.Equal(0, await other.ExecuteNonQueryAsync());
     }
 
+    [Fact]
+    public async Task Startup_ingests_the_knowledge_base_through_the_app_login()
+    {
+        // AI-1, the compose path: migrate, seed, then ingest knowledge-base/ as the least-privilege app login.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        var documents = await db.AiSourceDocuments.AsNoTracking().ToListAsync();
+        Assert.Contains(documents, d => d.Slug == "norvik-nc-chillers" && d.Status == AiDocumentStatus.Active);
+        Assert.Contains(documents, d => d.Slug == "kestrel-kb-10t-boiler-v1" && d.Status == AiDocumentStatus.Superseded);
+        Assert.True(await db.AiDocumentChunks.CountAsync() > 10);
+    }
+
     private async Task<LoginResponse> LoginAsync(string email, string password)
     {
         var response = await _factory.CreateClient().PostAsJsonAsync("/api/auth/login",

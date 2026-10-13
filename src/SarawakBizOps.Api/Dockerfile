@@ -13,6 +13,8 @@ RUN dotnet publish src/SarawakBizOps.Api/SarawakBizOps.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+# AI-1: the equipment manuals, ingested at startup (Ai:IngestOnStartup) or by `dotnet SarawakBizOps.Api.dll ingest-kb`.
+COPY knowledge-base/ ./knowledge-base/
 
 # No secrets live in the image: the JWT key, connection string and seed passwords all
 # arrive as environment variables from docker-compose.yml. The .NET image listens on 8080 by default.

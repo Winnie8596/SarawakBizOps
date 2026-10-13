@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SarawakBizOps.Api.Services.Ai;
 
 namespace SarawakBizOps.Api.Data;
 
@@ -29,6 +30,9 @@ public static class DatabaseInitializer
             await DemoSeeder.SeedAsync(services, ct);
             logger.LogInformation("Demo data seeded (Seed:Demo is enabled).");
         }
+
+        // AI-1: the equipment manuals (Ai:IngestOnStartup), after migrations so their tables exist.
+        await KnowledgeBaseIngestion.IngestOnStartupAsync(services, ct);
     }
 
     // SQL Server in a container needs a while to accept connections, even after it reports started,

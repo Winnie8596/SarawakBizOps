@@ -3,9 +3,6 @@ using SarawakBizOps.Api.Models.Enums;
 
 namespace SarawakBizOps.Api.Models.Entities;
 
-// Design doc Section 6.3.
-// CustomerId is intentionally stored even though it is reachable through Equipment.
-// The service layer must verify Equipment.CustomerId == CustomerId at creation time (BR-10).
 public class ServiceRequest
 {
     public int Id { get; set; }

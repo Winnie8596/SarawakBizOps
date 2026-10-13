@@ -2,7 +2,6 @@ using SarawakBizOps.Api.Models.Enums;
 
 namespace SarawakBizOps.Api.Models.Entities;
 
-// Design doc Section 6.2.
 public class Equipment
 {
     public int Id { get; set; }
