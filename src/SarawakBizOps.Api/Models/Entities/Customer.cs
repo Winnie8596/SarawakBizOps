@@ -1,6 +1,5 @@
 namespace SarawakBizOps.Api.Models.Entities;
 
-// Design doc Section 6.1.
 public class Customer
 {
     public int Id { get; set; }
