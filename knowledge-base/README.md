@@ -19,7 +19,7 @@ document's slug). The API ingests the folder at startup when `Ai:IngestOnStartup
 | `hartmann-hp-pumps.md` | Hartmann HP-150, HP-100, HP-80 | 1.1 | **Evaluation fixture:** its "Installer notes" section is a prompt-injection attempt |
 
 The three manuals marked "long" have fault sections of 450–900 tokens, so a section is cut into several chunks and
-the AI-3 chunk-size experiment has something to measure: 75 chunks at 250/40 against 63 at 400/50, with 12 and 8
+the AI-3 chunk-size experiment has something to measure: 69 chunks at 250/40 against 57 at 400/50, with 12 and 8
 sections split into more than one chunk. The other manuals are short on purpose: every section is a single chunk.
 
 Error code E14 appears in four documents with four meanings; only the equipment filter tells them apart.

@@ -105,8 +105,8 @@ January 2027, which leaves room for all of v1–v3 and the write-up.
       (document, ordinal, section heading path, text, token count, embedding bytes, embedding model).
 - [x] Shared normaliser for brand/model/identifiers (upper case, strip spaces and dashes) — used by G3, G6 and G7.
 - [x] `IEmbeddingClient`: OpenAI-compatible `/embeddings` (same base URL and key as chat, `dimensions` set) and a mock
-      (deterministic hash-based vectors, fixed dimension). Embedding model: provisional `gemini-embedding-001` at 768;
-      confirmed on the first real ingestion (still Open).
+      (deterministic hash-based vectors, fixed dimension). Embedding model: `gemini-embedding-001` at 768,
+      confirmed on the first real ingestion (G21).
 - [x] Markdown chunker: heading → paragraph → sentence splitting, 400/50 tokens, minimum 50 (merge small trailing
       pieces), heading path as `SectionHeading`. Tokens counted as `ceil(characters / 4)` (G18).
 - [x] `IDocumentIngestionService`: read the folder, parse front matter, skip a file only when its content hash **and**
@@ -381,7 +381,7 @@ Existing settings keep their current values (`TimeoutSeconds` 20, `MaxOutputToke
 | Setting | Default | Notes |
 |---|---|---|
 | Chunk size / overlap / minimum | 400 / 50 / 50 tokens | Tokens counted as `ceil(characters / 4)` (G18); 250/40 tried in AI-3 |
-| Embedding model / dimension | TBD (AI-1) / 768 | Stored per chunk |
+| Embedding model / dimension | `gemini-embedding-001` / 768 | Stored per chunk (G21) |
 | Vector candidates | 20 | |
 | BM25 candidates / k1 / b | 20 / 1.2 / 0.75 | AI-3 |
 | RRF k | 60 | AI-3 |
