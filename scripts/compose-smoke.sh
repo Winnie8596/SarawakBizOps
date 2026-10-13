@@ -307,7 +307,7 @@ api "$tech_token" DELETE "/work-orders/$job_id/parts/$line_id" "$(job_rv)" | jq 
   || fail "technician could not return the part"
 stock_is 7 || fail "returning the line must restore the stock"
 api "$warehouse_token" GET "/inventory-transactions?workOrderId=$job_id" \
-  | jq -e 'length == 2 and (map(.transactionType) | sort) == ["Issue", "Return"]' >/dev/null \
+  | jq -e '(.items | length) == 2 and (.items | map(.transactionType) | sort) == ["Issue", "Return"]' >/dev/null \
   || fail "the job's ledger must hold exactly one Issue and one Return"
 
 api "$tech_token" POST "/work-orders/$job_id/pending-parts" \
