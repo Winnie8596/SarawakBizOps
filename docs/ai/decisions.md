@@ -54,6 +54,6 @@ Metrics quoted here come from a committed file under `eval/results/`, or are `TB
 
 | Item | Decide by |
 |---|---|
-| Embedding model and dimension (G4) | AI-1 |
+| Embedding model and dimension (G4). Provisional: `gemini-embedding-001` at 768 (`Ai:EmbeddingModel`, `Ai:EmbeddingDimension`); confirm the provider honours `dimensions` on the first real ingestion, then close this row | First real ingestion (AI-2 evaluation at the latest) |
 | `MinVectorScore` (initial 0.30, G16) and the chunk size (250/40 vs 400/50) | AI-3, from dev-set results |
 | AI pricing (per million tokens, source date, MYR rate) | AI-4 |

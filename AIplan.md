@@ -84,46 +84,47 @@ January 2027, which leaves room for all of v1–v3 and the write-up.
 
 **Knowledge base content** (synthetic; AI may draft, owner reviews — G5)
 
-- [ ] `knowledge-base/*.md`, each with front matter: `slug`, `title`, `brand`, `models` (one or more), `version`,
+- [x] `knowledge-base/*.md`, each with front matter: `slug`, `title`, `brand`, `models` (one or more), `version`,
       optional `supersedes` (a slug).
-- [ ] Manuals for at least 4 seeded models (e.g. Norvik NC-450 chiller, Hartmann HC-75 compressor, Kestrel KB-10T
+- [x] Manuals for at least 4 seeded models (e.g. Norvik NC-450 chiller, Hartmann HC-75 compressor, Kestrel KB-10T
       boiler, Tanjung TL-35D forklift — see `DemoSeeder`), each with a Troubleshooting section containing error codes,
       safety precautions (isolation/lockout), and part numbers that exist in the parts catalogue where possible.
-- [ ] One model with v1 and v2 manuals (v2 changes a procedure and `supersedes` v1).
-- [ ] One manual covering several models (G3).
-- [ ] One document with a prompt-injection attempt, marked as an evaluation fixture.
-- [ ] At least one section in Bahasa Malaysia or mixed terms.
-- [ ] One error code shared by two models with different meanings (tests the equipment filter, G18).
-- [ ] At least one seeded model that has work orders but **no** manual (tests the History/General path, G18).
-- [ ] `knowledge-base/README.md`: all content is synthetic; list each document, its models and version.
+- [x] One model with v1 and v2 manuals (v2 changes a procedure and `supersedes` v1).
+- [x] One manual covering several models (G3).
+- [x] One document with a prompt-injection attempt, marked as an evaluation fixture.
+- [x] At least one section in Bahasa Malaysia or mixed terms.
+- [x] One error code shared by two models with different meanings (tests the equipment filter, G18).
+- [x] At least one seeded model that has work orders but **no** manual (tests the History/General path, G18).
+- [x] `knowledge-base/README.md`: all content is synthetic; list each document, its models and version.
 
 **Backend**
 
-- [ ] Extend `AiOptions` with the §6 defaults (chunking, retrieval, embedding model and dimension).
-- [ ] Entities + EF configuration + one migration: `AiSourceDocument` (slug, title, version, content hash,
+- [x] Extend `AiOptions` with the §6 defaults (chunking, retrieval, embedding model and dimension).
+- [x] Entities + EF configuration + one migration: `AiSourceDocument` (slug, title, version, content hash,
       chunking configuration ID, status `Active | Superseded | Removed`), `AiSourceDocumentModel` (normalised brand + model, many per document), `AiDocumentChunk`
       (document, ordinal, section heading path, text, token count, embedding bytes, embedding model).
-- [ ] Shared normaliser for brand/model/identifiers (upper case, strip spaces and dashes) — used by G3, G6 and G7.
-- [ ] `IEmbeddingClient`: OpenAI-compatible `/embeddings` (same base URL and key as chat, `dimensions` set) and a mock
-      (deterministic hash-based vectors, fixed dimension). Choose and record the embedding model (Open item).
-- [ ] Markdown chunker: heading → paragraph → sentence splitting, 400/50 tokens, minimum 50 (merge small trailing
+- [x] Shared normaliser for brand/model/identifiers (upper case, strip spaces and dashes) — used by G3, G6 and G7.
+- [x] `IEmbeddingClient`: OpenAI-compatible `/embeddings` (same base URL and key as chat, `dimensions` set) and a mock
+      (deterministic hash-based vectors, fixed dimension). Embedding model: provisional `gemini-embedding-001` at 768;
+      confirmed on the first real ingestion (still Open).
+- [x] Markdown chunker: heading → paragraph → sentence splitting, 400/50 tokens, minimum 50 (merge small trailing
       pieces), heading path as `SectionHeading`. Tokens counted as `ceil(characters / 4)` (G18).
-- [ ] `IDocumentIngestionService`: read the folder, parse front matter, skip a file only when its content hash **and**
+- [x] `IDocumentIngestionService`: read the folder, parse front matter, skip a file only when its content hash **and**
       the chunking configuration match what is stored (G15), re-chunk and re-embed the others in batches, all in one
       transaction per document (a failure leaves the previous state). After all files: apply `supersedes`, and mark
       documents whose file is gone as `Removed` (G15). Neither `Superseded` nor `Removed` is ever retrieved.
-- [ ] Callers: Development startup, a CLI command (e.g. `dotnet run -- ingest-kb`) for deployments, and (AI-2) the
-      evaluation runner.
+- [x] Callers: Development startup and Docker Compose (`Ai:IngestOnStartup`), the `ingest-kb` command for deployments;
+      (AI-2) the evaluation runner. The API image now contains `knowledge-base/` (impact assessment, Risks).
 
 **Tests**
 
-- [ ] Chunker: heading boundaries, overlap, small trailing piece merged, `SectionHeading` correct.
-- [ ] Normaliser: `kb-10t`, `KB 10T`, `KB-10T` → `KB10T`.
-- [ ] Ingestion: new file stored; unchanged file skipped (no embedding calls); the same file re-chunked when the
+- [x] Chunker: heading boundaries, overlap, small trailing piece merged, `SectionHeading` correct.
+- [x] Normaliser: `kb-10t`, `KB 10T`, `KB-10T` → `KB10T`.
+- [x] Ingestion: new file stored; unchanged file skipped (no embedding calls); the same file re-chunked when the
       chunking configuration changes; changed file replaced; v2 hides v1; a deleted file's document becomes
       `Removed`; a failure mid-document leaves the previous chunks intact; bad front matter is reported, not
       half-stored.
-- [ ] Existing suites pass.
+- [x] Existing suites pass.
 
 **Checkpoint:** PR with 5 example chunks (heading path, token count, text excerpt).
 
