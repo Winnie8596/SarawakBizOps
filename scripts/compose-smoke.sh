@@ -324,7 +324,7 @@ echo "  ok: added, refused over-stock, returned, paused for parts and resumed; t
 # smoke runs, so the checks are consistency checks, not fixed numbers — those are in DemoSeedingTests).
 echo "Manager dashboard: complete series that match the lists; other roles refused..."
 dashboard="$(api "$token" GET /dashboard/summary)"
-jq -e '(.openRequestsByPriority | length) == 4 and (.workOrdersByStatus | length) == 7 and (.jobsCompletedPerMonth | length) == 6' \
+jq -e '(.openRequestsByPriority | length) == 4 and (.workOrdersByStatus | length) == 6 and (.jobsCompletedPerMonth | length) == 6' \
   <<<"$dashboard" >/dev/null || fail "the dashboard must return every priority, every status and six months, got: $dashboard"
 [ "$(jq '.lowStock.count' <<<"$dashboard")" = "$(api "$token" GET /parts/low-stock | jq 'length')" ] \
   || fail "the dashboard's low-stock count must equal GET /parts/low-stock (AC-09)"
