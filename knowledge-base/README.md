@@ -11,12 +11,16 @@ document's slug). The API ingests the folder at startup when `Ai:IngestOnStartup
 
 | File | Models | Version | Why it is here |
 |---|---|---|---|
-| `norvik-nc-chillers.md` | Norvik NC-450, NC-300 | 3.0 | One manual for several models (G3); E14 = high head pressure |
-| `hartmann-hc-compressors.md` | Hartmann HC-75, HC-55 | 2.4 | E14 means something else here (motor overload): tests the equipment filter (G18) |
+| `norvik-nc-chillers.md` | Norvik NC-450, NC-300 | 3.1 | One manual for several models (G3); E14 = high head pressure; long troubleshooting chapter |
+| `hartmann-hc-compressors.md` | Hartmann HC-75, HC-55 | 2.5 | E14 means something else here (motor overload): tests the equipment filter (G18); long alarm chapter |
 | `kestrel-kb-10t-boiler-v1.md` | Kestrel KB-10T | 1.2 | Superseded by v2: must never be retrieved |
-| `kestrel-kb-10t-boiler-v2.md` | Kestrel KB-10T | 2.0 | `supersedes` v1; the manhole gasket procedure changed |
+| `kestrel-kb-10t-boiler-v2.md` | Kestrel KB-10T | 2.1 | `supersedes` v1; the manhole gasket procedure changed; long troubleshooting chapter |
 | `tanjung-tl-forklifts.md` | Tanjung TL-35D, TL-25E | 1.5 | Sections in Bahasa Malaysia as well as English |
 | `hartmann-hp-pumps.md` | Hartmann HP-150, HP-100, HP-80 | 1.1 | **Evaluation fixture:** its "Installer notes" section is a prompt-injection attempt |
+
+The three manuals marked "long" have fault sections of 450–900 tokens, so a section is cut into several chunks and
+the AI-3 chunk-size experiment has something to measure: 75 chunks at 250/40 against 63 at 400/50, with 12 and 8
+sections split into more than one chunk. The other manuals are short on purpose: every section is a single chunk.
 
 Error code E14 appears in four documents with four meanings; only the equipment filter tells them apart.
 
