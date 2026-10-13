@@ -53,6 +53,7 @@ public class DemoApiFactory : ApiFactory
         builder.UseSetting("Database:MigrateOnStartup", "true");
         builder.UseSetting("Seed:Demo", "true");
         builder.UseSetting("Seed:DemoPassword", DemoPassword);
+        builder.UseSetting("Ai:IngestOnStartup", "true"); // as compose does (AI-1)
     }
 
     private string ConnectionStringFor(string login, string password) =>

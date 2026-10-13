@@ -105,6 +105,9 @@ services:
       Ai__BaseUrl: ${AI_BASE_URL:-}
       Ai__Model: ${AI_MODEL:-}
       Ai__ApiKey: ${AI_API_KEY:-}
+      # AI-1: the manuals in knowledge-base/ are ingested at startup; unchanged files are skipped.
+      Ai__EmbeddingModel: ${AI_EMBEDDING_MODEL:-}
+      Ai__IngestOnStartup: "true"
       # Keep `docker compose logs` readable: EF Core logs every SQL command at Information otherwise.
       Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
     healthcheck:

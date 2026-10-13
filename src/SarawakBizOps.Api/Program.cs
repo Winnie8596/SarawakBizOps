@@ -260,6 +260,13 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// `dotnet SarawakBizOps.Api.dll ingest-kb`: ingest the knowledge base and exit (AI-1, for deployments).
+if (args.Contains(KnowledgeBaseIngestion.Command))
+{
+    Environment.ExitCode = await KnowledgeBaseIngestion.RunCommandAsync(app.Services);
+    return;
+}
+
 // ---------------------------------------------------------------------
 // Startup: optional migrations (Database:MigrateOnStartup), roles + Admin, optional demo data.
 // ---------------------------------------------------------------------

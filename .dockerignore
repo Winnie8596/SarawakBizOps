@@ -16,3 +16,5 @@
 tests/
 docs/
 *.md
+# The manuals are part of the API image (AI-1); only root-level Markdown is excluded above.
+!knowledge-base/
